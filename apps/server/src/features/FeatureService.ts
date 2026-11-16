@@ -16,7 +16,6 @@ import {
   type FeatureWorkspace,
   type ModelSelection,
   type ProjectId,
-  type RuntimeMode,
   ThreadId,
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
@@ -107,7 +106,6 @@ export interface FeatureCrewMember {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
 }
 
 export interface FeatureServiceShape {
@@ -677,9 +675,7 @@ export const FeatureServiceLive = Layer.effect(
         roleId: null,
         name: role.name,
         instructions: role.instructions,
-        withheldTools: role.withheldTools ?? [],
         modelSelection: role.modelSelection,
-        runtimeMode: role.runtimeMode,
       });
     });
 
@@ -793,9 +789,7 @@ export const FeatureServiceLive = Layer.effect(
           roleId: snapshot === undefined ? role.id : null,
           name: role.name,
           instructions: role.instructions,
-          withheldTools: role.withheldTools ?? [],
           modelSelection: role.modelSelection,
-          runtimeMode: role.runtimeMode,
         });
         bindings.set(role.id, id);
         if (manager?.enabled) {
@@ -1236,7 +1230,6 @@ export const FeatureServiceLive = Layer.effect(
             name: member.name,
             instructions: member.instructions,
             modelSelection: member.modelSelection,
-            runtimeMode: member.runtimeMode,
           };
         }
         return null;

@@ -4,7 +4,6 @@ import * as Schema from "effect/Schema";
 import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor, ProjectRemoteBot } from "./project.ts";
-import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
  * Every bot has one headquarters: a crew run in the bot's home, created when first needed.
@@ -100,15 +99,8 @@ export const isBotFreshStartContext = (
   context: { readonly records: ReadonlyArray<unknown> } | undefined,
 ): boolean => context?.records.some(isFreshStartRecord) ?? false;
 
-/**
- * Builds before #96 sent `allowedTools`, a list with the opposite meaning. Inputs accept the key
- * only so the server can refuse it with a plain message instead of flipping access.
- */
-export const LEGACY_ALLOWED_TOOLS = Schema.optionalKey(Schema.Unknown);
-export const LEGACY_TOOLS_MESSAGE = "This Bosun is newer; update the app to edit tools.";
-
 /** Older linked servers omit keys added since; a missing list decodes as empty. */
-export const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
+const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
   Schema.Array(item).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])));
 
 export const Bot = Schema.Struct({
@@ -117,9 +109,6 @@ export const Bot = Schema.Struct({
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.String,
-  /** The tools a person withheld; every other tool is on. */
-  withheldTools: listDefaultingToEmpty(Schema.String),
-  runtimeMode: RuntimeMode,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
   longConversation: BotLongConversation,
@@ -150,9 +139,6 @@ export const BotCreateInput = Schema.Struct({
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.optionalKey(Schema.String),
-  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-  allowedTools: LEGACY_ALLOWED_TOOLS,
-  runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),
 });
@@ -166,9 +152,6 @@ export const BotUpdateInput = Schema.Struct({
   avatar: Schema.optionalKey(BotAvatar),
   color: Schema.optionalKey(ProjectIconColor),
   instructions: Schema.optionalKey(Schema.String),
-  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-  allowedTools: LEGACY_ALLOWED_TOOLS,
-  runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   longConversation: Schema.optionalKey(BotLongConversation),
   permittedEnvironmentIds: Schema.optionalKey(Schema.Array(EnvironmentId)),

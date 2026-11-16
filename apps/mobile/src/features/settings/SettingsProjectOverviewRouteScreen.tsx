@@ -410,8 +410,12 @@ function ProjectOverviewContent(props: {
           />
         ) : null;
       })}
-      {placement.placed && placement.home !== null ? (
-        <MobileProjectManagerPlacement copies={placement.copies} home={placement.home} />
+      {placement.worksFrom !== null ? (
+        <MobileProjectManagerPlacement
+          copies={placement.copies}
+          home={placement.worksFrom}
+          placed={placement.placed && placement.home !== null}
+        />
       ) : null}
       {managed.map((member) => {
         const environment = props.environments.find(

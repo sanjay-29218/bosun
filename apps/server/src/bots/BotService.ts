@@ -6,7 +6,7 @@ import {
   type BotMoveProjectInput,
   type BotSetPinInput,
   type BotUpdateInput,
-  LEGACY_TOOLS_MESSAGE,
+  ModelSelection,
   type Project,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -82,10 +82,7 @@ const text = (value: string, field: string, max: number) => {
     ? Effect.succeed(trimmed)
     : Effect.fail(new BotValidationError({ reason: `${field} must contain 1-${max} characters` }));
 };
-const tools = (value: ReadonlyArray<string>) =>
-  value.length <= 32 && value.every((tool) => tool.trim().length > 0 && tool.length <= 100)
-    ? Effect.succeed([...new Set(value.map((tool) => tool.trim()))])
-    : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
+const sameModel = Schema.toEquivalence(Schema.NullOr(ModelSelection));
 
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&
@@ -94,12 +91,6 @@ const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.top === right.top &&
   left.cheeks === right.cheeks &&
   left.smile === right.smile;
-
-/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
-const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
-  input.allowedTools === undefined
-    ? Effect.void
-    : Effect.fail(new BotValidationError({ reason: LEGACY_TOOLS_MESSAGE }));
 
 const sameCreate = (bot: Bot, input: BotCreateInput) =>
   bot.name === input.name.trim() &&
@@ -145,7 +136,6 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((error) => new BotValidationError({ reason: error.message })));
 
   const createUnlocked = Effect.fn("BotService.insertBot")(function* (input: BotCreateInput) {
-    yield* refuseLegacyTools(input);
     const id = yield* text(input.id, "Bot ID", 128);
     const existing = yield* store.get(id);
     if (existing) {
@@ -164,8 +154,6 @@ const make = Effect.gen(function* () {
         "Bot instructions",
         16_000,
       ),
-      withheldTools: yield* tools(input.withheldTools ?? []),
-      runtimeMode: input.runtimeMode ?? "full-access",
       modelSelection: input.modelSelection ?? null,
       longConversation: input.longConversation ?? "compact",
       permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
@@ -197,7 +185,6 @@ const make = Effect.gen(function* () {
       return { ...bot, homePath: home.workspaceRoot };
     }),
     update: Effect.fn("BotService.update")(function* (input) {
-      yield* refuseLegacyTools(input);
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
@@ -210,10 +197,6 @@ const make = Effect.gen(function* () {
         ...(input.instructions === undefined
           ? {}
           : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
-        ...(input.withheldTools === undefined
-          ? {}
-          : { withheldTools: yield* tools(input.withheldTools) }),
-        ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
         ...(input.longConversation === undefined
           ? {}
@@ -241,8 +224,9 @@ const make = Effect.gen(function* () {
             ),
           );
       }
-      // An open headquarters takes the new runtime mode and model on its next turn.
-      if (Option.isSome(crew)) {
+      // An open headquarters takes a newly chosen model on its next turn; other edits leave the
+      // model its composer picked.
+      if (Option.isSome(crew) && !sameModel(next.modelSelection, previous.modelSelection)) {
         yield* crew.value
           .syncHeadquarters(next.id)
           .pipe(

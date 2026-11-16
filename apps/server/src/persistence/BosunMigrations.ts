@@ -76,6 +76,7 @@ import ProjectRemoteBot from "./Migrations/118_ProjectRemoteBot.ts";
 import ScheduledTaskProjectManager from "./Migrations/119_ScheduledTaskProjectManager.ts";
 import QuietNotices from "./Migrations/120_QuietNotices.ts";
 import ProjectManagerHome from "./Migrations/121_ProjectManagerHome.ts";
+import FullAccessAgents from "./Migrations/122_FullAccessAgents.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -144,6 +145,7 @@ const migrationEntries = [
   [119, "ScheduledTaskProjectManager", ScheduledTaskProjectManager],
   [120, "QuietNotices", QuietNotices],
   [121, "ProjectManagerHome", ProjectManagerHome],
+  [122, "FullAccessAgents", FullAccessAgents],
 ] as const;
 
 const legacyNames = new Set([

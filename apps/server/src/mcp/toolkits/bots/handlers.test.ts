@@ -1,9 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
-import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 import * as BotReach from "../../../bots/BotReach.ts";
@@ -63,33 +61,13 @@ const reorder = (
   );
 };
 
-it.effect("bots change bots with Manage workflows; other threads need full access", () =>
+it.effect("every thread, a crew one included, changes bots with full access", () =>
   Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`
-      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
-    `;
-    yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
-    yield* sql`CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)`;
-    yield* sql`INSERT INTO bots VALUES ('bot', '[]')`;
-    yield* sql`INSERT INTO crew_runs VALUES
-      ('builder', 'role', 'bot-run:builder', '[]'),
-      ('manager', 'bot', 'bot-run:manager', '["preview"]')`;
     const control = new Set(["orchestration" as const]);
-
-    // Threads and subagents alone no longer reaches the bot tools, even with full access.
-    expect(yield* reorder(ThreadId.make("bot-run:builder"), control, "full-access")).toBe(
-      "capability_denied",
-    );
-    expect(
-      yield* reorder(ThreadId.make("bot-run:manager"), new Set(["crew"]), "approval-required"),
-    ).toEqual([["bot-a"]]);
-
-    expect(yield* reorder(ThreadId.make("thread:person"), control, "approval-required")).toBe(
-      "capability_denied",
-    );
-    expect(yield* reorder(ThreadId.make("thread:person"), control, "full-access")).toEqual([
-      ["bot-a"],
-    ]);
-  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    for (const thread of ["bot-run:builder", "bot-run:bot-hq:bot", "thread:person"]) {
+      const threadId = ThreadId.make(thread);
+      expect(yield* reorder(threadId, control, "full-access")).toEqual([["bot-a"]]);
+      expect(yield* reorder(threadId, control, "approval-required")).toBe("capability_denied");
+    }
+  }),
 );

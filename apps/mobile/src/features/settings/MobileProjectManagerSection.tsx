@@ -1,13 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { managerAutomationsWarning } from "@t3tools/client-runtime/state/automations";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import {
-  CREW_TOOL_GRANTS,
-  ProviderInstanceId,
-  type ModelSelection,
-  type ProjectManagerSettings,
-  type RuntimeMode,
-} from "@t3tools/contracts";
+import type { ProjectManagerSettings } from "@t3tools/contracts";
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { useState } from "react";
 import { Alert, View } from "react-native";
@@ -20,13 +14,6 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { Action, useRun } from "./MobileRoleConfigurationPanel";
-
-const RUNTIME_MODES: ReadonlyArray<RuntimeMode> = [
-  "approval-required",
-  "auto-accept-edits",
-  "auto",
-  "full-access",
-];
 
 /** The project's manager: its standing thread and the settings it runs with here. */
 export function MobileProjectManagerSection(props: {
@@ -79,19 +66,9 @@ function Form(props: {
   // When someone else saved first, the refresh brings their revision in place of this form.
   const { busy, error, run } = useRun(() => undefined);
   const [instructions, setInstructions] = useState(settings.instructions);
-  const [tools, setTools] = useState<ReadonlyArray<string>>(settings.withheldTools);
-  const [instanceId, setInstanceId] = useState<string>(settings.modelSelection.instanceId);
-  const [model, setModel] = useState(settings.modelSelection.model);
-  const [runtimeMode, setRuntimeMode] = useState(settings.runtimeMode);
   const [longConversation, setLongConversation] = useState(settings.longConversation);
   const target = { environmentId: project.environmentId };
-  const modelSelection: ModelSelection =
-    instanceId.trim() === settings.modelSelection.instanceId &&
-    model.trim() === settings.modelSelection.model
-      ? settings.modelSelection
-      : { instanceId: ProviderInstanceId.make(instanceId.trim()), model: model.trim() };
-  const canSave =
-    canEdit && !busy && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
+  const canSave = canEdit && !busy && !!instructions.trim();
 
   const setManagerEnabled = (enabled: boolean) =>
     run(async () => {
@@ -126,9 +103,6 @@ function Form(props: {
         input: {
           projectId: project.id,
           instructions: instructions.trim(),
-          withheldTools: [...tools],
-          modelSelection,
-          runtimeMode,
           longConversation,
           expectedRevision: settings.revision,
         },
@@ -138,26 +112,22 @@ function Form(props: {
     });
 
   const resetToDefaults = () =>
-    Alert.alert(
-      "Reset to defaults?",
-      "Its instructions go back to the built-in ones, on the model of the bot that owns the project.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reset",
-          style: "destructive",
-          onPress: () =>
-            void run(async () => {
-              const result = await reset({
-                ...target,
-                input: { projectId: project.id, expectedRevision: settings.revision },
-              });
-              if (result._tag !== "Success") props.onStale();
-              return result;
-            }),
-        },
-      ],
-    );
+    Alert.alert("Reset to defaults?", "Its instructions go back to the built-in ones.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Reset",
+        style: "destructive",
+        onPress: () =>
+          void run(async () => {
+            const result = await reset({
+              ...target,
+              input: { projectId: project.id, expectedRevision: settings.revision },
+            });
+            if (result._tag !== "Success") props.onStale();
+            return result;
+          }),
+      },
+    ]);
 
   const openThread = async () => {
     const result = await open({ ...target, input: { projectId: project.id } });
@@ -192,7 +162,7 @@ function Form(props: {
       <Text className="text-xs text-foreground-muted">
         {settings.customized
           ? "Customized for this project."
-          : "Built-in instructions, on its bot's model or the default model, until you save changes here."}
+          : "Built-in instructions until you save changes here. Pick its model in its thread."}
       </Text>
       <AppTextInput
         accessibilityLabel="Project manager instructions"
@@ -205,56 +175,7 @@ function Form(props: {
         className="min-h-28"
         editable={canEdit && !busy}
       />
-      <AppTextInput
-        accessibilityLabel="Project manager provider instance"
-        placeholder="Provider instance"
-        value={instanceId}
-        onChangeText={setInstanceId}
-        editable={canEdit && !busy}
-      />
-      <AppTextInput
-        accessibilityLabel="Project manager model"
-        placeholder="Model"
-        value={model}
-        onChangeText={setModel}
-        editable={canEdit && !busy}
-      />
-      <Text className="text-xs text-foreground-muted">
-        {CREW_TOOL_GRANTS.every((grant) => grant.id.startsWith("crew.") || tools.includes(grant.id))
-          ? "Tools. No T3 Code tools: this agent can't use any."
-          : "Tools. Selected ones are on; tap one to turn it off."}
-      </Text>
       <View className="flex-row flex-wrap gap-1.5">
-        {[
-          ...CREW_TOOL_GRANTS.filter((grant) => !("botOnly" in grant)),
-          ...tools
-            .filter((id) => !CREW_TOOL_GRANTS.some((grant) => grant.id === id))
-            .map((id) => ({ id, label: id })),
-        ].map((grant) => {
-          const selected = !tools.includes(grant.id);
-          return (
-            <Action
-              key={grant.id}
-              label={grant.label}
-              selected={selected}
-              disabled={!canEdit}
-              onPress={() =>
-                setTools(selected ? [...tools, grant.id] : tools.filter((id) => id !== grant.id))
-              }
-            />
-          );
-        })}
-      </View>
-      <View className="flex-row flex-wrap gap-1.5">
-        <Action
-          label={`T3 runtime: ${runtimeMode}`}
-          disabled={!canEdit}
-          onPress={() =>
-            setRuntimeMode(
-              RUNTIME_MODES[(RUNTIME_MODES.indexOf(runtimeMode) + 1) % RUNTIME_MODES.length]!,
-            )
-          }
-        />
         <Action
           label={
             longConversation === "new-session"

@@ -31,7 +31,6 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { NoticeInbox } from "../features/NoticeInbox.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
-import { narrowerRuntimeMode } from "../mcp/delegatedTaskModes.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import {
   type BotHome,
@@ -474,9 +473,9 @@ const make = Effect.gen(function* () {
                 id: role.id,
                 name: role.name,
                 instructions: role.instructions,
-                withheldTools: role.withheldTools,
                 modelSelection: role.modelSelection,
-                runtimeMode: role.runtimeMode,
+                // Older peers require it.
+                runtimeMode: "full-access" as const,
               },
             ]
           : [],
@@ -705,23 +704,13 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignoreCause({ log: true }));
           }
-          // The Feature manager here runs on the lead role's model, within the access sent.
+          // The Feature manager here runs on the lead role's model, with the access sent.
           const workflow = input.workflow;
           const leadRole = workflow?.roles.find((role) => role.id === workflow.workflow.leadRoleId);
-          const carried =
-            leadRole === undefined
-              ? { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection }
-              : {
-                  runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
-                  modelSelection: leadRole.modelSelection,
-                };
-          // Builds before withheld tools sent roles' tools with the opposite meaning.
-          if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
-            return yield* failure(
-              "invalid_request",
-              "This Bosun is newer than the environment that sent this; update it to share roles.",
-            );
-          }
+          const carried = {
+            runtimeMode: input.runtimeMode,
+            modelSelection: leadRole?.modelSelection ?? input.modelSelection,
+          };
           // A request this environment refuses as it is stays refused; anything else may pass.
           const refusedOrPassing = (error: { readonly _tag: string; readonly message: string }) =>
             failure(
@@ -841,6 +830,7 @@ const make = Effect.gen(function* () {
     const linked = yield* links.list.pipe(Effect.orElseSucceed(() => []));
     return listed.map((bot) => ({
       ...bot,
+      runtimeMode: "full-access" as const,
       home,
       permittedEnvironments: linked
         .filter((link) => bot.permittedEnvironmentIds.includes(link.environmentId))

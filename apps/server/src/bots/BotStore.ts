@@ -12,7 +12,6 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 const BotRow = Schema.Struct({
   ...Bot.fields,
   avatar: Schema.fromJsonString(Bot.fields.avatar),
-  withheldTools: Schema.fromJsonString(Bot.fields.withheldTools),
   permittedEnvironmentIds: Schema.fromJsonString(Bot.fields.permittedEnvironmentIds),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   pinned: Schema.BooleanFromBit,
@@ -86,8 +85,8 @@ const make = Effect.gen(function* () {
 
   const select = (id?: string) =>
     sql`
-      SELECT id, name, avatar_json AS "avatar", color, instructions, withheld_tools_json AS "withheldTools",
-        runtime_mode AS "runtimeMode", model_selection_json AS "modelSelection",
+      SELECT id, name, avatar_json AS "avatar", color, instructions,
+        model_selection_json AS "modelSelection",
         long_conversation AS "longConversation",
         permitted_environment_ids_json AS "permittedEnvironmentIds",
         position, pinned, revision,
@@ -106,12 +105,11 @@ const make = Effect.gen(function* () {
       const row = encodeRow({ ...bot, pinned: bot.pinned ?? true });
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
-          id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
-          model_selection_json, long_conversation, permitted_environment_ids_json, position,
+          id, name, avatar_json, color, instructions, model_selection_json, long_conversation, permitted_environment_ids_json, position,
           pinned, revision, created_at, updated_at
         )
         SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
-          ${row.withheldTools}, ${row.runtimeMode}, ${row.modelSelection},
+          ${row.modelSelection},
           ${row.longConversation}, ${row.permittedEnvironmentIds}, ${row.position}, ${row.pinned}, ${row.revision},
           ${row.createdAt}, ${row.updatedAt}
         WHERE NOT EXISTS (SELECT 1 FROM crew_members WHERE id = ${row.id})
@@ -126,8 +124,7 @@ const make = Effect.gen(function* () {
       return sql<{ readonly id: string }>`
         UPDATE bots SET
           name = ${row.name}, avatar_json = ${row.avatar}, color = ${row.color},
-          instructions = ${row.instructions}, withheld_tools_json = ${row.withheldTools},
-          runtime_mode = ${row.runtimeMode}, model_selection_json = ${row.modelSelection},
+          instructions = ${row.instructions}, model_selection_json = ${row.modelSelection},
           long_conversation = ${row.longConversation},
           permitted_environment_ids_json = ${row.permittedEnvironmentIds}, revision = ${row.revision},
           updated_at = ${row.updatedAt}

@@ -26,7 +26,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
-import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
@@ -35,6 +34,7 @@ import * as NetAddress from "effect/net/NetAddress";
 
 import * as BotService from "../bots/BotService.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
+import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
@@ -1944,404 +1944,388 @@ it.effect(
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect(
-  "lists Bosun's tools to crew threads by grant, and only feature links to other threads",
-  () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const sqlContext = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
-        const sql = Context.get(sqlContext, SqlClient.SqlClient);
-        yield* sql`
-        CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
-      `;
-        yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
-        yield* sql`CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)`;
-        // The builder run is a bot's, so it can hold Manage bots, roles and workflows.
-        yield* sql`INSERT INTO bots VALUES ('ops', '[]')`;
-        yield* sql`INSERT INTO crew_runs VALUES
-        ('builder', 'ops', 'bot-run:builder', '["crew.workflows","worktree"]'),
-        ('bot-hq:captain', 'captain', 'bot-run:bot-hq:captain', '[]'),
-        ('lead:dark', 'lead', 'bot-run:lead:dark', '[]'),
-        ('planner:dark', 'planner', 'bot-run:planner:dark', '[]')`;
-        const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
-        const linkedRequests: Array<{
-          readonly task: string;
-          readonly title?: string;
-          readonly projectId?: string;
-        }> = [];
-        const launched: Array<{
-          readonly projectId: string;
-          readonly requesterThreadId?: string | undefined;
-          readonly requestId?: string | undefined;
-          readonly parentFeatureId?: string | undefined;
-          readonly issue?: string | undefined;
-        }> = [];
-        const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
-          environmentId,
-          requestNamespace: thread,
-          thread: {
-            threadId: ThreadId.make(thread),
-            providerSessionId: thread,
-            providerInstanceId: ProviderInstanceId.make("codex"),
-          },
-          client: undefined,
-          capabilities: new Set(["orchestration", "crew"]),
-          issuedAt: 1,
-        });
-        const scopes = new Map([
-          ["plainToken", scopeFor("thread-plain")],
-          ["crewToken", scopeFor("bot-run:builder")],
-          ["hqToken", scopeFor("bot-run:bot-hq:captain")],
-          ["leadToken", scopeFor("bot-run:lead:dark")],
-          ["plannerToken", scopeFor("bot-run:planner:dark")],
-          ["managerToken", scopeFor("bot-run:project-hq:project:mcp-test")],
-        ]);
-        const darkMode = { id: "feature:dark", title: "Dark mode" };
-        const UpstreamToolkit = Toolkit.make(
-          Tool.make("upstream", {
-            description: "Stands in for T3 Code's own tools.",
-            success: Schema.Struct({ ok: Schema.Boolean }),
-            failure: OrchestratorMcpFailure,
-            failureMode: "return",
-          }),
-        );
-        const serverLayer = McpHttpServer.layerMcpTransport(
-          Layer.mergeAll(
-            McpHttpServer.layerCrewTools,
-            McpHttpServer.toolkitRegistration(
-              UpstreamToolkit,
-              McpToolAccess.toLayer(UpstreamToolkit, {
-                upstream: McpToolAccess.reads(() => Effect.succeed({ ok: true })),
-              }),
-            ),
-          ),
-        ).pipe(
-          Layer.provide(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
-          Layer.provide(
-            Layer.mock(McpSessionRegistry.McpSessionRegistry)({
-              resolve: (token) => Effect.succeed(scopes.get(token)),
+it.effect("lists Bosun's tools to every thread, and the crew's own only to crew threads", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sqlContext = yield* Layer.build(NodeSqliteClient.layer({ filename: ":memory:" }));
+      const createdBots: Array<{ readonly modelSelection?: unknown }> = [];
+      const linkedRequests: Array<{
+        readonly task: string;
+        readonly title?: string;
+        readonly projectId?: string;
+      }> = [];
+      const launched: Array<{
+        readonly projectId: string;
+        readonly requesterThreadId?: string | undefined;
+        readonly requestId?: string | undefined;
+        readonly parentFeatureId?: string | undefined;
+        readonly issue?: string | undefined;
+      }> = [];
+      const scopeFor = (thread: string): McpInvocationContext.McpThreadInvocationScope => ({
+        environmentId,
+        requestNamespace: thread,
+        thread: {
+          threadId: ThreadId.make(thread),
+          providerSessionId: thread,
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: crewMcpCapabilities(ThreadId.make(thread), new Set(["orchestration"])),
+        issuedAt: 1,
+      });
+      const scopes = new Map([
+        ["plainToken", scopeFor("thread-plain")],
+        ["fullToken", scopeFor("thread-full")],
+        ["crewToken", scopeFor("bot-run:builder")],
+        ["hqToken", scopeFor("bot-run:bot-hq:captain")],
+        ["leadToken", scopeFor("bot-run:lead:dark")],
+        ["plannerToken", scopeFor("bot-run:planner:dark")],
+        ["managerToken", scopeFor("bot-run:project-hq:project:mcp-test")],
+      ]);
+      const darkMode = { id: "feature:dark", title: "Dark mode" };
+      const UpstreamToolkit = Toolkit.make(
+        Tool.make("upstream", {
+          description: "Stands in for T3 Code's own tools.",
+          success: Schema.Struct({ ok: Schema.Boolean }),
+          failure: OrchestratorMcpFailure,
+          failureMode: "return",
+        }),
+      );
+      const serverLayer = McpHttpServer.layerMcpTransport(
+        Layer.mergeAll(
+          McpHttpServer.layerCrewTools,
+          McpHttpServer.toolkitRegistration(
+            UpstreamToolkit,
+            McpToolAccess.toLayer(UpstreamToolkit, {
+              upstream: McpToolAccess.reads(() => Effect.succeed({ ok: true })),
             }),
           ),
-          Layer.provide(
-            Layer.mergeAll(
-              Layer.succeedContext(sqlContext),
-              // Without full access, only ownership lets a headquarters reach another project.
-              Layer.mock(ThreadManagementService.ThreadManagementService)({
-                getThreadRecords: () => Effect.succeed({ subagents: [], runs: [] } as never),
-                getThreadShell: (threadId) => {
-                  const shell = McpToolAccessTestkit.liveThreadShell(threadId, {
-                    runtimeMode: "approval-required",
-                  });
-                  if (threadId === "bot-run:lead:dark")
-                    return Effect.succeed({ ...shell, feature: darkMode });
-                  if (threadId !== "bot-run:planner:dark") return Effect.succeed(shell);
-                  // The lead's crew member, a subagent of the lead's thread.
-                  return Effect.succeed({
-                    ...shell,
-                    feature: { ...darkMode, member: "Planner" },
-                    lineage: {
-                      rootThreadId: ThreadId.make("bot-run:lead:dark"),
-                      parentThreadId: ThreadId.make("bot-run:lead:dark"),
-                      relationshipToParent: "subagent" as const,
-                    },
-                  });
-                },
-              }),
-              Layer.mock(BotService.BotService)({
-                list: Effect.succeed([]),
-                create: (input) => {
-                  createdBots.push(input);
-                  return Effect.succeed(input as never);
-                },
-              }),
-              Layer.mock(CrewApprovals)({}),
-              Layer.mock(CrewService)({}),
-              Layer.mock(CrewStore)({}),
-              Layer.mock(ProjectRequests)({
-                get: (projectId, requestId) =>
-                  Effect.succeed(
-                    projectId === "project:mcp-test" && requestId === "R-7" ? ({} as never) : null,
-                  ),
-              }),
-              Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
-              Layer.mock(RemoteDelegation.RemoteDelegation)({
-                delegate: (_scope, input) =>
-                  Effect.sync(() => {
-                    linkedRequests.push({
-                      task: input.task,
-                      ...(input.title === undefined ? {} : { title: input.title }),
-                      ...(input.target.projectId === undefined
-                        ? {}
-                        : { projectId: input.target.projectId }),
-                    });
-                    return { taskId: NodeId.make("task:linked") };
-                  }),
-              }),
-              Layer.mock(FeatureService)({
-                get: (id) =>
-                  Effect.succeed(
-                    id === "feature:epic"
-                      ? ({ id, projectId: "project:mcp-test" } as never)
-                      : id === "feature:elsewhere"
-                        ? ({ id, projectId: "project:other" } as never)
-                        : null,
-                  ),
-                projectBot: (projectId) =>
-                  Effect.succeed(projectId === "project:owned" ? "captain" : null),
-                launch: (input) => {
-                  launched.push(input);
-                  return Effect.succeed({
-                    feature: { id: "feature:x", projectId: input.projectId, title: input.title },
-                    leadThreadId: ThreadId.make("bot-run:feature-lead:x"),
-                    branch: null,
-                  } as never);
-                },
-              }),
-              Layer.mock(IssueService.IssueService)({}),
-              Layer.mock(TicketService)({}),
-            ),
-          ),
-        );
-        yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
-          Layer.build,
-        );
-        const httpClient = yield* HttpClient.HttpClient;
-        const sessionFor = (token: string) =>
-          Effect.gen(function* () {
-            const headers = {
-              accept: "application/json, text/event-stream",
-              authorization: `Bearer ${token}`,
-            };
-            const initialize = yield* httpClient.post("/mcp", {
-              headers,
-              body: HttpBody.text(
-                `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
-                "application/json",
-              ),
-            });
-            const rpc = (method: string, params: object) =>
-              httpClient
-                .post("/mcp", {
-                  headers: {
-                    ...headers,
-                    "mcp-session-id": initialize.headers["mcp-session-id"]!,
-                    "mcp-protocol-version": "2025-06-18",
-                  },
-                  body: HttpBody.text(
-                    JSON.stringify({ jsonrpc: "2.0", id: 2, method, params }),
-                    "application/json",
-                  ),
-                })
-                .pipe(
-                  Effect.flatMap((response) => response.json),
-                  Effect.map(
-                    (body) =>
-                      body as {
-                        readonly result?: {
-                          readonly tools?: ReadonlyArray<{ readonly name: string }>;
-                          readonly structuredContent?: unknown;
-                        };
-                        readonly error?: { readonly message: string };
-                      },
-                  ),
-                );
-            return {
-              listed: rpc("tools/list", {}).pipe(
-                Effect.map((body) => (body.result?.tools ?? []).map((tool) => tool.name).sort()),
-              ),
-              call: (name: string, args: object = {}) =>
-                rpc("tools/call", { name, arguments: args }),
-            };
-          });
-        const plain = yield* sessionFor("plainToken");
-        const crew = yield* sessionFor("crewToken");
-        // Crew threads and their subagents get the crew's todo, issue and feature tools.
-        const anyCrew = [
-          "crew_create_milestone",
-          "crew_create_todo",
-          "crew_link_issue",
-          "crew_list_issues",
-          "crew_read_todo",
-          "crew_update_milestone",
-          "crew_update_todo",
-          "t3_bot_list",
-          "t3_bot_projects",
-          "t3_feature_finish",
-          "t3_feature_list",
-          "t3_feature_start",
-          "t3_project_reply",
-          "t3_project_requests",
-          "t3_project_send",
-          "upstream",
-        ].sort();
-        const plainTools = ["upstream"];
-
-        expect(yield* plain.listed).toEqual(plainTools);
-        expect(yield* crew.listed).toEqual(anyCrew);
-
-        // A tool a thread isn't listed is refused before its handler runs.
-        expect((yield* plain.call("t3_bot_list")).error?.message).toContain("t3_bot_list");
-        expect((yield* plain.call("t3_project_send")).error?.message).toContain("t3_project_send");
-        expect((yield* crew.call("t3_role_list")).error?.message).toContain("t3_role_list");
-        expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
-
-        // A grant change shows on the session's next tools/list: Manage bots and roles unlocks
-        // the bot and role tools.
-        yield* sql`
-        UPDATE crew_runs SET withheld_tools_json = '["worktree"]' WHERE id = 'builder'
-      `;
-        expect(yield* crew.listed).toEqual(
-          [
-            ...anyCrew,
-            "t3_bot_create",
-            "t3_bot_delete",
-            "t3_bot_move_project",
-            "t3_bot_pin",
-            "t3_bot_reorder",
-            "t3_bot_update",
-            "t3_feature_workflow_create",
-            "t3_feature_workflow_update",
-            "t3_role_create",
-            "t3_role_list",
-            "t3_role_update",
-          ].sort(),
-        );
-        expect(yield* plain.listed).toEqual(plainTools);
-
-        // A bot an agent creates without a model runs on the agent's.
-        yield* crew.call("t3_bot_create", {
-          id: "bot:docs",
-          name: "Docs",
-          avatar: {
-            head: "squircle",
-            face: "visor",
-            eyes: "round",
-            top: "none",
-            cheeks: false,
-            smile: true,
-          },
-          color: "blue",
-        });
-        expect(createdBots.map((bot) => bot.modelSelection)).toEqual([
-          McpToolAccessTestkit.liveThreadShell(ThreadId.make("bot-run:builder")).modelSelection,
-        ]);
-
-        // A bot's headquarters starts features in the projects its bot owns; it reports there.
-        const start = (session: typeof crew, projectId: string) =>
-          session
-            .call("t3_feature_start", { projectId, title: "Dark mode", brief: "Add dark mode" })
-            .pipe(Effect.map((body) => JSON.stringify(body)));
-        const headquarters = yield* sessionFor("hqToken");
-        expect(yield* start(crew, "project:owned")).toContain("the bot that owns it");
-        expect(yield* start(headquarters, "project:other")).toContain("the bot that owns it");
-        expect(yield* start(headquarters, "project:owned")).toContain("feature:x");
-        // Its own thread lives in its home, which is no project to start a feature in.
-        expect(
-          JSON.stringify(
-            yield* headquarters.call("t3_feature_start", { title: "Dark mode", brief: "Add it" }),
-          ),
-        ).toContain("Pass projectId: your home isn't a project.");
-        expect(launched).toEqual([
-          expect.objectContaining({
-            projectId: "project:owned",
-            requesterThreadId: "bot-run:bot-hq:captain",
+        ),
+      ).pipe(
+        Layer.provide(ServerSettings.layerTest({ linkedEnvironmentsEnabled: true })),
+        Layer.provide(
+          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+            resolve: (token) => Effect.succeed(scopes.get(token)),
           }),
-        ]);
-
-        // Only a project's manager names the request a feature answers, one its project has.
-        const answering = (session: typeof crew, requestId: string) =>
-          session
-            .call("t3_feature_start", { title: "Dark mode", brief: "Add dark mode", requestId })
-            .pipe(Effect.map((body) => JSON.stringify(body)));
-        const manager = yield* sessionFor("managerToken");
-        expect(yield* answering(headquarters, "R-7")).toContain("Only a project's manager");
-        expect(yield* answering(crew, "R-7")).toContain("Only a project's manager");
-        expect(yield* answering(manager, "R-9")).toContain("no request R-9");
-        expect(yield* answering(manager, "R-7")).toContain("feature:x");
-        expect(launched.at(-1)).toMatchObject({
-          projectId: "project:mcp-test",
-          requestId: "R-7",
-        });
-
-        // On its copy on a linked machine, a manager names the base branch, which resolves
-        // there, and its own request; a headquarters leaves the base to the Feature manager there.
-        const onTheBox = (session: typeof crew, args: object) =>
-          session
-            .call("t3_feature_start", {
-              environmentId: "environment:box",
-              projectId: "project:copy",
-              title: "Dark mode",
-              brief: "Add dark mode",
-              ...args,
-            })
-            .pipe(Effect.map((body) => JSON.stringify(body)));
-        expect(yield* onTheBox(headquarters, { baseBranch: "staging" })).toContain(
-          "pass only projectId, title, brief, issue and featureId",
-        );
-        expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-9" })).toContain(
-          "no request R-9",
-        );
-        expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-7" })).toContain(
-          "task:linked",
-        );
-        expect(linkedRequests).toEqual([
-          {
-            projectId: "project:copy",
-            title: "R-7: Dark mode",
-            task: expect.stringContaining('with baseBranch "staging" (a branch of this checkout)'),
-          },
-        ]);
-
-        // Only a project's manager adds a feature under another, one of its own project's.
-        const under = (session: typeof crew, parentFeatureId: string) =>
-          session
-            .call("t3_feature_start", {
-              title: "Follow-up",
-              brief: "Finish the export menu",
-              parentFeatureId,
-              issue: "#14",
-            })
-            .pipe(Effect.map((body) => JSON.stringify(body)));
-        expect(yield* under(headquarters, "feature:epic")).toContain("Only a project's manager");
-        expect(yield* under(manager, "feature:elsewhere")).toContain(
-          "no feature feature:elsewhere",
-        );
-        expect(yield* under(manager, "feature:epic")).toContain("feature:x");
-        expect(launched.at(-1)).toMatchObject({
-          projectId: "project:mcp-test",
-          parentFeatureId: "feature:epic",
-          issue: "#14",
-        });
-        expect(launched.at(-1)).not.toHaveProperty("requesterThreadId");
-
-        // A feature's thread starts a child by default; parentFeatureId null starts a separate
-        // feature that reports to the feature's lead, even when a crew subagent starts it.
-        launched.length = 0;
-        const fromFeature = (token: string, args: object) =>
-          sessionFor(token).pipe(
-            Effect.flatMap((session) =>
-              session.call("t3_feature_start", { title: "Fix login", brief: "Fix it", ...args }),
+        ),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.succeedContext(sqlContext),
+            // The plain thread and the builder's crew thread run below full access.
+            Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadRecords: () => Effect.succeed({ subagents: [], runs: [] } as never),
+              getThreadShell: (threadId) => {
+                const shell = McpToolAccessTestkit.liveThreadShell(threadId, {
+                  runtimeMode:
+                    threadId === "thread-plain" || threadId === "bot-run:builder"
+                      ? "approval-required"
+                      : "full-access",
+                });
+                if (threadId === "bot-run:lead:dark")
+                  return Effect.succeed({ ...shell, feature: darkMode });
+                if (threadId !== "bot-run:planner:dark") return Effect.succeed(shell);
+                // The lead's crew member, a subagent of the lead's thread.
+                return Effect.succeed({
+                  ...shell,
+                  feature: { ...darkMode, member: "Planner" },
+                  lineage: {
+                    rootThreadId: ThreadId.make("bot-run:lead:dark"),
+                    parentThreadId: ThreadId.make("bot-run:lead:dark"),
+                    relationshipToParent: "subagent" as const,
+                  },
+                });
+              },
+            }),
+            Layer.mock(BotService.BotService)({
+              list: Effect.succeed([]),
+              create: (input) => {
+                createdBots.push(input);
+                return Effect.succeed(input as never);
+              },
+            }),
+            Layer.mock(CrewApprovals)({}),
+            Layer.mock(CrewService)({}),
+            Layer.mock(CrewStore)({}),
+            Layer.mock(ProjectRequests)({
+              get: (projectId, requestId) =>
+                Effect.succeed(
+                  projectId === "project:mcp-test" && requestId === "R-7" ? ({} as never) : null,
+                ),
+            }),
+            Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
+            Layer.mock(RemoteDelegation.RemoteDelegation)({
+              delegate: (_scope, input) =>
+                Effect.sync(() => {
+                  linkedRequests.push({
+                    task: input.task,
+                    ...(input.title === undefined ? {} : { title: input.title }),
+                    ...(input.target.projectId === undefined
+                      ? {}
+                      : { projectId: input.target.projectId }),
+                  });
+                  return { taskId: NodeId.make("task:linked") };
+                }),
+            }),
+            Layer.mock(FeatureService)({
+              get: (id) =>
+                Effect.succeed(
+                  id === "feature:epic"
+                    ? ({ id, projectId: "project:mcp-test" } as never)
+                    : id === "feature:elsewhere"
+                      ? ({ id, projectId: "project:other" } as never)
+                      : null,
+                ),
+              projectBot: (projectId) =>
+                Effect.succeed(projectId === "project:owned" ? "captain" : null),
+              launch: (input) => {
+                launched.push(input);
+                return Effect.succeed({
+                  feature: { id: "feature:x", projectId: input.projectId, title: input.title },
+                  leadThreadId: ThreadId.make("bot-run:feature-lead:x"),
+                  branch: null,
+                } as never);
+              },
+            }),
+            Layer.mock(IssueService.IssueService)({}),
+            Layer.mock(TicketService)({}),
+          ),
+        ),
+      );
+      yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
+        Layer.build,
+      );
+      const httpClient = yield* HttpClient.HttpClient;
+      const sessionFor = (token: string) =>
+        Effect.gen(function* () {
+          const headers = {
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${token}`,
+          };
+          const initialize = yield* httpClient.post("/mcp", {
+            headers,
+            body: HttpBody.text(
+              `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
+              "application/json",
             ),
-          );
-        yield* fromFeature("leadToken", {});
-        yield* fromFeature("leadToken", { parentFeatureId: null });
-        yield* fromFeature("plannerToken", { parentFeatureId: null });
-        expect(
-          launched.map(({ parentFeatureId, requesterThreadId }) => ({
+          });
+          const rpc = (method: string, params: object) =>
+            httpClient
+              .post("/mcp", {
+                headers: {
+                  ...headers,
+                  "mcp-session-id": initialize.headers["mcp-session-id"]!,
+                  "mcp-protocol-version": "2025-06-18",
+                },
+                body: HttpBody.text(
+                  JSON.stringify({ jsonrpc: "2.0", id: 2, method, params }),
+                  "application/json",
+                ),
+              })
+              .pipe(
+                Effect.flatMap((response) => response.json),
+                Effect.map(
+                  (body) =>
+                    body as {
+                      readonly result?: {
+                        readonly tools?: ReadonlyArray<{ readonly name: string }>;
+                        readonly structuredContent?: unknown;
+                      };
+                      readonly error?: { readonly message: string };
+                    },
+                ),
+              );
+          return {
+            listed: rpc("tools/list", {}).pipe(
+              Effect.map((body) => (body.result?.tools ?? []).map((tool) => tool.name).sort()),
+            ),
+            call: (name: string, args: object = {}) => rpc("tools/call", { name, arguments: args }),
+          };
+        });
+      const plain = yield* sessionFor("plainToken");
+      const crew = yield* sessionFor("crewToken");
+      // Every thread, a plain task or any crew role's, gets Bosun's bot, role, feature and
+      // request tools with no grant; each change still needs full access.
+      const everyThread = [
+        "t3_bot_create",
+        "t3_bot_delete",
+        "t3_bot_list",
+        "t3_bot_move_project",
+        "t3_bot_pin",
+        "t3_bot_projects",
+        "t3_bot_reorder",
+        "t3_bot_update",
+        "t3_feature_finish",
+        "t3_feature_list",
+        "t3_feature_start",
+        "t3_feature_workflow_create",
+        "t3_feature_workflow_update",
+        "t3_project_reply",
+        "t3_project_requests",
+        "t3_project_send",
+        "t3_role_create",
+        "t3_role_list",
+        "t3_role_update",
+        "upstream",
+      ];
+      // Crew threads add the crew's todo and issue tools, which act for their run.
+      const crewOnly = [
+        "crew_create_milestone",
+        "crew_create_todo",
+        "crew_link_issue",
+        "crew_list_issues",
+        "crew_read_todo",
+        "crew_update_milestone",
+        "crew_update_todo",
+      ];
+
+      expect(yield* plain.listed).toEqual([...everyThread].sort());
+      expect(yield* crew.listed).toEqual([...everyThread, ...crewOnly].sort());
+
+      // A tool a thread isn't listed is refused before its handler runs.
+      expect((yield* plain.call("crew_list_issues")).error?.message).toContain("crew_list_issues");
+      expect((yield* crew.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
+      expect((yield* plain.call("t3_bot_list")).result?.structuredContent).toEqual({ bots: [] });
+
+      // Changing bots needs full access, from a crew thread as from any other.
+      const docsBot = {
+        id: "bot:docs",
+        name: "Docs",
+        avatar: {
+          head: "squircle",
+          face: "visor",
+          eyes: "round",
+          top: "none",
+          cheeks: false,
+          smile: true,
+        },
+        color: "blue",
+      };
+      expect(JSON.stringify(yield* crew.call("t3_bot_create", docsBot))).toContain("full-access");
+      // A bot an agent creates without a model runs on the agent's.
+      yield* (yield* sessionFor("fullToken")).call("t3_bot_create", docsBot);
+      expect(createdBots.map((bot) => bot.modelSelection)).toEqual([
+        McpToolAccessTestkit.liveThreadShell(ThreadId.make("thread-full")).modelSelection,
+      ]);
+
+      // A feature's lead and crew run with full access, so a caller below it can't start one,
+      // in its own project or another; a full-access headquarters starts one and hears back.
+      const start = (session: typeof crew, projectId: string) =>
+        session
+          .call("t3_feature_start", { projectId, title: "Dark mode", brief: "Add dark mode" })
+          .pipe(Effect.map((body) => JSON.stringify(body)));
+      const headquarters = yield* sessionFor("hqToken");
+      for (const [session, target] of [
+        [plain, "project:mcp-test"],
+        [crew, "project:owned"],
+      ] as const) {
+        expect(yield* start(session, target)).toContain("needs a live full-access/default");
+      }
+      expect(yield* start(headquarters, "project:owned")).toContain("feature:x");
+      // Its own thread lives in its home, which is no project to start a feature in.
+      expect(
+        JSON.stringify(
+          yield* headquarters.call("t3_feature_start", { title: "Dark mode", brief: "Add it" }),
+        ),
+      ).toContain("Pass projectId: your home isn't a project.");
+      expect(launched).toEqual([
+        expect.objectContaining({
+          projectId: "project:owned",
+          requesterThreadId: "bot-run:bot-hq:captain",
+        }),
+      ]);
+
+      // Only a project's manager names the request a feature answers, one its project has.
+      const answering = (session: typeof crew, requestId: string) =>
+        session
+          .call("t3_feature_start", { title: "Dark mode", brief: "Add dark mode", requestId })
+          .pipe(Effect.map((body) => JSON.stringify(body)));
+      const manager = yield* sessionFor("managerToken");
+      expect(yield* answering(headquarters, "R-7")).toContain("Only a project's manager");
+      expect(yield* answering(crew, "R-7")).toContain("Only a project's manager");
+      expect(yield* answering(manager, "R-9")).toContain("no request R-9");
+      expect(yield* answering(manager, "R-7")).toContain("feature:x");
+      expect(launched.at(-1)).toMatchObject({
+        projectId: "project:mcp-test",
+        requestId: "R-7",
+      });
+
+      // On its copy on a linked machine, a manager names the base branch, which resolves
+      // there, and its own request; a headquarters leaves the base to the Feature manager there.
+      const onTheBox = (session: typeof crew, args: object) =>
+        session
+          .call("t3_feature_start", {
+            environmentId: "environment:box",
+            projectId: "project:copy",
+            title: "Dark mode",
+            brief: "Add dark mode",
+            ...args,
+          })
+          .pipe(Effect.map((body) => JSON.stringify(body)));
+      expect(yield* onTheBox(headquarters, { baseBranch: "staging" })).toContain(
+        "pass only projectId, title, brief, issue and featureId",
+      );
+      expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-9" })).toContain(
+        "no request R-9",
+      );
+      expect(yield* onTheBox(manager, { baseBranch: "staging", requestId: "R-7" })).toContain(
+        "task:linked",
+      );
+      expect(linkedRequests).toEqual([
+        {
+          projectId: "project:copy",
+          title: "R-7: Dark mode",
+          task: expect.stringContaining('with baseBranch "staging" (a branch of this checkout)'),
+        },
+      ]);
+
+      // Only a project's manager adds a feature under another, one of its own project's.
+      const under = (session: typeof crew, parentFeatureId: string) =>
+        session
+          .call("t3_feature_start", {
+            title: "Follow-up",
+            brief: "Finish the export menu",
             parentFeatureId,
-            requesterThreadId,
-          })),
-        ).toEqual([
-          { parentFeatureId: "feature:dark", requesterThreadId: undefined },
-          { parentFeatureId: undefined, requesterThreadId: "bot-run:lead:dark" },
-          { parentFeatureId: undefined, requesterThreadId: "bot-run:lead:dark" },
-        ]);
-        // Naming a parent stays a manager's.
-        expect(
-          JSON.stringify(yield* fromFeature("leadToken", { parentFeatureId: "feature:dark" })),
-        ).toContain("Only a project's manager");
-      }),
-    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+            issue: "#14",
+          })
+          .pipe(Effect.map((body) => JSON.stringify(body)));
+      expect(yield* under(headquarters, "feature:epic")).toContain("Only a project's manager");
+      expect(yield* under(manager, "feature:elsewhere")).toContain("no feature feature:elsewhere");
+      expect(yield* under(manager, "feature:epic")).toContain("feature:x");
+      expect(launched.at(-1)).toMatchObject({
+        projectId: "project:mcp-test",
+        parentFeatureId: "feature:epic",
+        issue: "#14",
+      });
+      expect(launched.at(-1)).not.toHaveProperty("requesterThreadId");
+
+      // A feature's thread starts a child by default; parentFeatureId null starts a separate
+      // feature that reports to the feature's lead, even when a crew subagent starts it.
+      launched.length = 0;
+      const fromFeature = (token: string, args: object) =>
+        sessionFor(token).pipe(
+          Effect.flatMap((session) =>
+            session.call("t3_feature_start", { title: "Fix login", brief: "Fix it", ...args }),
+          ),
+        );
+      yield* fromFeature("leadToken", {});
+      yield* fromFeature("leadToken", { parentFeatureId: null });
+      yield* fromFeature("plannerToken", { parentFeatureId: null });
+      expect(
+        launched.map(({ parentFeatureId, requesterThreadId }) => ({
+          parentFeatureId,
+          requesterThreadId,
+        })),
+      ).toEqual([
+        { parentFeatureId: "feature:dark", requesterThreadId: undefined },
+        { parentFeatureId: undefined, requesterThreadId: "bot-run:lead:dark" },
+        { parentFeatureId: undefined, requesterThreadId: "bot-run:lead:dark" },
+      ]);
+      // Naming a parent stays a manager's.
+      expect(
+        JSON.stringify(yield* fromFeature("leadToken", { parentFeatureId: "feature:dark" })),
+      ).toContain("Only a project's manager");
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
 it.effect("lists optional tools to a deferring client only after tool_search loads them", () =>

@@ -17,11 +17,10 @@ sidebar, opens its settings too.
 **Create** makes the bot on your default model and opens its headquarters. When you're connected to
 several machines that run bots, it also asks which one the bot **Lives on**: its settings, chat,
 memory, automations and home folder stay on that machine, and its settings say so under its name. In its settings a bot
-also has instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
-**Save**. Under **Tools**, a ticked tool is one the bot can use. A new bot starts with every
-tool ticked, including **Manage bots, roles and workflows**, and on **Full access**; untick a tool
-to take it away and tick it to give it back. Tools added in a later version start ticked. The
-same goes for roles and project managers. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+also has instructions and a default model, whose picker also sets its reasoning and speed. Changes apply when you
+**Save**. Every bot, role and project manager can use every tool an ordinary thread can, with
+**Full access**: starting features and tasks, delegating, worktrees, pull requests, and managing
+bots, roles and workflows. There is nothing to grant. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
 
 A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
 another bot, or bring one over; work that already started keeps running as the bot that started
@@ -39,9 +38,9 @@ under **Bots**, opens from anywhere. A bot can only be deleted once it owns no p
 home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
 Deleting a bot also deletes the automations that run as it.
 
-The **Projects** tab also lists, under **Can work on**, the machines linked to the bot's machine
-(see Linked environments in **Settings → Labs**), each with a checkbox. A ticked machine is one the
-bot may start new work on; unticking it stops new work there, while work already running keeps
+The **Projects** tab also lists, under **Can work on**, every machine linked to the bot's machine
+(see Linked environments in **Settings → Labs**), each with a checkbox and whether it's online. Tick
+as many as you like. A ticked machine is one the bot may start new work on; unticking it stops new work there, while work already running keeps
 going. The choice saves at once. New bots, and bots from before this setting, start with every
 linked machine ticked. A machine you link later is ticked for every bot too; linking the same machine
 again keeps what you unticked. **Link an environment** links another machine with a pairing code.
@@ -68,12 +67,14 @@ replies in the headquarters as the work moves. When you ask the bot to do it its
 the work in the project directly instead: small, clear work as a **task**, a fresh agent in its
 own worktree that opens a pull request, or a [feature](./features.md), which a lead runs with its
 crew. Either way the work is one of that project's threads, listed and on the board with its other
-work, and the bot links it in its reply. Each crew member runs with its role's model and **Access**. The bot can also start
-projects from a name or by cloning a Git URL. With **Manage bots and roles**, it can create and edit bots and roles when you ask, such as "add a Security
-reviewer role"; they show up like ones you made. A feature's threads, its lead's and its crew's,
+work, and the bot links it in its reply. Each crew member runs with its role's model. The bot can also start
+projects from a name or by cloning a Git URL, and create and edit bots and roles when you ask, such as "add a Security
+reviewer role"; they show up like ones you made. Any thread can start a feature itself, without
+going through a bot or a project manager. A feature's threads, its lead's and its crew's,
 carry a tag with the feature's name.
 
-The headquarters follows the bot's current tools, model and **Access**. Its instructions are the
+The headquarters starts on the bot's model. Changing the model in its composer sticks; changing the
+bot's model in its settings moves the headquarters to it. Its instructions are the
 ones it started with until it starts a new session. Type **/new** in its composer, or pick
 **Start new session…** in the thread's menu (or the command palette, or a long press on the bot on
 mobile), to do that now: you keep the whole conversation, while the bot starts again from its
@@ -117,13 +118,14 @@ or from the link in the bot's reply; the thread is made the first time. A bot's 
 the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
 back if it was archived, and **/new** or **Start new session…** starts it over.
 
-Its settings are in **Settings → Project → Project manager**: its icon, instructions, model and
-**Access**, tools and **Long conversations**. Each manager gets a robot look picked from its
+Its settings are in **Settings → Project → Project manager**: its icon, instructions, **Can work
+on** and **Long conversations**. Its model is the one in its thread's composer: it starts on the
+project's default model, and a model you pick there stays for every later turn, request and
+automation. Each manager gets a robot look picked from its
 project until you **Change** it; **Use automatic** goes back. The icon saves on its own and
 doesn't count as customizing the manager. It needs no roles: until you save changes there
-it uses built-in instructions on the model of the bot that owns the project, and **Reset to
-defaults** goes back to them. New instructions reach the thread when it next starts a new session;
-model, **Access** and tools apply right away. When you or its bot give the manager a standing rule
+it uses built-in instructions, and **Reset to defaults** goes back to them. New instructions reach
+the thread when it next starts a new session. When you or its bot give the manager a standing rule
 for the project, such as "every piece of work starts from an issue", it adds the rule to its own
 instructions and says so in its thread; the manager then shows as customized here, and the rule
 applies from its next session. Its bot's headquarters can do the same for the bot's projects. The switch at the top turns a project's manager off: its
@@ -141,8 +143,10 @@ it. **Settings → Project → Project manager** shows **Lives on** and **Can wo
   the project's bot. Picking another machine moves the manager there: the old machine's manager
   thread is archived, not deleted, its open requests go back to their senders, and its
   automations are paused.
-- **Can work on** lists the other machines with a copy. It starts as the bot's **Can work on**
-  machines that hold one. There the manager can check the copy's threads and open features, send
+- **Can work on** lists every machine linked to the one it lives on, with whether it's online and
+  "No copy of this project there yet" for a machine without the project. Tick as many as you like;
+  a project on a single machine shows this list too. It starts as the bot's **Can work on**
+  machines that hold a copy. There the manager can check the copy's threads and open features, send
   its threads messages and hear the answers, and start features and tasks. It picks the machine for
   each feature, and the base branch it names is that machine's. When a feature or crew member
   there stops to ask you something, the manager hears so and can tell you it's blocked; you answer
@@ -213,9 +217,8 @@ Roles, in **Settings → Roles**, are who leads a feature and who its lead can h
 role** adds one, and offers **Add the starter roles** for a Feature manager, Planner,
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research. Each role
-has instructions, tools and a default model, whose picker also sets reasoning, speed and
-**Access**, from **Supervised** to **Full access**; new roles start with every tool ticked and on
-**Full access**, since the crew works unattended. Pick a role to
+has instructions and a default model, whose picker also sets reasoning and speed. Its crew get
+every tool with **Full access**, since they work unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
 on. Each project gets its own Feature manager the first time a feature needs one; editing a role
 changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see

@@ -3,8 +3,6 @@ import {
   botHeadquartersThreadId,
   type BotLongConversation,
   CREW_DISPATCH_STATE,
-  CREW_TOOL_GRANTS,
-  LEGACY_TOOLS_MESSAGE,
   CREW_TURN_STATE,
   headquartersBotId,
   headquartersProjectId,
@@ -127,7 +125,6 @@ const DEFAULT_ROLES = [
   {
     id: FEATURE_MANAGER_ROLE_ID,
     name: "Feature manager",
-    withheldTools: [],
     instructions: FEATURE_MANAGER_INSTRUCTIONS,
   },
   { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
@@ -140,7 +137,6 @@ const DEFAULT_ROLES = [
   { id: "role:qa-tester", name: "QA Tester" },
   { id: "role:reviewer", name: "Reviewer" },
 ].map((role) => ({
-  withheldTools: [],
   instructions: crewMemberInstructions(role.name),
   ...role,
 }));
@@ -152,20 +148,14 @@ export interface CreateCrewMemberInput {
   readonly roleId?: string | null;
   readonly name: string;
   readonly instructions: string;
-  readonly withheldTools?: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
 }
 
 export interface CreateRoleInput {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly withheldTools?: ReadonlyArray<string>;
-  /** Sent only by builds before withheld tools; refused with `LEGACY_TOOLS_MESSAGE`. */
-  readonly allowedTools?: unknown;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode?: RuntimeMode;
 }
 
 export interface CreateWorkflowInput {
@@ -419,25 +409,6 @@ const nonEmpty = (value: string, field: string, limit: number) => {
   return trimmed;
 };
 
-const validTools = (tools: ReadonlyArray<string> | undefined) => {
-  const list = tools ?? [];
-  if (list.length > 32) throw new CrewValidationError("Too many tools");
-  return [...new Set(list.map((tool) => nonEmpty(tool, "Tool", 100)))];
-};
-
-/** Grants only bots hold; a role or project manager withholding one changes nothing. */
-const BOT_ONLY_GRANTS: ReadonlySet<string> = new Set(
-  CREW_TOOL_GRANTS.filter((grant) => "botOnly" in grant).map((grant) => grant.id),
-);
-const validRoleTools = (tools: ReadonlyArray<string> | undefined) =>
-  validTools(tools).filter((tool) => !BOT_ONLY_GRANTS.has(tool));
-
-/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
-const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
-  input.allowedTools === undefined
-    ? Effect.void
-    : Effect.fail(new CrewValidationError(LEGACY_TOOLS_MESSAGE));
-
 // Not the model: a run may hold the fallback model instead of the one requested.
 const sameRunRequest = (run: CrewRun, input: CreateCrewRunInput) =>
   run.memberId === input.memberId &&
@@ -525,10 +496,6 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.instructions, "Member instructions", 16_000),
           catch: () => new CrewValidationError("Invalid crew member instructions"),
         });
-        const withheldTools = yield* Effect.try({
-          try: () => validTools(input.withheldTools),
-          catch: () => new CrewValidationError("Invalid tool grants"),
-        });
         const featureId = input.featureId ?? null;
         const roleId = input.roleId ?? null;
         if (featureId !== null && input.projectId === null) {
@@ -554,7 +521,6 @@ export const CrewServiceLive = Layer.effect(
           roleRevision: role?.revision ?? null,
           name,
           instructions,
-          withheldTools,
           enabled: true,
           longConversation: "compact",
           icon: null,
@@ -595,7 +561,6 @@ export const CrewServiceLive = Layer.effect(
 
     const createRole: CrewServiceShape["createRole"] = Effect.fn("CrewService.createRole")(
       function* (input) {
-        yield* refuseLegacyTools(input);
         const id = yield* Effect.try({
           try: () => nonEmpty(input.id, "Role ID", 128),
           catch: () => new CrewValidationError("Invalid role ID"),
@@ -611,21 +576,12 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.instructions, "Role instructions", 16_000),
           catch: () => new CrewValidationError("Invalid role instructions"),
         });
-        const withheldTools = yield* Effect.try({
-          try: () => validRoleTools(input.withheldTools),
-          catch: (cause) =>
-            cause instanceof CrewValidationError
-              ? cause
-              : new CrewValidationError("Invalid tool grants"),
-        });
         const now = DateTime.formatIso(yield* DateTime.now);
         const role: Role = {
           id,
           name,
           instructions,
-          withheldTools,
           modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode ?? "full-access",
           enabled: true,
           revision: 1,
           createdAt: now,
@@ -652,9 +608,7 @@ export const CrewServiceLive = Layer.effect(
         roleRevision: role.revision,
         name: role.name,
         instructions: `${role.instructions}\n\n${context}`,
-        withheldTools: role.withheldTools,
         modelSelection: role.modelSelection,
-        runtimeMode: role.runtimeMode,
         revision: member.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };
@@ -664,7 +618,6 @@ export const CrewServiceLive = Layer.effect(
 
     const updateRole: CrewServiceShape["updateRole"] = Effect.fn("CrewService.updateRole")(
       function* (input) {
-        yield* refuseLegacyTools(input);
         const previous = yield* store.getRole(input.id);
         if (!previous) {
           return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.id}`));
@@ -684,20 +637,11 @@ export const CrewServiceLive = Layer.effect(
           try: () => nonEmpty(input.instructions, "Role instructions", 16_000),
           catch: () => new CrewValidationError("Invalid role instructions"),
         });
-        const withheldTools = yield* Effect.try({
-          try: () => validRoleTools(input.withheldTools ?? previous.withheldTools),
-          catch: (cause) =>
-            cause instanceof CrewValidationError
-              ? cause
-              : new CrewValidationError("Invalid tool grants"),
-        });
         const updated: Role = {
           ...previous,
           name,
           instructions,
-          withheldTools,
           modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode ?? previous.runtimeMode,
           enabled: input.enabled,
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
@@ -820,9 +764,7 @@ export const CrewServiceLive = Layer.effect(
         roleId: source === role ? roleId : null,
         name: source.name,
         instructions: `${source.instructions}\n\n${projectMemberContext(id, projectId)}`,
-        withheldTools: source.withheldTools ?? [],
         modelSelection: source.modelSelection,
-        runtimeMode: source.runtimeMode,
       });
     });
 
@@ -855,11 +797,17 @@ export const CrewServiceLive = Layer.effect(
       }
     });
 
+    /** What a project's manager starts with: built-in instructions. */
+    const projectManagerDefaults = (projectId: ProjectId) => ({
+      instructions: builtInManagerInstructions(projectId),
+      longConversation: "compact" as const,
+    });
+
     /**
-     * What a project's manager starts with: built-in instructions on its owning bot's model, else
-     * the one a new thread in the project gets.
+     * The model stored on a new manager member's row. Its thread opens on the model a new thread
+     * in the project gets and its composer picks from then on, so nothing reads this one.
      */
-    const projectManagerDefaults = Effect.fn("CrewService.projectManagerDefaults")(function* (
+    const projectManagerRowModel = Effect.fn("CrewService.projectManagerRowModel")(function* (
       projectId: ProjectId,
     ) {
       const botId = yield* runtime.projectBotId(projectId);
@@ -879,13 +827,7 @@ export const CrewServiceLive = Layer.effect(
           new CrewValidationError(`${bot.name}${machine} has no default model`),
         );
       }
-      return {
-        instructions: builtInManagerInstructions(projectId),
-        withheldTools: [] as ReadonlyArray<string>,
-        modelSelection,
-        runtimeMode: "full-access" as const,
-        longConversation: "compact" as const,
-      };
+      return modelSelection;
     });
 
     const projectManagerMember = Effect.fn("CrewService.projectManagerMember")(function* (
@@ -894,16 +836,13 @@ export const CrewServiceLive = Layer.effect(
       yield* requireManagedProject(projectId);
       const existing = yield* store.getMember(projectManagerMemberId(projectId));
       if (existing !== null) return existing;
-      const defaults = yield* projectManagerDefaults(projectId);
       const { member } = yield* ensureMember({
         id: projectManagerMemberId(projectId),
         projectId,
         roleId: null,
         name: "Project manager",
-        instructions: defaults.instructions,
-        withheldTools: defaults.withheldTools,
-        modelSelection: defaults.modelSelection,
-        runtimeMode: defaults.runtimeMode,
+        instructions: projectManagerDefaults(projectId).instructions,
+        modelSelection: yield* projectManagerRowModel(projectId),
       });
       return member;
     });
@@ -920,9 +859,6 @@ export const CrewServiceLive = Layer.effect(
           projectId,
           enabled: member.enabled,
           instructions: managerInstructions(member, projectId),
-          withheldTools: member.withheldTools,
-          modelSelection: member.modelSelection,
-          runtimeMode: member.runtimeMode,
           longConversation: member.longConversation,
           customized: member.customizedAt !== null,
           revision: member.revision,
@@ -933,7 +869,7 @@ export const CrewServiceLive = Layer.effect(
       return {
         projectId,
         enabled: true,
-        ...(yield* projectManagerDefaults(projectId)),
+        ...projectManagerDefaults(projectId),
         customized: false,
         revision: 0,
         threadId,
@@ -941,10 +877,7 @@ export const CrewServiceLive = Layer.effect(
       };
     });
 
-    /**
-     * Writes the project's manager while it is at `expectedRevision` (0 before it exists), then
-     * points its open thread at the new model and mode.
-     */
+    /** Writes the project's manager while it is at `expectedRevision` (0 before it exists). */
     const saveProjectManager = Effect.fn("CrewService.saveProjectManager")(function* (
       projectId: ProjectId,
       expectedRevision: number,
@@ -963,33 +896,20 @@ export const CrewServiceLive = Layer.effect(
       if (!(yield* store.saveMember(updated, existing?.revision ?? 1))) {
         return yield* Effect.fail(stale);
       }
-      yield* syncStanding(yield* projectOwner(projectId));
       return yield* projectManagerSettings(projectId);
     });
 
     const updateProjectManager: CrewServiceShape["updateProjectManager"] = Effect.fn(
       "CrewService.updateProjectManager",
     )(function* (input) {
-      yield* refuseLegacyTools(input);
       const instructions = yield* Effect.try({
         try: () => nonEmpty(input.instructions, "Instructions", 16_000),
         catch: () => new CrewValidationError("Give the project manager instructions"),
-      });
-      const withheldTools = yield* Effect.try({
-        try: () =>
-          input.withheldTools === undefined ? undefined : validRoleTools(input.withheldTools),
-        catch: (cause) =>
-          cause instanceof CrewValidationError
-            ? cause
-            : new CrewValidationError("Invalid tool grants"),
       });
       return yield* saveProjectManager(input.projectId, input.expectedRevision, (member, now) =>
         Effect.succeed({
           ...member,
           instructions,
-          withheldTools: withheldTools ?? member.withheldTools,
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
           longConversation: input.longConversation,
           customizedAt: now,
           revision: member.revision + 1,
@@ -1002,15 +922,13 @@ export const CrewServiceLive = Layer.effect(
       "CrewService.resetProjectManager",
     )(function* (input) {
       return yield* saveProjectManager(input.projectId, input.expectedRevision, (member, now) =>
-        projectManagerDefaults(input.projectId).pipe(
-          Effect.map((defaults) => ({
-            ...member,
-            ...defaults,
-            customizedAt: null,
-            revision: member.revision + 1,
-            updatedAt: now,
-          })),
-        ),
+        Effect.succeed({
+          ...member,
+          ...projectManagerDefaults(input.projectId),
+          customizedAt: null,
+          revision: member.revision + 1,
+          updatedAt: now,
+        }),
       );
     });
 
@@ -1086,9 +1004,6 @@ export const CrewServiceLive = Layer.effect(
         const saved = yield* updateProjectManager({
           projectId,
           instructions: input.instructions,
-          withheldTools: current.withheldTools,
-          modelSelection: current.modelSelection,
-          runtimeMode: current.runtimeMode,
           longConversation: current.longConversation,
           expectedRevision: input.expectedRevision,
         });
@@ -1207,10 +1122,9 @@ export const CrewServiceLive = Layer.effect(
           taskText,
           title: input.title ?? `${member.name}: ${taskText.slice(0, 80)}`,
           instructions: member.instructions,
-          withheldTools: member.withheldTools,
           memberRevision: member.revision,
           modelSelection: model.selection,
-          runtimeMode: input.carried?.runtimeMode ?? member.runtimeMode,
+          runtimeMode: input.carried?.runtimeMode ?? "full-access",
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
           lastError: null,
@@ -1261,10 +1175,9 @@ export const CrewServiceLive = Layer.effect(
       readonly actorId: string;
       readonly name: string;
       readonly instructions: string;
-      readonly withheldTools: ReadonlyArray<string>;
       readonly revision: number;
+      /** Null opens its thread on the default model. */
       readonly modelSelection: ModelSelection | null;
-      readonly runtimeMode: RuntimeMode;
       readonly longConversation: BotLongConversation;
       readonly taskText: string;
       /** The project its thread lives in: a bot's home, made again if it was deleted. */
@@ -1303,10 +1216,8 @@ export const CrewServiceLive = Layer.effect(
         actorId: bot.id,
         name: bot.name,
         instructions: bot.instructions,
-        withheldTools: bot.withheldTools,
         revision: bot.revision,
         modelSelection: bot.modelSelection,
-        runtimeMode: bot.runtimeMode,
         longConversation: bot.longConversation,
         taskText: headquartersTask(bot.id),
         home,
@@ -1322,10 +1233,9 @@ export const CrewServiceLive = Layer.effect(
         actorId: member.id,
         name: "Project manager",
         instructions: managerInstructions(member, projectId),
-        withheldTools: member.withheldTools,
         revision: member.revision,
-        modelSelection: member.modelSelection,
-        runtimeMode: member.runtimeMode,
+        // Its thread's composer picks its model from then on.
+        modelSelection: null,
         longConversation: member.longConversation,
         taskText: projectManagerTask(projectId),
         home: runtime
@@ -1379,10 +1289,9 @@ export const CrewServiceLive = Layer.effect(
           taskText: owner.taskText,
           title: owner.name,
           instructions: owner.instructions,
-          withheldTools: owner.withheldTools,
           memberRevision: owner.revision,
           modelSelection,
-          runtimeMode: owner.runtimeMode,
+          runtimeMode: "full-access",
           dispatchState: CREW_DISPATCH_STATE.QUEUED,
           recoveryAttempt: 0,
           lastError: null,
@@ -1401,13 +1310,16 @@ export const CrewServiceLive = Layer.effect(
           yield* runtime.noteModelFallback(run.threadId, modelSelection, model.notice);
       } else {
         yield* runtime.restore(threadInput(run));
-        const switched = yield* runtime.syncSettings(
-          run.threadId,
-          owner.runtimeMode,
-          modelSelection,
-        );
-        if (switched && model.notice !== null)
-          yield* runtime.noteModelFallback(run.threadId, modelSelection, model.notice);
+        // The thread's own model stands: it moves to the fallback only from the automatic choice.
+        if (model.notice !== null) {
+          const automatic =
+            owner.modelSelection ?? (yield* runtime.projectModelSelection(run.projectId));
+          const switched =
+            automatic !== null &&
+            (yield* runtime.setModel(run.threadId, modelSelection, { from: automatic }));
+          if (switched)
+            yield* runtime.noteModelFallback(run.threadId, modelSelection, model.notice);
+        }
       }
       yield* (
         headquartersBotId(run.threadId) === null
@@ -1604,31 +1516,17 @@ export const CrewServiceLive = Layer.effect(
       yield* startFresh(owner, run, records, `manual:${now}`);
     });
 
-    /**
-     * Points an open standing thread at its owner's current runtime mode and model, or the
-     * fallback while that can't run.
-     */
-    const syncStanding = Effect.fn("CrewService.syncStanding")(function* (
-      owner: StandingOwner | null,
-    ) {
-      // An owner with no saved model follows the default, so it syncs too.
+    const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(
+      "CrewService.syncHeadquarters",
+    )(function* (botId) {
+      const owner = yield* botOwner(botId);
       if (owner === null) return;
       const run = yield* store.getRun(owner.runId);
       if (run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
       const model = yield* modelFor(owner, undefined, run.projectId);
-      const switched = yield* runtime.syncSettings(
-        run.threadId,
-        owner.runtimeMode,
-        model.selection,
-      );
+      const switched = yield* runtime.setModel(run.threadId, model.selection);
       if (switched && model.notice !== null)
         yield* runtime.noteModelFallback(run.threadId, model.selection, model.notice);
-    });
-
-    const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(
-      "CrewService.syncHeadquarters",
-    )(function* (botId) {
-      yield* syncStanding(yield* botOwner(botId));
     });
 
     const setHierarchyParent: CrewServiceShape["setHierarchyParent"] = Effect.fn(
@@ -1678,7 +1576,7 @@ export const CrewServiceLive = Layer.effect(
         for (const role of DEFAULT_ROLES) {
           if (yield* store.getRole(role.id)) continue;
           // Stages run unattended, so starter roles don't stop for approvals.
-          yield* createRole({ ...role, modelSelection, runtimeMode: "full-access" }).pipe(
+          yield* createRole({ ...role, modelSelection }).pipe(
             Effect.catch((error) =>
               store.getRole(role.id).pipe(Effect.filterOrFail(Predicate.isNotNull, () => error)),
             ),
@@ -1753,9 +1651,7 @@ export const CrewServiceLive = Layer.effect(
           roleId,
           name: role.name,
           instructions: role.instructions,
-          withheldTools: role.withheldTools,
           modelSelection: role.modelSelection,
-          runtimeMode: role.runtimeMode,
         });
       }),
       listDelegationGrantsForProject: store.listDelegationGrantsForProject,

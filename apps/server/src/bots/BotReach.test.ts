@@ -67,11 +67,10 @@ const laptop = descriptorOf("environment-laptop", "Laptop");
 const box = descriptorOf("environment-box", "Box");
 const couch = descriptorOf("environment-couch", "Couch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
-/** The model and access the Feature delivery lead role runs with, unlike the bot's. */
-const leadRole = {
-  modelSelection: { ...modelSelection, model: "gpt-5.4-mini" },
-  runtimeMode: "auto-accept-edits" as const,
-};
+/** The model the Feature delivery lead role runs with, unlike the bot's. */
+const leadRole = { modelSelection: { ...modelSelection, model: "gpt-5.4-mini" } };
+/** What a request's lead runs with there: its lead role's model, with the access sent. */
+const carried = { ...leadRole, runtimeMode: "full-access" as const };
 
 const bot = (
   id: string,
@@ -84,8 +83,6 @@ const bot = (
   avatar: { head: "round", face: "visor", eyes: "round", top: "none", cheeks: false, smile: true },
   color: "blue",
   instructions: "",
-  withheldTools: [],
-  runtimeMode: "full-access",
   modelSelection,
   longConversation: "compact",
   permittedEnvironmentIds,
@@ -264,16 +261,12 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           id,
           name: id,
           instructions: `You are ${id}.`,
-          withheldTools: [],
           ...(id === "role:feature-manager"
             ? leadRole
             : id === "role:security-reviewer"
               ? // On a provider the box lacks; a feature checks it, a request doesn't.
-                {
-                  modelSelection: { instanceId: "opencode", model: "big-pickle" },
-                  runtimeMode: "full-access",
-                }
-              : { modelSelection, runtimeMode: "full-access" }),
+                { modelSelection: { instanceId: "opencode", model: "big-pickle" } }
+              : { modelSelection }),
           enabled: true,
         } as never),
       ensureFeatureManager: (projectId, sentLead) =>
@@ -414,7 +407,6 @@ const headquartersScope: McpInvocationContext.McpThreadInvocationScope = {
   capabilities: new Set(["orchestration", "crew"]),
   issuedAt: 1,
   linkedEnvironments: true,
-  crewGrants: ["crew.workflows"],
 };
 
 /** The laptop: Captain's headquarters calls its own crew toolkits, which reach its links. */
@@ -803,7 +795,7 @@ it.live("starts the project manager there, or says before starting anything why 
           projectId: "project:omni",
           taskText: "Start a feature: dark mode.",
           // Its lead runs as the workflow's lead role, not as the bot that sent it.
-          carried: leadRole,
+          carried,
           workspace: { branch: expect.stringMatching(/^bosun\/dark-mode-/), baseRef: "main" },
           // The laptop's workflow goes along by value, for the features this request starts.
           workflow: {
@@ -958,8 +950,8 @@ it.live("starts the project manager there, or says before starting anything why 
         { botId: CAPTAIN_ID },
         launch("project:omni", "gpt-elsewhere"),
       );
-      expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual(leadRole);
-      // Nor broader than the access it was sent with.
+      expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual(carried);
+      // It runs with the access it was sent with.
       yield* a.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
@@ -971,7 +963,7 @@ it.live("starts the project manager there, or says before starting anything why 
         },
       );
       expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual({
-        ...leadRole,
+        ...carried,
         runtimeMode: "approval-required",
       });
 

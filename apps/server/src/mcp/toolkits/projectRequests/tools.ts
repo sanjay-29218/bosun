@@ -94,5 +94,5 @@ const ReplyToRequest = Tool.make("t3_project_reply", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
-/** Listed to crew threads; each handler checks who may use it. */
+/** Listed to every thread; each handler checks who may use it. */
 export const ProjectRequestsToolkit = Toolkit.make(SendRequest, ListRequests, ReplyToRequest);

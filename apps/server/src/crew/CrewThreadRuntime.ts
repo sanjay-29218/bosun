@@ -140,13 +140,13 @@ export interface CrewThreadRuntimeShape {
   /** Archives a crew thread; a no-op when it is gone or already archived. */
   readonly archive: (threadId: ThreadId) => Effect.Effect<void, OrchestrationDispatchError>;
   /**
-   * Points the thread's next turns at `runtimeMode` and `modelSelection` when they differ. True
-   * when the model changed.
+   * Points the thread's next turns at `modelSelection`; with `from`, only while the thread is on
+   * that model, so a model picked in its composer stays. True when the model changed.
    */
-  readonly syncSettings: (
+  readonly setModel: (
     threadId: ThreadId,
-    runtimeMode: RuntimeMode,
     modelSelection: ModelSelection,
+    options?: { readonly from: ModelSelection },
   ) => Effect.Effect<boolean, OrchestrationDispatchError>;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
   /** Each run that completes, in any thread. */
@@ -332,20 +332,15 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         });
       }
     });
-    const syncSettings = Effect.fn("CrewThreadRuntime.syncSettings")(function* (
+    const setModel = Effect.fn("CrewThreadRuntime.setModel")(function* (
       threadId: ThreadId,
-      runtimeMode: RuntimeMode,
       modelSelection: ModelSelection,
+      options?: { readonly from: ModelSelection },
     ) {
       const shell = yield* engine.getThreadShell(threadId);
       if (shell === null || shell.deletedAt !== null) return false;
-      if (shell.runtimeMode !== runtimeMode)
-        yield* engine.dispatch({
-          type: "thread.runtime-mode.set",
-          commandId: CommandId.make(`${threadId}:runtime-mode:${yield* freshId}`),
-          threadId,
-          runtimeMode,
-        });
+      if (options !== undefined && !sameModelSelection(shell.modelSelection, options.from))
+        return false;
       if (sameModelSelection(shell.modelSelection, modelSelection)) return false;
       yield* engine.dispatch({
         type: "thread.model-selection.set",
@@ -499,7 +494,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           threadId,
         });
       }),
-      syncSettings,
+      setModel,
       start,
       completedRuns: engine.streamDomainEvents.pipe(
         Stream.filterMap((event) =>

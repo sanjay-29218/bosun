@@ -16,7 +16,6 @@ import {
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
   ProjectId,
-  LEGACY_TOOLS_MESSAGE,
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
@@ -131,9 +130,7 @@ const createBot = (bots: CrewService["Service"]) =>
     projectId,
     name: "Builder",
     instructions: "Implement the assigned change.",
-    withheldTools: ["crew.delegate"],
     modelSelection,
-    runtimeMode: "approval-required",
   });
 
 describe("Bot foundation", () => {
@@ -150,9 +147,6 @@ describe("Bot foundation", () => {
             { concurrency: 2 },
           );
           const defaultRoles = yield* bots.listRoles();
-          expect(defaultRoles.map((role) => role.runtimeMode)).toEqual(
-            defaultRoles.map(() => "full-access"),
-          );
           const defaultRoleIds = defaultRoles.map((role) => role.id);
           expect(new Set(defaultRoleIds).size).toBe(defaultRoleIds.length);
           expect(defaultRoleIds).toContain(FEATURE_MANAGER_ROLE_ID);
@@ -162,24 +156,7 @@ describe("Bot foundation", () => {
             name: "Researcher",
             instructions: "Research the assigned question.",
             modelSelection,
-            runtimeMode: "approval-required",
           });
-          // Unless told otherwise, a role gets every tool and full access.
-          expect(
-            yield* bots.createRole({
-              id: "role:open",
-              name: "Open",
-              instructions: "Help.",
-              modelSelection,
-            }),
-          ).toMatchObject({ withheldTools: [], runtimeMode: "full-access" });
-          // An older client's tool list meant the opposite, so it is refused in plain words.
-          for (const save of [
-            bots.createRole({ ...role, id: "role:old-client", allowedTools: [] }),
-            bots.updateRole({ ...role, expectedRevision: 1, enabled: true, allowedTools: [] }),
-          ]) {
-            expect((yield* Effect.flip(save)).message).toBe(LEGACY_TOOLS_MESSAGE);
-          }
           const member = yield* bots.instantiate("bot:researcher", projectId, role.id);
           expect(member.roleId).toBe(role.id);
           expect(member.roleRevision).toBe(1);
@@ -215,7 +192,6 @@ describe("Bot foundation", () => {
                 name: "Wrong scope",
                 instructions: "Invalid.",
                 modelSelection,
-                runtimeMode: "approval-required",
               })
               .pipe(Effect.result))._tag,
           ).toBe("Failure");
@@ -449,21 +425,25 @@ describe("Bot foundation", () => {
           yield* settings.updateSettings({ defaultModelSelection: fallbackModel });
           const onDefault = yield* bots.ensureHeadquarters(CAPTAIN_ID);
           expect(onDefault.modelSelection).toEqual(fallbackModel);
-          // An edit to a bot with no model still reaches its open headquarters.
-          yield* sql`UPDATE bots SET runtime_mode = 'approval-required' WHERE id = ${CAPTAIN_ID}`;
-          yield* bots.syncHeadquarters(CAPTAIN_ID);
-          expect((yield* engine.getThreadShell(onDefault.threadId))?.runtimeMode).toBe(
-            "approval-required",
-          );
-          yield* sql`UPDATE bots SET runtime_mode = 'full-access' WHERE id = ${CAPTAIN_ID}`;
-          // It keeps following the default until a model is chosen, then uses that one.
           expect(
             yield* sql`SELECT 1 FROM bots WHERE id = ${CAPTAIN_ID} AND model_selection_json IS NULL`,
           ).toHaveLength(1);
           yield* bots.ensureDefaults(modelSelection);
-          // A bot that owns no project still gets its headquarters, in its own home.
+          // A bot that owns no project still gets its headquarters, in its own home. Opening it
+          // again leaves its thread's model alone; only an edit to the bot's model moves it.
           const headquarters = yield* bots.ensureHeadquarters(CAPTAIN_ID);
           expect(headquarters.threadId).toBe(onDefault.threadId);
+          expect((yield* engine.getThreadShell(headquarters.threadId))?.modelSelection).toEqual(
+            fallbackModel,
+          );
+          // Picked in its composer, the model sticks when it is opened again.
+          yield* engine.dispatch({
+            type: "thread.model-selection.set",
+            commandId: CommandId.make("test:hq-composer-model"),
+            threadId: headquarters.threadId,
+            modelSelection,
+          });
+          yield* bots.ensureHeadquarters(CAPTAIN_ID);
           expect((yield* engine.getThreadShell(headquarters.threadId))?.modelSelection).toEqual(
             modelSelection,
           );
@@ -589,13 +569,12 @@ describe("Bot foundation", () => {
             });
             yield* sql`
               INSERT INTO bots (
-                id, name, avatar_json, color, instructions, withheld_tools_json, runtime_mode,
-                model_selection_json, position, revision, created_at,
-                updated_at
+                id, name, avatar_json, color, instructions, model_selection_json, position,
+                revision, created_at, updated_at
               ) VALUES (
                 'bot-second', 'Second',
-                '{"head":"round","eyes":"round","face":"visor","top":"ball","cheeks":false,"smile":false}', 'blue', 'Coordinate.', '["crew.delegate"]',
-                'approval-required', NULL, 1, 1, '2026-01-01', '2026-01-01'
+                '{"head":"round","eyes":"round","face":"visor","top":"ball","cheeks":false,"smile":false}', 'blue', 'Coordinate.',
+                NULL, 1, 1, '2026-01-01', '2026-01-01'
               )
             `;
             yield* sql`UPDATE projection_projects SET bot_id = 'bot-second'
@@ -698,7 +677,7 @@ describe("Bot foundation", () => {
           botHome: () => Effect.die("unused"),
           moveThread: () => Effect.die("unused"),
           restore: () => Effect.void,
-          syncSettings: () => Effect.succeed(false),
+          setModel: () => Effect.succeed(false),
           completedRuns: Stream.empty,
           freshStartRecords: () => Effect.die("unused"),
           startFresh: () => Effect.void,
@@ -743,7 +722,6 @@ describe("Bot foundation", () => {
             name: "Retry bot",
             instructions: "Try this task.",
             modelSelection,
-            runtimeMode: "approval-required",
           });
           const first = yield* bots
             .createRun({
@@ -815,7 +793,7 @@ describe("Bot foundation", () => {
           botHome: () => Effect.die("unused"),
           moveThread: () => Effect.die("unused"),
           restore: () => Effect.void,
-          syncSettings: () => Effect.succeed(false),
+          setModel: () => Effect.succeed(false),
           completedRuns: Stream.fromQueue(completions),
           freshStartRecords: (threadId) =>
             Queue.offer(checks, threadId).pipe(Effect.as(freshStartRecords())),
@@ -853,8 +831,6 @@ describe("Bot foundation", () => {
               },
               color: "blue",
               instructions: "Run my projects.",
-              withheldTools: [],
-              runtimeMode: "full-access",
               modelSelection,
               longConversation,
               permittedEnvironmentIds: [],
@@ -871,7 +847,6 @@ describe("Bot foundation", () => {
               taskText: "Lead the bot's work.",
               title: id,
               instructions: "Run my projects.",
-              withheldTools: [],
               memberRevision: 1,
               modelSelection,
               runtimeMode: "full-access",
@@ -906,9 +881,7 @@ describe("Bot foundation", () => {
             roleRevision: null,
             name: "Project manager",
             instructions: "Manage the project.",
-            withheldTools: [],
             modelSelection,
-            runtimeMode: "full-access",
             enabled: true,
             longConversation: "new-session",
             icon: null,
@@ -926,7 +899,6 @@ describe("Bot foundation", () => {
             taskText: "Manage the project.",
             title: "Project manager",
             instructions: "Manage the project.",
-            withheldTools: [],
             memberRevision: 1,
             modelSelection,
             runtimeMode: "full-access",
@@ -1136,7 +1108,7 @@ describe("Bot foundation", () => {
           const replay = yield* bots.createRun(request);
           const detail = yield* query.getThreadDetailById(first.threadId);
           expect(first.dispatchState).toBe("started");
-          expect(first.withheldTools).toEqual(["crew.delegate"]);
+          expect(first.runtimeMode).toBe("full-access");
           expect(first.memberRevision).toBe(1);
           expect(replay.threadId).toBe(first.threadId);
           const conflicting = yield* bots
@@ -1268,10 +1240,9 @@ describe("Bot foundation", () => {
               taskText: "Recover this task",
               title: "Builder: Recover this task",
               instructions: bot.instructions,
-              withheldTools: bot.withheldTools,
               memberRevision: bot.revision,
               modelSelection: bot.modelSelection,
-              runtimeMode: bot.runtimeMode,
+              runtimeMode: "full-access",
               dispatchState: "queued",
               recoveryAttempt: 0,
               lastError: null,
@@ -1287,7 +1258,7 @@ describe("Bot foundation", () => {
               projectId,
               title: "Builder: Recover this task",
               modelSelection: bot.modelSelection,
-              runtimeMode: bot.runtimeMode,
+              runtimeMode: "full-access",
               interactionMode: "default",
               branch: null,
               worktreePath: null,

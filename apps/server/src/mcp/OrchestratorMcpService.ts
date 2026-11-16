@@ -133,7 +133,6 @@ import * as Metrics from "../observability/Metrics.ts";
 import {
   interactionModeRank,
   resolveInteractionMode,
-  narrowerRuntimeMode,
   resolveRuntimeMode,
   runtimeModeRank,
   taskPrompt,
@@ -3045,11 +3044,8 @@ const make = Effect.gen(function* () {
         providers,
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
       });
-      // A crew member runs with its role's access, never broader than its lead's.
       const runtimeMode = yield* resolveRuntimeMode(
-        crewMember === null
-          ? parent.thread.runtimeMode
-          : narrowerRuntimeMode(parent.thread.runtimeMode, crewMember.runtimeMode),
+        parent.thread.runtimeMode,
         input.runtimeMode,
         target,
       );

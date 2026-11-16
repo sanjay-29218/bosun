@@ -573,7 +573,7 @@ export const layerWithOptions = (
                 ]);
                 if (browserToolsAvailable) defaults.add("preview");
                 if (deviceToolsAvailable) defaults.add("device");
-                const capabilities = yield* crewMcpCapabilities(threadId, defaults);
+                const capabilities = crewMcpCapabilities(threadId, defaults);
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   Effect.orElseSucceed(() => false),
