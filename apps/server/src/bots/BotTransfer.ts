@@ -1,4 +1,5 @@
 import {
+  type Bot,
   botHeadquartersThreadId,
   type BotTransferInput,
   type BotTransferResult,
@@ -29,6 +30,7 @@ import {
   LinkBotProjects,
   LinkBotRehome,
   type TransferredAutomation,
+  type TransferredBot,
 } from "../mcp/toolkits/bots/linkTools.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
@@ -53,6 +55,9 @@ export const webhookReason = (label: string) =>
   `New webhook URL on ${label}. Point the sender at it, set a signing secret on ${label} if the sender signs requests, then turn it on.`;
 const copiedReason = (label: string) => `Copied from ${label}. Turn it on when you're ready.`;
 const movingReason = (label: string) => `Moving to ${label}`;
+const MOVING_PREFIX = movingReason("");
+const cancelledReason = (label: string) =>
+  `${label} may still run this from a cancelled move. Turn it on here only once you're sure it doesn't.`;
 
 /**
  * Copies a bot to a linked environment, or moves it there. Bots stay environment-local, so the
@@ -108,6 +113,18 @@ const upsertSchedule = (schedule: ScheduledTask["schedule"]): ScheduledTaskUpser
       return schedule;
   }
 };
+
+const transferredBot = (bot: Bot): TransferredBot => ({
+  name: bot.name,
+  avatar: bot.avatar,
+  color: bot.color,
+  instructions: bot.instructions,
+  withheldTools: bot.withheldTools,
+  runtimeMode: bot.runtimeMode,
+  modelSelection: bot.modelSelection,
+  longConversation: bot.longConversation,
+  permittedEnvironmentIds: bot.permittedEnvironmentIds,
+});
 
 const remoteBotOf = (home: BotHome): ProjectRemoteBot => ({
   environmentId: home.environmentId,
@@ -463,17 +480,7 @@ const make = Effect.gen(function* () {
       home,
       newBotId,
       mode: input.mode,
-      bot: {
-        name: bot.name,
-        avatar: bot.avatar,
-        color: bot.color,
-        instructions: bot.instructions,
-        withheldTools: bot.withheldTools,
-        runtimeMode: bot.runtimeMode,
-        modelSelection: bot.modelSelection,
-        longConversation: bot.longConversation,
-        permittedEnvironmentIds: bot.permittedEnvironmentIds,
-      },
+      bot: transferredBot(bot),
       homeFiles,
       automations,
       ...extra,
@@ -664,11 +671,109 @@ const make = Effect.gen(function* () {
     return { ...prepared.result, warnings };
   });
 
+  /**
+   * Gives up the bot's unfinished move. Its copy there is undone when the target answers, and the
+   * automations run here again; otherwise, with `forget`, they stay off, since it may run them.
+   */
+  const cancelMove = Effect.fn("BotTransfer.cancelMove")(function* (
+    botId: string,
+    how: "undo" | "forget",
+  ) {
+    const self = yield* here;
+    const bot = yield* bots.get(botId).pipe(Effect.mapError((error) => refuse(error.message)));
+    if (bot === null) return yield* refuse("Bot not found");
+    const pending = yield* store
+      .pendingMove(bot.id)
+      .pipe(Effect.mapError((error) => refuse(error.message)));
+    if (pending === null) return yield* refuse(`${bot.name} has no move to cancel.`);
+    const target = pending.targetEnvironmentId;
+    const link = Option.getOrUndefined(
+      yield* links.get(target).pipe(Effect.orElseSucceed(Option.none)),
+    );
+    const label = link?.label ?? "the other machine";
+    const Label = `${label.charAt(0).toUpperCase()}${label.slice(1)}`;
+    const home: BotHome = {
+      environmentId: self.environmentId,
+      botId: bot.id,
+      botName: bot.name,
+      label: self.label,
+    };
+    const undone =
+      link === undefined
+        ? false
+        : Result.isSuccess(
+            yield* Effect.result(
+              forwarding.call(personScope(self.environmentId, bot.id), LinkBotImport, target, {
+                home,
+                newBotId: pending.newBotId,
+                mode: "move",
+                bot: transferredBot(bot),
+                homeFiles: [],
+                automations: [],
+                discard: true,
+              }),
+            ),
+          );
+    if (!undone && how === "undo") {
+      return yield* refuse(
+        `${Label} didn't answer, so ${bot.name}'s copy there couldn't be undone. ${Label} may still run ${bot.name}'s automations.`,
+      );
+    }
+    // Projects already handed to the copy come back.
+    const handedOver = yield* projectsHere(
+      (project) =>
+        project.remoteBot?.environmentId === target && project.remoteBot.botId === pending.newBotId,
+    ).pipe(Effect.mapError((error) => refuse(error.message)));
+    yield* Effect.forEach(
+      handedOver,
+      (project) =>
+        projects
+          .assignBot({
+            commandId: CommandId.make(`bot-move-cancel:${pending.newBotId}:${project.id}`),
+            projectId: project.id,
+            botId: bot.id,
+          })
+          .pipe(Effect.mapError((error) => refuse(error.message))),
+      { discard: true },
+    );
+    const paused = (yield* scheduledTasks
+      .list()
+      .pipe(Effect.mapError((error) => refuse(error.message)))).tasks
+      .filter(
+        (task) =>
+          task.botId === bot.id && !task.enabled && task.pausedReason?.startsWith(MOVING_PREFIX),
+      )
+      .map((task) => task.id);
+    yield* store
+      .setPendingMove(bot.id, null)
+      .pipe(Effect.mapError((error) => refuse(error.message)));
+    if (undone) yield* scheduledTasks.resumeTasks(paused);
+    else {
+      yield* scheduledTasks
+        .pauseTasks({ taskIds: paused, reason: cancelledReason(Label) })
+        .pipe(Effect.mapError((error) => refuse(error.message)));
+    }
+    const result: BotTransferResult = {
+      bot: { environmentId: self.environmentId, id: bot.id, name: bot.name },
+      projects: [],
+      unchecked: [],
+      automations: { copied: 0, enabled: 0, needAttention: [] },
+      warnings: undone
+        ? []
+        : [
+            `${Label} didn't answer, so it may still run ${bot.name}'s automations. They stay off here; turn them on only once you're sure ${label} doesn't.`,
+          ],
+    };
+    return result;
+  });
+
   const transfer: BotTransfer["Service"]["transfer"] = Effect.fn("BotTransfer.transfer")(
     function* (input) {
       return yield* locks.withLock(
         `transfer:${input.botId}`,
         Effect.gen(function* () {
+          if (input.cancelMove !== undefined)
+            return yield* cancelMove(input.botId, input.cancelMove);
           const prepared = yield* prepare(input);
           if (input.dryRun === true) return prepared.result;
           return yield* input.mode === "copy" ? copy(prepared) : move(prepared);

@@ -194,12 +194,12 @@ const make = Effect.gen(function* () {
   /** Inserts `bot` at the end of the rail, or returns the bot already under its ID if `same`. */
   const insertUnlocked = Effect.fn("BotService.insertBot")(function* (
     bot: Omit<Bot, "position" | "pinned" | "revision" | "createdAt" | "updatedAt">,
-    same: (existing: Bot) => boolean,
+    same: (existing: Bot) => Effect.Effect<boolean, BotServiceError>,
     copiedFrom?: BotStore.CopiedFrom,
   ) {
     const existing = yield* store.get(bot.id);
     if (existing) {
-      if (same(existing)) return existing;
+      if (yield* same(existing)) return existing;
       return yield* new BotValidationError({ reason: "Bot ID belongs to another bot" });
     }
     const now = DateTime.formatIso(yield* DateTime.now);
@@ -211,11 +211,12 @@ const make = Effect.gen(function* () {
       revision: 1,
       createdAt: now,
       updatedAt: now,
+      movingTo: null,
     };
     if (yield* store.insert(inserted, copiedFrom)) return inserted;
     // A concurrent create with the same ID won, or a crew member already has the ID.
     const winner = yield* store.get(bot.id);
-    if (winner && same(winner)) return winner;
+    if (winner && (yield* same(winner))) return winner;
     return yield* new BotValidationError({ reason: "Bot ID is already in use" });
   });
 
@@ -238,7 +239,7 @@ const make = Effect.gen(function* () {
         longConversation: input.longConversation ?? "compact",
         permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
       },
-      (existing) => sameCreate(existing, input),
+      (existing) => Effect.succeed(sameCreate(existing, input)),
     );
   });
 
@@ -425,7 +426,17 @@ const make = Effect.gen(function* () {
             longConversation: sent.longConversation,
             permittedEnvironmentIds: [...new Set(sent.permittedEnvironmentIds)],
           },
-          (existing) => existing.name === sent.name.trim(),
+          // The same copy, even renamed here since: it came from the same bot.
+          (existing) =>
+            store
+              .copiedFrom(existing.id)
+              .pipe(
+                Effect.map(
+                  (origin) =>
+                    origin?.environmentId === copiedFrom.environmentId &&
+                    origin.botId === copiedFrom.botId,
+                ),
+              ),
           copiedFrom,
         ),
       );
@@ -454,38 +465,46 @@ const make = Effect.gen(function* () {
       const ownsProjects = new BotValidationError({
         reason: "Give this bot's projects to another bot or to none first",
       });
-      const snapshot = yield* projects.snapshot.pipe(Effect.mapError(failed("projects")));
-      if (
-        snapshot.projects.some(
-          (project) =>
-            project.deletedAt === null &&
-            project.botId === id &&
-            project.workspaceRoot !== homeRoot,
-        )
-      ) {
-        return yield* ownsProjects;
-      }
-      // The bot's row goes last, so a failure on the way leaves a bot a retry can finish removing.
-      yield* scheduledTasks.deleteForBot(id).pipe(Effect.mapError(failed("automations")));
-      if (Option.isSome(home)) {
-        yield* projects
-          .delete({
-            commandId: CommandId.make(`bot-remove:${id}:${home.value.id}`),
-            projectId: home.value.id,
-            force: true,
-            withHeadquarters: true,
-          })
-          .pipe(Effect.mapError(failed("home")));
-      }
-      if (Option.isSome(root)) {
-        yield* fileSystem
-          .remove(root.value, { recursive: true, force: true })
-          .pipe(Effect.mapError(failed("home folder")));
-      }
-      const result = yield* store.withOwnership(
-        store.deleteUnlessOwning(id, DateTime.formatIso(yield* DateTime.now), homeRoot),
+      // Under the ownership lock, no project can be given to the bot between the check and the
+      // row going. The bot's row goes last, so a failure on the way leaves a bot a retry can
+      // finish removing.
+      yield* store.withOwnership(
+        Effect.gen(function* () {
+          const snapshot = yield* projects.snapshot.pipe(Effect.mapError(failed("projects")));
+          if (
+            snapshot.projects.some(
+              (project) =>
+                project.deletedAt === null &&
+                project.botId === id &&
+                project.workspaceRoot !== homeRoot,
+            )
+          ) {
+            return yield* ownsProjects;
+          }
+          yield* scheduledTasks.deleteForBot(id).pipe(Effect.mapError(failed("automations")));
+          if (Option.isSome(home)) {
+            yield* projects
+              .delete({
+                commandId: CommandId.make(`bot-remove:${id}:${home.value.id}`),
+                projectId: home.value.id,
+                force: true,
+                withHeadquarters: true,
+              })
+              .pipe(Effect.mapError(failed("home")));
+          }
+          if (Option.isSome(root)) {
+            yield* fileSystem
+              .remove(root.value, { recursive: true, force: true })
+              .pipe(Effect.mapError(failed("home folder")));
+          }
+          const result = yield* store.deleteUnlessOwning(
+            id,
+            DateTime.formatIso(yield* DateTime.now),
+            homeRoot,
+          );
+          if (result === "owns-projects") return yield* ownsProjects;
+        }),
       );
-      if (result === "owns-projects") return yield* ownsProjects;
       if (options?.forgetId === true) yield* store.purge(id);
     }),
   });

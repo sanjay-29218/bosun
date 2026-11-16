@@ -140,6 +140,8 @@ export const Bot = Schema.Struct({
    * home exists: a bot gets one when it is created, or first opens or schedules work.
    */
   homePath: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** The machine a move that hasn't finished is taking the bot to; null or absent when none. */
+  movingTo: Schema.optionalKey(Schema.NullOr(EnvironmentId)),
 });
 export type Bot = typeof Bot.Type;
 
@@ -212,6 +214,11 @@ export const BotTransferInput = Schema.Struct({
   newBotId: Schema.String,
   mode: BotTransferMode,
   dryRun: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Cancels the bot's unfinished move instead, whatever the target says. `undo` needs the target
+   * to undo its copy; `forget` stops waiting for it, leaving the automations here off.
+   */
+  cancelMove: Schema.optionalKey(Schema.Literals(["undo", "forget"])),
 });
 export type BotTransferInput = typeof BotTransferInput.Type;
 

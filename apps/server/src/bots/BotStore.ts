@@ -123,7 +123,8 @@ const make = Effect.gen(function* () {
         long_conversation AS "longConversation",
         permitted_environment_ids_json AS "permittedEnvironmentIds",
         position, pinned, revision,
-        created_at AS "createdAt", updated_at AS "updatedAt"
+        created_at AS "createdAt", updated_at AS "updatedAt",
+        json_extract(moving_json, '$.targetEnvironmentId') AS "movingTo"
       FROM bots WHERE deleted_at IS NULL AND ${id === undefined ? sql`1 = 1` : sql`id = ${id}`}
       ORDER BY position, created_at, id
     `.pipe(

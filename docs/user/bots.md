@@ -75,7 +75,9 @@ will happen to the bot's projects and automations.
   those along, link that machine from the new one first. If the move fails, the bot stays where
   it was, unchanged. If the new machine stops answering mid-move, the bot's automations stay paused
   here, since it may already run them, and can't be turned back on; move the bot to that machine
-  again to finish, which works from any client. You can move it back the same way once the new
+  again to finish, which works from any client, or pick **Cancel move** in the dialog to keep it
+  here. If that machine can't be reached any more, cancelling leaves the automations off, since it
+  may still run them; turn them on once you're sure it doesn't. You can move it back the same way once the new
   machine links back.
 
 Both need the other machine on a link with **Full access**, running a Bosun version that can take

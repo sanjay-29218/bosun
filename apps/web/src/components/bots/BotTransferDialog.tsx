@@ -12,6 +12,7 @@ import * as DateTime from "effect/DateTime";
 import { TriangleAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { requestConfirmDialog } from "../../confirmDialog";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn, randomUUID } from "../../lib/utils";
 import { botsEnvironment } from "../../state/bots";
@@ -34,6 +35,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Label } from "../ui/label";
 import { Radio, RadioGroup } from "../ui/radio-group";
 import { Spinner } from "../ui/spinner";
+import { toastManager } from "../ui/toast";
 import { botTransferAutomationsLine, botTransferLeftOut } from "./bots.logic";
 
 const OLDER_BOSUN = /^Update Bosun on /;
@@ -197,6 +199,55 @@ function TransferForm({
     setFailure(formatEnvironmentQueryError(result.cause));
   };
 
+  // A move that hasn't finished: finish it by moving there again, or cancel it.
+  const pendingLabel =
+    bot.movingTo == null
+      ? null
+      : (list?.find((link) => link.environmentId === bot.movingTo)?.label ?? "the other machine");
+  const cancelPendingMove = async () => {
+    const movingTo = bot.movingTo;
+    if (movingTo == null || pendingLabel === null) return;
+    const cancel = (how: "undo" | "forget") =>
+      transfer({
+        environmentId,
+        input: {
+          botId: bot.id,
+          targetEnvironmentId: movingTo,
+          newBotId,
+          mode: "move",
+          cancelMove: how,
+        },
+      });
+    setRunning(true);
+    setFailure(null);
+    let result = await cancel("undo");
+    if (result._tag !== "Success") {
+      setRunning(false);
+      const confirmed = await requestConfirmDialog(
+        `${formatEnvironmentQueryError(result.cause)}\nCancel the move anyway? ${bot.name}'s automations stay off here; turn them on only once you're sure ${pendingLabel} doesn't run them.`,
+        { variant: "destructive" },
+      );
+      if (confirmed !== true) return;
+      setRunning(true);
+      result = await cancel("forget");
+    }
+    setRunning(false);
+    if (result._tag !== "Success") {
+      setFailure(formatEnvironmentQueryError(result.cause));
+      return;
+    }
+    toastManager.add(
+      result.value.warnings.length > 0
+        ? {
+            type: "warning",
+            title: `Cancelled ${bot.name}'s move`,
+            description: result.value.warnings.join(" "),
+          }
+        : { type: "success", title: `Cancelled ${bot.name}'s move`, description: "It stays here." },
+    );
+    onCancel();
+  };
+
   const verb = mode === "move" ? "Move" : "Copy";
   const linkAction = canLink ? (
     <LinkEnvironmentAction environmentId={environmentId} label="Link another machine" />
@@ -214,6 +265,22 @@ function TransferForm({
       </DialogHeader>
       <DialogPanel>
         <fieldset disabled={running} className="min-w-0 space-y-5">
+          {pendingLabel === null ? null : (
+            <Alert variant="warning">
+              <TriangleAlertIcon />
+              <AlertTitle>
+                {bot.name}'s move to {pendingLabel} hasn't finished
+              </AlertTitle>
+              <AlertDescription>
+                Move it to {pendingLabel} again to finish, or cancel the move to keep it here.
+              </AlertDescription>
+              <AlertAction>
+                <Button size="xs" variant="outline" onClick={() => void cancelPendingMove()}>
+                  Cancel move
+                </Button>
+              </AlertAction>
+            </Alert>
+          )}
           <RadioGroup
             value={mode}
             onValueChange={(next) => {

@@ -333,8 +333,14 @@ const setup = (
             ),
           );
         }
-        assert.equal(environmentId, box.environmentId);
         const input = params as Tool.Parameters<typeof LinkBotImport>;
+        if (environmentId !== box.environmentId) {
+          return yield* target.run(
+            BotTransfer.BotTransfer.pipe(
+              Effect.flatMap((service) => service.importForLink(scope, input)),
+            ),
+          );
+        }
         const kind =
           input.discard === true ? "discard" : input.dryRun === true ? "check" : "import";
         calls.push(kind);
@@ -524,7 +530,11 @@ const setup = (
     const transfer = (
       mode: BotTransferInput["mode"],
       dryRun = false,
-      overrides: { readonly target?: EnvironmentId; readonly newBotId?: string } = {},
+      overrides: {
+        readonly target?: EnvironmentId;
+        readonly newBotId?: string;
+        readonly cancelMove?: "undo" | "forget";
+      } = {},
     ) =>
       onLaptop(
         BotTransfer.BotTransfer.pipe(
@@ -535,6 +545,7 @@ const setup = (
               newBotId: overrides.newBotId ?? NEW_ID,
               mode,
               ...(dryRun ? { dryRun } : {}),
+              ...(overrides.cancelMove === undefined ? {} : { cancelMove: overrides.cancelMove }),
             }),
           ),
         ),
@@ -815,6 +826,68 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
     }),
   );
 
+  it.effect("Cancel move undoes the copy on the box and turns the automations back on", () =>
+    Effect.gen(function* () {
+      const env = yield* setup();
+      env.behavior.import = "lose-answer";
+      env.behavior.discard = "unanswered";
+      yield* env.transfer("move").pipe(Effect.flip);
+      assert.equal((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo, box.environmentId);
+
+      env.behavior.discard = "apply";
+      const cancelled = yield* env.transfer("move", false, { cancelMove: "undo" });
+      assert.deepEqual(cancelled.warnings, []);
+      assert.isNull((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo);
+      yield* assertLaptopUnchanged(env);
+      assert.isNull(yield* env.getBot(env.onBox, NEW_ID));
+      assert.deepEqual(yield* env.boxTasks, []);
+      assert.equal((yield* env.getProject(env.onBox, env.boxProject)).remoteBot?.botId, "bot-sky");
+    }),
+  );
+
+  it.effect("Cancel move without the box keeps automations off and frees the bot to move", () =>
+    Effect.gen(function* () {
+      const env = yield* setup({ withCouch: true });
+      env.behavior.import = "lose-answer";
+      env.behavior.discard = "unanswered";
+      yield* env.transfer("move").pipe(Effect.flip);
+
+      // Undoing needs the box; it's gone quiet, so the person has to choose to stop waiting.
+      const needsBox = yield* env.transfer("move", false, { cancelMove: "undo" }).pipe(Effect.flip);
+      assert.equal(
+        needsBox.message,
+        "Box didn't answer, so Sky's copy there couldn't be undone. Box may still run Sky's automations.",
+      );
+      const forgotten = yield* env.transfer("move", false, { cancelMove: "forget" });
+      assert.deepEqual(forgotten.warnings, [
+        "Box didn't answer, so it may still run Sky's automations. They stay off here; turn them on only once you're sure Box doesn't.",
+      ]);
+      const tasks = sortedTasks(yield* env.laptopTasks);
+      assert.deepEqual(
+        tasks.map((task) => [task.enabled, task.pausedReason]),
+        [
+          [
+            false,
+            "Box may still run this from a cancelled move. Turn it on here only once you're sure it doesn't.",
+          ],
+          [
+            false,
+            "Box may still run this from a cancelled move. Turn it on here only once you're sure it doesn't.",
+          ],
+        ],
+      );
+      assert.isNull((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo);
+      // The person may turn them on again, and move Sky elsewhere.
+      yield* env.onLaptop(
+        ScheduledTaskService.ScheduledTaskService.pipe(
+          Effect.flatMap((service) => service.setEnabled({ id: tasks[1]!.id, enabled: true })),
+        ),
+      );
+      const elsewhere = yield* env.transfer("move", true, { target: couch.environmentId });
+      assert.equal(elsewhere.bot.environmentId, couch.environmentId);
+    }),
+  );
+
   it.effect("a removal that fails part-way leaves the bot for a retry to finish", () =>
     Effect.gen(function* () {
       const env = yield* setup();
@@ -977,6 +1050,14 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
         automations: [],
       };
       yield* env.boxTransfer.importForLink(env.linkScope("full-access"), input);
+      // Renamed on the box since, it's still the same copy.
+      yield* env.onBox(
+        BotService.BotService.pipe(
+          Effect.flatMap((bots) =>
+            bots.update({ id: NEW_ID, expectedRevision: 1, name: "Sky on the box" }),
+          ),
+        ),
+      );
       yield* env.boxTransfer.importForLink(env.linkScope("full-access"), input);
       const listed = yield* env.onBox(
         BotService.BotService.pipe(Effect.flatMap((bots) => bots.list)),
