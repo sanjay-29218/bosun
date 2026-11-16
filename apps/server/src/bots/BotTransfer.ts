@@ -50,7 +50,7 @@ const LINK_LIST_TIMEOUT = Duration.seconds(8);
 
 const olderBosunMessage = (label: string) => `Update Bosun on ${label} to copy bots to it.`;
 export const webhookReason = (label: string) =>
-  `New webhook URL on ${label}. Update the sender (and its secret), then turn it on.`;
+  `New webhook URL on ${label}. Point the sender at it, set a signing secret on ${label} if the sender signs requests, then turn it on.`;
 const copiedReason = (label: string) => `Copied from ${label}. Turn it on when you're ready.`;
 const movingReason = (label: string) => `Moving to ${label}`;
 
@@ -179,11 +179,21 @@ const make = Effect.gen(function* () {
     return self;
   });
 
+  /** Whether the bot here under `newBotId` is a copy of `from`'s bot. */
+  const isCopyOf = (from: BotHome, newBotId: string) =>
+    store.copiedFrom(newBotId).pipe(
+      Effect.map(
+        (origin) => origin?.environmentId === from.environmentId && origin.botId === from.botId,
+      ),
+      Effect.mapError(unavailable),
+    );
+
   const discardImport = Effect.fn("BotTransfer.discardImport")(function* (
     from: BotHome,
     newBotId: string,
   ) {
-    if ((yield* bots.get(newBotId).pipe(Effect.mapError(unavailable))) === null) return false;
+    // Only a copy that bot made is undone; a bot here that merely shares the ID is left alone.
+    if (!(yield* isCopyOf(from, newBotId))) return false;
     const taken = yield* projectsHere((project) => project.botId === newBotId).pipe(
       Effect.mapError(unavailable),
     );
@@ -226,7 +236,7 @@ const make = Effect.gen(function* () {
           return { botId: newBotId, linkedEnvironmentIds, undone };
         }
         const existing = yield* bots.get(newBotId).pipe(Effect.mapError(unavailable));
-        if (existing !== null && existing.name !== input.bot.name.trim()) {
+        if (existing !== null && !(yield* isCopyOf(from, newBotId))) {
           return yield* failure("invalid_request", `Bot ID ${newBotId} is already in use here.`);
         }
         if (input.dryRun === true) return { botId: newBotId, linkedEnvironmentIds, undone: false };
@@ -237,6 +247,7 @@ const make = Effect.gen(function* () {
         yield* bots
           .insertCopy({
             bot: { ...input.bot, id: newBotId, permittedEnvironmentIds: permitted },
+            copiedFrom: { environmentId: from.environmentId, botId: from.botId },
             homeFiles: input.homeFiles,
           })
           .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
@@ -332,6 +343,28 @@ const make = Effect.gen(function* () {
     return { moved: owned.length };
   });
 
+  /** Whether any thread in the bot's home, its headquarters among them, has a turn running. */
+  const isWorking = Effect.fn("BotTransfer.isWorking")(function* (
+    botId: string,
+    homePath: string | null | undefined,
+  ) {
+    const home =
+      homePath == null
+        ? Option.none<Project>()
+        : yield* projects.getByWorkspaceRoot(homePath).pipe(Effect.orElseSucceed(Option.none));
+    const shells = Option.isNone(home)
+      ? []
+      : (yield* threads
+          .getShellSnapshot({ projectId: home.value.id })
+          .pipe(Effect.orElseSucceed(() => ({ threads: [] })))).threads;
+    const headquarters = yield* threads
+      .getThreadShell(botHeadquartersThreadId(botId))
+      .pipe(Effect.orElseSucceed(() => null));
+    return [...shells, ...(headquarters === null ? [] : [headquarters])].some(
+      (shell) => shell.activeRunId != null,
+    );
+  });
+
   /** Everything a transfer needs, checked without changing anything. */
   const prepare = Effect.fn("BotTransfer.prepare")(function* (input: BotTransferInput) {
     const self = yield* here;
@@ -379,13 +412,23 @@ const make = Effect.gen(function* () {
         ),
       );
     if (resolved.capabilities.botTransfer !== true) return yield* refuse(olderBosunMessage(label));
-    if (input.mode === "move") {
-      const headquarters = yield* threads
-        .getThreadShell(botHeadquartersThreadId(bot.id))
-        .pipe(Effect.orElseSucceed(() => null));
-      if (headquarters?.activeRunId != null) {
-        return yield* refuse(`${bot.name} is working. Wait for it or stop it, then move.`);
-      }
+    // A move that hasn't finished keeps its target and ID, so a retry from anywhere finishes it.
+    const pending =
+      input.mode === "move"
+        ? yield* store.pendingMove(bot.id).pipe(Effect.mapError((error) => refuse(error.message)))
+        : null;
+    if (pending !== null && pending.targetEnvironmentId !== target) {
+      const pendingLabel = Option.match(
+        yield* links.get(pending.targetEnvironmentId).pipe(Effect.orElseSucceed(Option.none)),
+        { onNone: () => "the other machine", onSome: (other) => other.label },
+      );
+      return yield* refuse(
+        `${bot.name}'s move to ${pendingLabel} hasn't finished. Move it to ${pendingLabel} again to finish it first.`,
+      );
+    }
+    const newBotId = pending?.newBotId ?? input.newBotId;
+    if (input.mode === "move" && (yield* isWorking(bot.id, bot.homePath))) {
+      return yield* refuse(`${bot.name} is working. Wait for it or stop it, then move.`);
     }
     const homeFiles = yield* bots
       .homeFiles(bot.id)
@@ -418,7 +461,7 @@ const make = Effect.gen(function* () {
     const scope = personScope(self.environmentId, bot.id);
     const importInput = (extra: Partial<ImportInput>): ImportInput => ({
       home,
-      newBotId: input.newBotId,
+      newBotId,
       mode: input.mode,
       bot: {
         name: bot.name,
@@ -475,7 +518,7 @@ const make = Effect.gen(function* () {
           : ("left-without-bot" as const);
     const isWebhook = (automation: TransferredAutomation) => automation.schedule.type === "webhook";
     const result: BotTransferResult = {
-      bot: { environmentId: target, id: input.newBotId, name: bot.name },
+      bot: { environmentId: target, id: newBotId, name: bot.name },
       projects: [...local, ...remote].map((project) => ({
         environmentId: project.environmentId,
         environmentLabel: project.environmentLabel,
@@ -528,6 +571,11 @@ const make = Effect.gen(function* () {
 
   const move = Effect.fn("BotTransfer.move")(function* (prepared: Prepared) {
     const { bot, label, self, target, targetLinks } = prepared;
+    const newBotId = prepared.result.bot.id;
+    const settle = (move: BotStore.PendingMove | null) =>
+      store.setPendingMove(bot.id, move).pipe(Effect.mapError((error) => refuse(error.message)));
+    // Recorded first, so until the move finishes or is undone every retry goes to this target.
+    yield* settle({ targetEnvironmentId: target, newBotId });
     // Automations never run in two places: they stop here before the copy can start them there.
     const paused = yield* scheduledTasks
       .pauseForBot({ botId: bot.id, reason: prepared.moving })
@@ -538,7 +586,8 @@ const make = Effect.gen(function* () {
         .filter((task) => !task.enabled && task.pausedReason === prepared.moving)
         .map((task) => task.id),
     ];
-    const resume = scheduledTasks.resumeTasks(pausedIds);
+    // Nothing is left on the target, so the move is over and the automations run here again.
+    const resume = settle(null).pipe(Effect.andThen(scheduledTasks.resumeTasks(pausedIds)));
     const imported = yield* Effect.result(prepared.callImport({}));
     if (Result.isFailure(imported)) {
       const error = imported.failure;
@@ -549,7 +598,7 @@ const make = Effect.gen(function* () {
       const discarded = yield* Effect.result(prepared.callImport({ homeFiles: [], discard: true }));
       if (Result.isFailure(discarded)) {
         return yield* refuse(
-          `Couldn't confirm with ${label}. ${bot.name}'s automations stay paused; try again.`,
+          `Couldn't confirm with ${label}. ${bot.name}'s automations stay paused here, because ${label} may already run them; don't turn them on here. Move ${bot.name} to ${label} again to finish.`,
         );
       }
       yield* resume;
@@ -558,7 +607,7 @@ const make = Effect.gen(function* () {
 
     const newHome: BotHome = {
       environmentId: target,
-      botId: prepared.result.bot.id,
+      botId: newBotId,
       botName: bot.name,
       label,
     };

@@ -89,11 +89,14 @@ export class BotService extends Context.Service<
      */
     readonly insertCopy: (input: {
       readonly bot: BotCopy;
+      /** The bot on another environment it's a copy of. */
+      readonly copiedFrom: BotStore.CopiedFrom;
       readonly homeFiles: ReadonlyArray<BotHomeFile>;
     }) => Effect.Effect<Bot, BotServiceError>;
     /**
      * Removes the bot and everything of it here: its automations, its home with its
-     * headquarters, and its home folder. Refused while it owns a project other than its home.
+     * headquarters, its home folder, and last the bot. Refused while it owns a project other than
+     * its home; after a failure part-way, repeating it finishes the job.
      * `forgetId` frees the ID too, for a copy undone before anyone used it.
      */
     readonly removeCompletely: (
@@ -192,6 +195,7 @@ const make = Effect.gen(function* () {
   const insertUnlocked = Effect.fn("BotService.insertBot")(function* (
     bot: Omit<Bot, "position" | "pinned" | "revision" | "createdAt" | "updatedAt">,
     same: (existing: Bot) => boolean,
+    copiedFrom?: BotStore.CopiedFrom,
   ) {
     const existing = yield* store.get(bot.id);
     if (existing) {
@@ -208,7 +212,7 @@ const make = Effect.gen(function* () {
       createdAt: now,
       updatedAt: now,
     };
-    if (yield* store.insert(inserted)) return inserted;
+    if (yield* store.insert(inserted, copiedFrom)) return inserted;
     // A concurrent create with the same ID won, or a crew member already has the ID.
     const winner = yield* store.get(bot.id);
     if (winner && same(winner)) return winner;
@@ -402,7 +406,11 @@ const make = Effect.gen(function* () {
       }
       return read.files;
     }),
-    insertCopy: Effect.fn("BotService.insertCopy")(function* ({ bot: sent, homeFiles }) {
+    insertCopy: Effect.fn("BotService.insertCopy")(function* ({
+      bot: sent,
+      copiedFrom,
+      homeFiles,
+    }) {
       const bot = yield* creating.withPermits(1)(
         insertUnlocked(
           {
@@ -418,6 +426,7 @@ const make = Effect.gen(function* () {
             permittedEnvironmentIds: [...new Set(sent.permittedEnvironmentIds)],
           },
           (existing) => existing.name === sent.name.trim(),
+          copiedFrom,
         ),
       );
       const home = yield* ensureHome(bot);
@@ -427,7 +436,7 @@ const make = Effect.gen(function* () {
         Effect.mapError(
           (error) =>
             new BotValidationError({
-              reason: `Couldn't write ${bot.name}'s home folder: ${typeof error === "string" ? error : error.message}`,
+              reason: `Couldn't write ${bot.name}'s home folder: ${error.message}`,
             }),
         ),
       );
@@ -436,32 +445,35 @@ const make = Effect.gen(function* () {
     removeCompletely: Effect.fn("BotService.removeCompletely")(function* (id, options) {
       const root = yield* folders.botHomePath(id);
       const home = yield* homeProject(id);
-      // Gone first, so nothing new starts as it; a retry after a later step failed goes on.
-      const result = yield* store.withOwnership(
-        store.deleteUnlessOwning(
-          id,
-          DateTime.formatIso(yield* DateTime.now),
-          Option.match(home, {
-            onNone: () => Option.getOrNull(root),
-            onSome: (project) => project.workspaceRoot,
-          }),
-        ),
-      );
-      if (result === "owns-projects") {
-        return yield* new BotValidationError({
-          reason: "Give this bot's projects to another bot or to none first",
-        });
-      }
+      const homeRoot = Option.match(home, {
+        onNone: () => Option.getOrNull(root),
+        onSome: (project) => project.workspaceRoot,
+      });
       const failed = (what: string) => (error: { readonly message: string }) =>
         new BotValidationError({ reason: `Couldn't remove its ${what}: ${error.message}` });
+      const ownsProjects = new BotValidationError({
+        reason: "Give this bot's projects to another bot or to none first",
+      });
+      const snapshot = yield* projects.snapshot.pipe(Effect.mapError(failed("projects")));
+      if (
+        snapshot.projects.some(
+          (project) =>
+            project.deletedAt === null &&
+            project.botId === id &&
+            project.workspaceRoot !== homeRoot,
+        )
+      ) {
+        return yield* ownsProjects;
+      }
+      // The bot's row goes last, so a failure on the way leaves a bot a retry can finish removing.
       yield* scheduledTasks.deleteForBot(id).pipe(Effect.mapError(failed("automations")));
       if (Option.isSome(home)) {
-        // Its headquarters goes with it: the bot is gone, so that thread is never needed again.
         yield* projects
           .delete({
             commandId: CommandId.make(`bot-remove:${id}:${home.value.id}`),
             projectId: home.value.id,
             force: true,
+            withHeadquarters: true,
           })
           .pipe(Effect.mapError(failed("home")));
       }
@@ -470,6 +482,10 @@ const make = Effect.gen(function* () {
           .remove(root.value, { recursive: true, force: true })
           .pipe(Effect.mapError(failed("home folder")));
       }
+      const result = yield* store.withOwnership(
+        store.deleteUnlessOwning(id, DateTime.formatIso(yield* DateTime.now), homeRoot),
+      );
+      if (result === "owns-projects") return yield* ownsProjects;
       if (options?.forgetId === true) yield* store.purge(id);
     }),
   });

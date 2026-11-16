@@ -61,6 +61,8 @@ export interface ProjectDeleteInput {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
   readonly force?: boolean;
+  /** Deletes a bot's headquarters with it, as removing that bot from this machine does. */
+  readonly withHeadquarters?: boolean;
 }
 
 export class ProjectNotFoundError extends Schema.TaggedError<ProjectNotFoundError>()(
@@ -684,18 +686,15 @@ export const make = Effect.gen(function* () {
     const projectThreads = [...snapshot.threads, ...snapshot.archivedThreads].sort(
       (a, b) => DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
     );
-    // A deleted bot's headquarters goes with its home, as when the bot moved to another machine.
     const headquarters = projectThreads.find((thread) => headquartersBotId(thread.id) !== null);
-    if (headquarters !== undefined) {
+    if (headquarters !== undefined && input.withHeadquarters !== true) {
       const botId = headquartersBotId(headquarters.id)!;
-      const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => ({ name: botId })));
-      if (bot !== null) {
-        return yield* new ProjectHoldsHeadquartersError({
-          projectId,
-          projectTitle,
-          botName: bot.name,
-        });
-      }
+      const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null));
+      return yield* new ProjectHoldsHeadquartersError({
+        projectId,
+        projectTitle,
+        botName: bot?.name ?? botId,
+      });
     }
     if (projectThreads.length > 0 && input.force !== true) {
       return yield* new ProjectNotEmptyError({ projectId });

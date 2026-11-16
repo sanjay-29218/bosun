@@ -33,8 +33,9 @@ from its own machine, with no copy of the bot there. Adding one also ticks that 
 work on**, so the bot can hand it work straight away. That project's **Settings → Project → Bot**
 shows the owner as "Atlas · lives on Mac Studio". A project on a machine that isn't answering shows
 **Offline**; requests to it wait. A project on a machine you later untick shows **Not allowed**.
-Projects on a linked machine that runs T3 Code without Bosun are listed but can't be added until
-you install Bosun there. You can also change a project's bot in **Settings → Project → Bot**, or
+Projects on a linked machine that runs T3 Code without Bosun, or that's linked below **Full
+access**, are listed but can't be added until you install Bosun there or link it again with Full
+access. You can also change a project's bot in **Settings → Project → Bot**, or
 pick **No bot**: a project with no bot still has its project manager, which runs on the project's
 default model (else the environment's). In the
 thread list it shows under every bot that may work on its machine, and a project on a machine that
@@ -72,13 +73,17 @@ will happen to the bot's projects and automations.
   A project comes along when the new machine can reach the project's machine; a project on a
   machine the new one has no link to is left with no bot, and the dialog says which. To bring
   those along, link that machine from the new one first. If the move fails, the bot stays where
-  it was, unchanged. You can move it back the same way once the new machine links back.
+  it was, unchanged. If the new machine stops answering mid-move, the bot's automations stay paused
+  here, since it may already run them, and can't be turned back on; move the bot to that machine
+  again to finish, which works from any client. You can move it back the same way once the new
+  machine links back.
 
 Both need the other machine on a link with **Full access**, running a Bosun version that can take
-bots; otherwise the dialog says to link it again or update Bosun there. A bot whose headquarters is
-working can't move until it finishes or you stop it. A home folder can carry up to 1,000 files and
+bots; otherwise the dialog says to link it again or update Bosun there. A bot that's working, in its
+headquarters or another thread in its home, can't move until it finishes or you stop it. A home folder can carry up to 1,000 files and
 8 MB. Webhook automations get a new URL on the new machine and leave their signing secret behind,
-so they arrive turned off: update the sender, and its secret, then turn them on. Copying and moving
+so they arrive turned off: point the sender at the new URL, set a signing secret there if the
+sender signs its requests, then turn them on. Copying and moving
 aren't available in the mobile app; a moved bot shows there under its new machine.
 
 #### Projects owned by a copy of a bot on another machine

@@ -170,6 +170,7 @@ export function BotProjectList({
   availableProjects,
   projectsWithoutBots,
   environmentLabels,
+  limitedEnvironmentIds,
   grantAccess,
 }: {
   readonly environmentId: EnvironmentId;
@@ -181,6 +182,8 @@ export function BotProjectList({
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
   /** Ticks a linked machine under Can work on; the error to show, or null once saved. */
   readonly grantAccess: (environmentId: EnvironmentId) => Promise<string | null>;
+  /** Linked machines below full access, where the bot couldn't work on a project it got. */
+  readonly limitedEnvironmentIds: ReadonlySet<EnvironmentId>;
 }) {
   const moveToBot = useMoveProjectToLogicalBot();
   const connected = useConnectedEnvironmentIds();
@@ -232,6 +235,12 @@ export function BotProjectList({
     }
     return [...groups];
   };
+  const addable = availableProjects.filter(
+    (project) => !limitedEnvironmentIds.has(project.environmentId),
+  );
+  const limited = availableProjects.filter((project) =>
+    limitedEnvironmentIds.has(project.environmentId),
+  );
   const canAdd = availableProjects.length > 0 || projectsWithoutBots.length > 0;
 
   return (
@@ -301,10 +310,10 @@ export function BotProjectList({
                 Add project
               </MenuTrigger>
               <MenuPopup align="start">
-                {availableProjects.length > 0 ? (
+                {addable.length > 0 ? (
                   <MenuGroup>
                     <MenuGroupLabel>Add to {bot.name}</MenuGroupLabel>
-                    {availableProjects.toSorted(byMachine).map((project) => (
+                    {addable.toSorted(byMachine).map((project) => (
                       <AddProjectItem
                         key={`${project.environmentId}:${project.id}`}
                         project={project}
@@ -316,6 +325,14 @@ export function BotProjectList({
                     ))}
                   </MenuGroup>
                 ) : null}
+                {groupByEnvironment(limited).map(([projectEnvironmentId, projects]) => (
+                  <DisabledProjectGroup
+                    key={projectEnvironmentId}
+                    label={labelOf(projectEnvironmentId)}
+                    reason={`Needs full access. Link ${labelOf(projectEnvironmentId)} again with full access.`}
+                    projects={projects}
+                  />
+                ))}
                 {groupByEnvironment(projectsWithoutBots).map(([projectEnvironmentId, projects]) => (
                   <DisabledProjectGroup
                     key={projectEnvironmentId}

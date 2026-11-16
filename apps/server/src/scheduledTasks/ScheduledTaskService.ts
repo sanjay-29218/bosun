@@ -639,6 +639,28 @@ export const layer = Layer.effect(
         Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
       );
 
+    /**
+     * A bot whose move to another machine hasn't finished may already run its automations there,
+     * so they stay off here until the move finishes or is undone.
+     */
+    const requireNotMoving = Effect.fn("ScheduledTaskService.requireNotMoving")(function* (
+      botId: string,
+      taskId: ScheduledTaskId,
+    ) {
+      const rows = yield* sql<{ readonly name: string }>`
+        SELECT name FROM bots WHERE id = ${botId} AND deleted_at IS NULL AND moving_json IS NOT NULL
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
+      );
+      const moving = rows[0];
+      if (moving === undefined) return;
+      return yield* taskError(
+        `${moving.name} is moving to another machine, which may already run this automation. Move ${moving.name} there again to finish the move.`,
+        { taskId },
+      );
+    });
+
     /** Files a bot task in the bot's home, where its headquarters lives; made on first use. */
     const botTaskProjectId = Effect.fn("ScheduledTaskService.botTaskProjectId")(function* (
       botId: string,
@@ -1625,6 +1647,7 @@ export const layer = Layer.effect(
       if (botId !== null && !(yield* botExists(botId))) {
         return yield* taskError("That bot doesn't exist.", { taskId: id });
       }
+      if (botId !== null && input.enabled) yield* requireNotMoving(botId, id);
       // A bot task runs in its headquarters, so it is filed in the bot's home.
       const projectId =
         botId === null
@@ -1807,6 +1830,9 @@ export const layer = Layer.effect(
       }
       if (input.enabled && existing.projectManager === true) {
         yield* requireManagerFor(existing.projectId, true, input.id);
+      }
+      if (input.enabled && existing.botId !== undefined) {
+        yield* requireNotMoving(existing.botId, input.id);
       }
       const now = yield* localNow;
       yield* requireFutureOnce(

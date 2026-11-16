@@ -3,6 +3,16 @@ import * as Encoding from "effect/encoding/Base64";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
+import * as Schema from "effect/Schema";
+
+/** A file sent for a bot's home that can't be written there. */
+export class BotHomeFileError extends Schema.TaggedError<BotHomeFileError>()("BotHomeFileError", {
+  reason: Schema.String,
+}) {
+  override get message(): string {
+    return this.reason;
+  }
+}
 
 /** A bot's home folder travels whole over the link, so it stays well under any request limit. */
 export const BOT_HOME_MAX_BYTES = 8 * 1024 * 1024;
@@ -74,10 +84,12 @@ export const writeHomeFiles = Effect.fn("botHomeFiles.write")(function* (
   for (const file of files) {
     const target = path.resolve(base, file.path);
     if (!target.startsWith(`${base}${path.sep}`)) {
-      return yield* Effect.fail(`${file.path} is outside the bot's home folder.`);
+      return yield* new BotHomeFileError({
+        reason: `${file.path} is outside the bot's home folder.`,
+      });
     }
     const content = yield* Effect.fromResult(Encoding.decode(file.contentBase64)).pipe(
-      Effect.mapError(() => `${file.path} isn't valid base64.`),
+      Effect.mapError(() => new BotHomeFileError({ reason: `${file.path} isn't valid base64.` })),
     );
     yield* fileSystem.makeDirectory(path.dirname(target), { recursive: true });
     yield* fileSystem.writeFile(target, content);

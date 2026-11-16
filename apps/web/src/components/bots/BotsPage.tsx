@@ -152,6 +152,11 @@ function EnvironmentBotPage({
   const links = useEnvironmentQuery(
     offersLinks ? peerLinkEnvironment.list({ environmentId, input: {} }) : null,
   );
+  const limitedEnvironmentIds = new Set(
+    (links.data?.links ?? [])
+      .filter((link) => link.access !== "full-access")
+      .map((link) => link.environmentId),
+  );
   const reachableEnvironmentIds = new Set([
     environmentId,
     ...(links.data?.links ?? []).map((link) => link.environmentId),
@@ -276,6 +281,7 @@ function EnvironmentBotPage({
             projectsWithoutBots={projectLists.withoutBots}
             environmentLabels={environmentLabels}
             grantAccess={grantAccess}
+            limitedEnvironmentIds={limitedEnvironmentIds}
           />
         }
         onMove={canTransfer ? () => setTransferMode("move") : null}

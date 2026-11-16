@@ -35,7 +35,7 @@ it.layer(NodeServices.layer)("botHomeFiles", (it) => {
       const escape = yield* writeHomeFiles(copy, [
         { path: "../escaped.txt", contentBase64: "" },
       ]).pipe(Effect.flip);
-      assert.equal(escape, "../escaped.txt is outside the bot's home folder.");
+      assert.equal(escape.message, "../escaped.txt is outside the bot's home folder.");
       assert.isFalse(yield* fileSystem.exists(path.join(tmp, "escaped.txt")));
 
       yield* fileSystem.writeFile(path.join(home, "big.bin"), new Uint8Array(BOT_HOME_MAX_BYTES));

@@ -436,7 +436,7 @@ it.effect("rejects a child deletion command ID already accepted for an unrelated
   }).pipe(Effect.provide(layerDatabase)),
 );
 
-it.effect("refuses to delete a project holding a live bot's headquarters, wherever it is", () =>
+it.effect("refuses to delete a project holding a bot's headquarters, wherever it is", () =>
   Effect.gen(function* () {
     const homeId = ProjectId.make("project:captain-home");
     const repoId = ProjectId.make("project:bots-named-repo");
@@ -479,10 +479,13 @@ it.effect("refuses to delete a project holding a live bot's headquarters, wherev
       assert.isTrue(Option.isNone(yield* service.getById(repoId)));
       assert.isNotNull((yield* projections.getThreadProjection(repoThreadId)).thread.deletedAt);
 
-      // Once its bot is gone, as after a move to another machine, the headquarters goes with it.
-      const sql = yield* SqlClient.SqlClient;
-      yield* sql`UPDATE bots SET deleted_at = '2026-11-16' WHERE id = ${CAPTAIN_ID}`;
-      yield* forceDelete(homeId, "home-delete-after-bot");
+      // Removing the bot from this machine, as a move to another one does, takes it along.
+      yield* service.delete({
+        commandId: CommandId.make("command:home-delete-with-bot"),
+        projectId: homeId,
+        force: true,
+        withHeadquarters: true,
+      });
       assert.isTrue(Option.isNone(yield* service.getById(homeId)));
       assert.isNotNull((yield* projections.getThreadProjection(hqId)).thread.deletedAt);
     }).pipe(Effect.provide(layerServices));

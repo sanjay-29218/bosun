@@ -55,6 +55,7 @@ import * as BotTransfer from "./BotTransfer.ts";
 
 const laptop = { environmentId: EnvironmentId.make("environment-laptop"), label: "Laptop" };
 const box = { environmentId: EnvironmentId.make("environment-box"), label: "Box" };
+const couch = { environmentId: EnvironmentId.make("environment-couch"), label: "Couch" };
 const NEW_ID = "bot-sky-on-box";
 
 type Environment = { readonly environmentId: EnvironmentId; readonly label: string };
@@ -117,6 +118,8 @@ const layerEnvironment = (
     readonly forwarding: Partial<PeerForwarding.PeerForwarding["Service"]>;
     /** Its bots' headquarters threads that have a turn running. */
     readonly working?: ReadonlyArray<string>;
+    /** Whether another thread in a bot's home has a turn running. */
+    readonly workingInHome?: boolean;
   },
 ) =>
   BotTransfer.layer.pipe(
@@ -147,6 +150,10 @@ const layerEnvironment = (
                 ? ({ id: threadId, activeRunId: "run:busy" } as never)
                 : null,
             ),
+          getShellSnapshot: () =>
+            Effect.succeed({
+              threads: peers.workingInHome === true ? [{ activeRunId: "run:feature" }] : [],
+            } as never),
         }),
         Layer.mock(PeerLinks.PeerLinks)(peers.links),
         Layer.mock(PeerForwarding.PeerForwarding)(peers.forwarding),
@@ -231,6 +238,9 @@ const setup = (
     readonly linkAccess?: PeerLink["access"];
     readonly boxLinksBack?: boolean;
     readonly working?: ReadonlyArray<string>;
+    readonly workingInHome?: boolean;
+    /** A third machine, linked to both, holding a project Sky owns. */
+    readonly withCouch?: boolean;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -243,15 +253,24 @@ const setup = (
     const atImport: Array<{ readonly title: string; readonly enabled: boolean }> = [];
     const watch = { laptop: Effect.void as Effect.Effect<void> };
 
-    const boxContext = yield* Layer.build(
-      layerEnvironment(box, path.join(tmp, "box"), {
-        links: { list: Effect.succeed([]) },
-        forwarding: {},
-      }),
-    );
+    const peer = (self: Environment) =>
+      Layer.build(
+        layerEnvironment(self, path.join(tmp, self.label.toLowerCase()), {
+          links: { list: Effect.succeed([]) },
+          forwarding: {},
+        }),
+      );
+    const boxContext = yield* peer(box);
     const onBox = <A, E>(effect: Effect.Effect<A, E, Services>) =>
       effect.pipe(Effect.provide(boxContext));
     const boxTransfer = Context.get(boxContext, BotTransfer.BotTransfer);
+    const couchContext = options.withCouch === true ? yield* peer(couch) : boxContext;
+    const onCouch = <A, E>(effect: Effect.Effect<A, E, Services>) =>
+      effect.pipe(Effect.provide(couchContext));
+    const peers = new Map([
+      [box.environmentId, { self: box, run: onBox }],
+      [couch.environmentId, { self: couch, run: onCouch }],
+    ]);
 
     const linkScope = (access: PeerLink["access"]): McpInvocationContext.McpInvocationScope => ({
       environmentId: box.environmentId,
@@ -261,8 +280,8 @@ const setup = (
       capabilities: new Set(["orchestration"]),
       issuedAt: 0,
     });
-    const boxProjects = (home: BotHome) =>
-      onBox(
+    const peerProjects = (self: Environment, run: typeof onBox, home: BotHome) =>
+      run(
         ProjectService.ProjectService.pipe(
           Effect.flatMap((projects) => projects.snapshot),
           Effect.map((snapshot) =>
@@ -272,8 +291,8 @@ const setup = (
               project.remoteBot.botId === home.botId
                 ? [
                     {
-                      environmentId: box.environmentId,
-                      environmentLabel: box.label,
+                      environmentId: self.environmentId,
+                      environmentLabel: self.label,
                       projectId: project.id,
                       title: project.title,
                       workspaceRoot: project.workspaceRoot,
@@ -295,14 +314,26 @@ const setup = (
       params: unknown,
     ): Effect.Effect<unknown, OrchestratorMcpFailure> =>
       Effect.gen(function* () {
-        assert.equal(environmentId, box.environmentId);
+        const target = peers.get(environmentId)!;
         const scope = linkScope(options.linkAccess ?? "full-access");
         if (tool.name === "t3_bot_link_projects") {
-          return { projects: yield* boxProjects((params as { home: BotHome }).home) };
+          return {
+            projects: yield* peerProjects(
+              target.self,
+              target.run,
+              (params as { home: BotHome }).home,
+            ),
+          };
         }
         if (tool.name === "t3_bot_link_rehome") {
-          return yield* boxTransfer.rehomeForLink(scope, params as never);
+          calls.push(`rehome:${target.self.label}`);
+          return yield* target.run(
+            BotTransfer.BotTransfer.pipe(
+              Effect.flatMap((service) => service.rehomeForLink(scope, params as never)),
+            ),
+          );
         }
+        assert.equal(environmentId, box.environmentId);
         const input = params as Tool.Parameters<typeof LinkBotImport>;
         const kind =
           input.discard === true ? "discard" : input.dryRun === true ? "check" : "import";
@@ -336,19 +367,27 @@ const setup = (
             Effect.succeed(
               id === box.environmentId
                 ? Option.some(linkTo(box, options.linkAccess))
-                : Option.none(),
+                : id === couch.environmentId && options.withCouch === true
+                  ? Option.some(linkTo(couch))
+                  : Option.none(),
             ),
-          resolve: () =>
+          resolve: (id) =>
             Effect.succeed({
-              link: linkTo(box, options.linkAccess),
+              link: id === couch.environmentId ? linkTo(couch) : linkTo(box, options.linkAccess),
               url: "https://peer.example",
               token: "fixture",
               capabilities: options.capabilities ?? { repositoryIdentity: true, botTransfer: true },
             }),
-          list: Effect.succeed([{ ...linkTo(box), status: "reachable" as const }]),
+          list: Effect.succeed([
+            { ...linkTo(box), status: "reachable" as const },
+            ...(options.withCouch === true
+              ? [{ ...linkTo(couch), status: "reachable" as const }]
+              : []),
+          ]),
         },
         forwarding: { call: call as PeerForwarding.PeerForwarding["Service"]["call"] },
         ...(options.working === undefined ? {} : { working: options.working }),
+        ...(options.workingInHome === undefined ? {} : { workingInHome: options.workingInHome }),
       }),
     );
     const onLaptop = <A, E>(effect: Effect.Effect<A, E, Services>) =>
@@ -356,6 +395,39 @@ const setup = (
 
     yield* onLaptop(recordLink(box));
     if (options.boxLinksBack !== false) yield* onBox(recordLink(laptop));
+    const couchProject = ProjectId.make("project:couch-notes");
+    if (options.withCouch === true) {
+      yield* onLaptop(recordLink(couch));
+      yield* onBox(recordLink(couch));
+      yield* onCouch(
+        ProjectService.ProjectService.pipe(
+          Effect.flatMap((projects) =>
+            projects
+              .bootstrap({
+                commandId: CommandId.make("command:couch-notes"),
+                projectId: couchProject,
+                title: "Notes",
+                workspaceRoot: "/home/notes",
+              })
+              .pipe(
+                Effect.andThen(
+                  projects.assignBot({
+                    commandId: CommandId.make("command:couch-notes-sky"),
+                    projectId: couchProject,
+                    botId: null,
+                    remoteBot: {
+                      environmentId: laptop.environmentId,
+                      botId: "bot-sky",
+                      name: "Sky",
+                      homeLabel: "Laptop",
+                    },
+                  }),
+                ),
+              ),
+          ),
+        ),
+      );
+    }
 
     // Sky on the laptop, with a note in its home, two automations and a project.
     const sky = yield* onLaptop(
@@ -449,14 +521,18 @@ const setup = (
       ),
       Effect.orDie,
     );
-    const transfer = (mode: BotTransferInput["mode"], dryRun = false) =>
+    const transfer = (
+      mode: BotTransferInput["mode"],
+      dryRun = false,
+      overrides: { readonly target?: EnvironmentId; readonly newBotId?: string } = {},
+    ) =>
       onLaptop(
         BotTransfer.BotTransfer.pipe(
           Effect.flatMap((service) =>
             service.transfer({
               botId: "bot-sky",
-              targetEnvironmentId: box.environmentId,
-              newBotId: NEW_ID,
+              targetEnvironmentId: overrides.target ?? box.environmentId,
+              newBotId: overrides.newBotId ?? NEW_ID,
               mode,
               ...(dryRun ? { dryRun } : {}),
             }),
@@ -471,6 +547,10 @@ const setup = (
       transfer,
       onLaptop,
       onBox,
+      onCouch,
+      couchProject,
+      laptopRoot: path.join(tmp, "laptop"),
+      chmod: (file: string, mode: number) => fileSystem.chmod(file, mode),
       boxTransfer,
       linkScope,
       laptopProject,
@@ -675,28 +755,55 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
     }),
   );
 
-  it.effect("an unconfirmed move keeps automations paused, and a retry finishes it", () =>
+  it.effect("an unconfirmed move holds its target and ID until a retry finishes it", () =>
     Effect.gen(function* () {
-      const env = yield* setup();
+      const env = yield* setup({ withCouch: true });
       env.behavior.import = "lose-answer";
       env.behavior.discard = "unanswered";
       const failed = yield* env.transfer("move").pipe(Effect.flip);
       assert.equal(
         failed.message,
-        "Couldn't confirm with Box. Sky's automations stay paused; try again.",
+        "Couldn't confirm with Box. Sky's automations stay paused here, because Box may already run them; don't turn them on here. Move Sky to Box again to finish.",
       );
+      const paused = sortedTasks(yield* env.laptopTasks);
       assert.deepEqual(
-        sortedTasks(yield* env.laptopTasks).map((task) => [task.enabled, task.pausedReason]),
+        paused.map((task) => [task.enabled, task.pausedReason]),
         [
           [false, "Moving to Box"],
           [false, "Moving to Box"],
         ],
       );
+      // The box may already run them, so they stay off here until the move is settled.
+      const turnedOn = yield* env
+        .onLaptop(
+          ScheduledTaskService.ScheduledTaskService.pipe(
+            Effect.flatMap((tasks) => tasks.setEnabled({ id: paused[1]!.id, enabled: true })),
+          ),
+        )
+        .pipe(Effect.flip);
+      assert.include(turnedOn.message, "Sky is moving to another machine");
+      // Nor can it go somewhere else meanwhile.
+      const elsewhere = yield* env
+        .transfer("move", false, { target: couch.environmentId })
+        .pipe(Effect.flip);
+      assert.equal(
+        elsewhere.message,
+        "Sky's move to Box hasn't finished. Move it to Box again to finish it first.",
+      );
 
+      // A retry from a fresh dialog, under a new ID, finishes the same move.
       env.behavior.import = "apply";
       env.behavior.discard = "apply";
-      yield* env.transfer("move");
+      const finished = yield* env.transfer("move", false, { newBotId: "bot-fresh-dialog" });
+      assert.equal(finished.bot.id, NEW_ID);
       assert.isNull(yield* env.getBot(env.onLaptop, "bot-sky"));
+      const onBox = yield* env.onBox(
+        BotService.BotService.pipe(Effect.flatMap((bots) => bots.list)),
+      );
+      assert.deepEqual(
+        onBox.map((bot) => bot.id),
+        [NEW_ID],
+      );
       // The retry counted the automations it had paused as on.
       assert.deepEqual(
         sortedTasks(yield* env.boxTasks).map((task) => [task.title, task.enabled]),
@@ -705,6 +812,101 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
           ["Weekly update", true],
         ],
       );
+    }),
+  );
+
+  it.effect("a removal that fails part-way leaves the bot for a retry to finish", () =>
+    Effect.gen(function* () {
+      const env = yield* setup();
+      // Sky's home folder can't leave the laptop's bots folder.
+      yield* env.chmod(env.laptopRoot, 0o555);
+      const failed = yield* env.transfer("move").pipe(Effect.flip);
+      yield* env.chmod(env.laptopRoot, 0o755);
+      assert.include(failed.message, "Moved Sky to Box, but couldn't remove it from Laptop");
+      assert.isNotNull(yield* env.getBot(env.onLaptop, "bot-sky"));
+
+      yield* env.transfer("move", false, { newBotId: "bot-fresh-dialog" });
+      assert.isNull(yield* env.getBot(env.onLaptop, "bot-sky"));
+      assert.isFalse(yield* env.exists(env.sky.homePath!));
+      assert.deepEqual(yield* env.laptopTasks, []);
+      assert.equal((yield* env.getProject(env.onBox, env.boxProject)).botId, NEW_ID);
+    }),
+  );
+
+  it.effect("a failed copy is undone on the box, and the original keeps running", () =>
+    Effect.gen(function* () {
+      const env = yield* setup();
+      env.behavior.import = "lose-answer";
+      const failed = yield* env.transfer("copy").pipe(Effect.flip);
+      assert.equal(failed.message, "The linked environment stopped answering.");
+      assert.deepEqual(env.calls, ["check", "import", "discard"]);
+      assert.isNull(yield* env.getBot(env.onBox, NEW_ID));
+      assert.deepEqual(yield* env.boxTasks, []);
+      yield* assertLaptopUnchanged(env);
+    }),
+  );
+
+  it.effect("a move hands a third machine's projects to the moved bot", () =>
+    Effect.gen(function* () {
+      const env = yield* setup({ withCouch: true });
+      const preview = yield* env.transfer("move", true);
+      assert.deepEqual(
+        preview.projects.map((project) => [project.title, project.outcome]).toSorted(),
+        [
+          ["API", "comes-along"],
+          ["Notes", "comes-along"],
+          ["Site", "comes-along"],
+        ],
+      );
+      const moved = yield* env.transfer("move");
+      assert.deepEqual(moved.warnings, []);
+      assert.include(env.calls, "rehome:Couch");
+      assert.deepEqual((yield* env.getProject(env.onCouch, env.couchProject)).remoteBot, {
+        environmentId: box.environmentId,
+        botId: NEW_ID,
+        name: "Sky",
+        homeLabel: "Box",
+      });
+    }),
+  );
+
+  it.effect("the box never undoes or takes over a bot it didn't copy", () =>
+    Effect.gen(function* () {
+      const env = yield* setup();
+      // The box has a Sky of its own that happens to use the ID.
+      yield* env.onBox(
+        BotService.BotService.pipe(
+          Effect.flatMap((bots) =>
+            bots.create({ id: NEW_ID, name: "Sky", avatar: env.sky.avatar, color: env.sky.color }),
+          ),
+        ),
+      );
+      const input = {
+        home: {
+          environmentId: laptop.environmentId,
+          botId: "bot-sky",
+          botName: "Sky",
+          label: "Laptop",
+        },
+        newBotId: NEW_ID,
+        mode: "move" as const,
+        bot: env.sky,
+        homeFiles: [],
+        automations: [],
+      };
+      const undone = yield* env.boxTransfer.importForLink(env.linkScope("full-access"), {
+        ...input,
+        discard: true,
+      });
+      assert.isFalse(undone.undone);
+      const refused = yield* env.boxTransfer
+        .importForLink(env.linkScope("full-access"), input)
+        .pipe(Effect.flip);
+      assert.equal(refused.message, `Bot ID ${NEW_ID} is already in use here.`);
+      const move = yield* env.transfer("move").pipe(Effect.flip);
+      assert.equal(move.message, `Bot ID ${NEW_ID} is already in use here.`);
+      assert.isNotNull(yield* env.getBot(env.onBox, NEW_ID));
+      yield* assertLaptopUnchanged(env);
     }),
   );
 
@@ -751,6 +953,10 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
       const working = yield* setup({ working: [ThreadId.make("bot-run:bot-hq:bot-sky")] });
       const busy = yield* working.transfer("move").pipe(Effect.flip);
       assert.equal(busy.message, "Sky is working. Wait for it or stop it, then move.");
+      // Any turn in its home counts, not only its headquarters'.
+      const inHome = yield* setup({ workingInHome: true });
+      const alsoBusy = yield* inHome.transfer("move").pipe(Effect.flip);
+      assert.equal(alsoBusy.message, "Sky is working. Wait for it or stop it, then move.");
     }),
   );
 

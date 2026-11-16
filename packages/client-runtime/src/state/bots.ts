@@ -58,10 +58,12 @@ export function createBotsAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       onSuccess: refreshList,
     }),
     // A move removes the bot here; the target re-reads its own list when the client opens it.
+    // A dry run changes nothing, so it re-reads nothing.
     transfer: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:bots:transfer",
       tag: WS_METHODS.botsTransfer,
-      onSuccess: refreshList,
+      onSuccess: (target, registry) =>
+        target.input.dryRun === true ? Effect.void : refreshList(target, registry),
     }),
     openHeadquarters: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:bots:open-headquarters",
