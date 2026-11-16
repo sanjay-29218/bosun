@@ -273,7 +273,7 @@ describe("Bot foundation", () => {
         const directory = yield* Effect.promise(() =>
           NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-sent-")),
         );
-        yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine }) =>
+        yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
           Effect.gen(function* () {
             yield* createProject(engine);
             const refused = yield* Effect.flip(bots.ensureFeatureManager(projectId));
@@ -297,6 +297,19 @@ describe("Bot foundation", () => {
               runtimeMode: "auto-accept-edits",
             });
             expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
+            // Once the crew is set up here, it follows the local role, and that role's edits.
+            yield* bots.ensureDefaults(modelSelection);
+            yield* bots.ensureFeatureManager(projectId);
+            const local = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
+            yield* bots.updateRole({
+              ...local,
+              instructions: "Lead here.",
+              expectedRevision: local.revision,
+            });
+            expect(yield* store.getMember(featureManagerMemberId(projectId))).toMatchObject({
+              roleId: FEATURE_MANAGER_ROLE_ID,
+              instructions: `Lead here.\n\nYou manage project ${projectId}.`,
+            });
           }),
         ).pipe(
           Effect.ensuring(

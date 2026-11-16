@@ -571,7 +571,7 @@ export const CrewStoreLive = Layer.effect(
       updateMember: (member, expectedRevision) =>
         sql<{ readonly id: string }>`
           UPDATE crew_members SET
-            role_revision = ${member.roleRevision}, name = ${member.name},
+            role_id = ${member.roleId}, role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
             withheld_tools_json = ${JSON.stringify(member.withheldTools)},
             model_selection_json = ${JSON.stringify(member.modelSelection)},

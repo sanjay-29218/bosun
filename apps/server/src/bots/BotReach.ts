@@ -162,7 +162,8 @@ const failure = (code: OrchestratorMcpFailure["code"], message: string) =>
 const UNREACHABLE = "which isn't reachable";
 /** This side's word that the environment didn't answer, not a failure the other side sent. */
 export const isUnreachable = (error: OrchestratorMcpFailure) =>
-  error.code === "orchestration_error" && error.message.includes(UNREACHABLE);
+  isUnanswered(error) ||
+  (error.code === "orchestration_error" && error.message.includes(UNREACHABLE));
 
 const unavailable = (error: { readonly message: string }) =>
   failure("orchestration_error", error.message);

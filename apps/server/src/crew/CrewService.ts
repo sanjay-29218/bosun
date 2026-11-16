@@ -648,6 +648,7 @@ export const CrewServiceLive = Layer.effect(
       if (context === null || member.roleRevision === role.revision) return member;
       const updated: CrewMember = {
         ...member,
+        roleId: role.id,
         roleRevision: role.revision,
         name: role.name,
         instructions: `${role.instructions}\n\n${context}`,
@@ -812,7 +813,7 @@ export const CrewServiceLive = Layer.effect(
       return yield* ensureMember({
         id,
         projectId,
-        // A sent role isn't in this library; the member follows a local one once it exists.
+        // A sent role isn't in this library; the member takes on a local one once it exists.
         roleId: source === role ? roleId : null,
         name: source.name,
         instructions: `${source.instructions}\n\n${projectMemberContext(id, projectId)}`,
