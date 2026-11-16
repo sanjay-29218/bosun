@@ -266,6 +266,46 @@ describe("Bot foundation", () => {
       }),
   );
 
+  effectIt.effect(
+    "with no Feature manager role here, a project's manager comes from the lead role sent, or says what to set up",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-sent-")),
+        );
+        yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, engine }) =>
+          Effect.gen(function* () {
+            yield* createProject(engine);
+            const refused = yield* Effect.flip(bots.ensureFeatureManager(projectId));
+            expect(refused).toMatchObject({ _tag: "CrewValidationError" });
+            expect(refused.message).toContain("Feature manager role");
+            const sentModel = { ...modelSelection, model: "gpt-5.4-mini" };
+            const manager = yield* bots.ensureFeatureManager(projectId, {
+              id: FEATURE_MANAGER_ROLE_ID,
+              name: "Lead from the laptop",
+              instructions: "Lead the work.",
+              withheldTools: [],
+              modelSelection: sentModel,
+              runtimeMode: "auto-accept-edits",
+            });
+            expect(manager).toMatchObject({
+              id: featureManagerMemberId(projectId),
+              roleId: null,
+              name: "Lead from the laptop",
+              instructions: `Lead the work.\n\nYou manage project ${projectId}.`,
+              modelSelection: sentModel,
+              runtimeMode: "auto-accept-edits",
+            });
+            expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
+          }),
+        ).pipe(
+          Effect.ensuring(
+            Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+          ),
+        );
+      }),
+  );
+
   effectIt.effect("project-level members follow their role's edits until customized", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>

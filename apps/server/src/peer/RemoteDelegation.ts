@@ -1039,7 +1039,14 @@ const make = Effect.gen(function* () {
       false,
     ).pipe(
       Effect.map((launched) => ({ _tag: "launched", launched }) as const),
-      Effect.catchIf(isWaitable, () => Effect.succeed({ _tag: "waiting" } as const)),
+      Effect.catchIf(isWaitable, (error) =>
+        Effect.succeed({
+          _tag: "waiting",
+          progress: BotReach.isUnreachable(error)
+            ? waitingFor(pending.label)
+            : `Waiting for ${pending.label}: ${error.message}`,
+        } as const),
+      ),
       // Refused there, or no longer allowed here: the request fails with why.
       Effect.catchTags({
         OrchestratorMcpFailure: (refused) =>
@@ -1054,7 +1061,7 @@ const make = Effect.gen(function* () {
       yield* recordLaunched(parentThreadId, taskId, pending, outcome.launched);
       return true;
     }
-    if (task.status !== "waiting") {
+    if (task.status !== "waiting" || task.progress !== outcome.progress) {
       const attempt = yield* random.uuidV4();
       yield* threads
         .dispatch({
@@ -1062,7 +1069,7 @@ const make = Effect.gen(function* () {
           commandId: CommandId.make(`command:remote-task-wait:${taskId}:${attempt}`),
           parentThreadId,
           taskId,
-          progress: waitingFor(pending.label),
+          progress: outcome.progress,
         })
         .pipe(Effect.ignoreCause({ log: true }));
     }

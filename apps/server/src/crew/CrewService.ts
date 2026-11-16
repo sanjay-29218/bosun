@@ -24,6 +24,7 @@ import {
   type ModelSelection,
   type RunId,
   type RuntimeMode,
+  type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -223,10 +224,12 @@ export interface CrewServiceShape {
   ) => Effect.Effect<void, CrewServiceError>;
   /**
    * The project's Feature manager, made from its role on first use; every feature lead of the
-   * Feature manager role runs as it. The project's bot may delegate to it.
+   * Feature manager role runs as it. The project's bot may delegate to it. With no enabled
+   * Feature manager role here, it is made from `sentLead`, the lead role a linked environment sent.
    */
   readonly ensureFeatureManager: (
     projectId: ProjectId,
+    sentLead?: WorkflowSnapshot["roles"][number],
   ) => Effect.Effect<CrewMember, CrewServiceError>;
   readonly createMember: (
     input: CreateCrewMemberInput,
@@ -787,6 +790,7 @@ export const CrewServiceLive = Layer.effect(
       id: string,
       projectId: ProjectId,
       roleId: string,
+      sentRole?: WorkflowSnapshot["roles"][number],
     ) {
       const existing = yield* store.getMember(id);
       const role = yield* store.getRole(roleId);
@@ -795,26 +799,32 @@ export const CrewServiceLive = Layer.effect(
         if (role === null) return { member: existing, created: false };
         return { member: yield* followRole(existing, role), created: false };
       }
-      if (!role?.enabled) {
+      const source = role?.enabled ? role : sentRole;
+      if (source === undefined) {
+        const name =
+          role?.name ?? (roleId === FEATURE_MANAGER_ROLE_ID ? "Feature manager" : roleId);
         return yield* Effect.fail(
-          new CrewValidationError("Set up the crew before handing it project work"),
+          new CrewValidationError(
+            `Set up the crew before handing it project work: add or turn on the ${name} role in Library → Roles`,
+          ),
         );
       }
       return yield* ensureMember({
         id,
         projectId,
-        roleId,
-        name: role.name,
-        instructions: `${role.instructions}\n\n${projectMemberContext(id, projectId)}`,
-        withheldTools: role.withheldTools,
-        modelSelection: role.modelSelection,
-        runtimeMode: role.runtimeMode,
+        // A sent role isn't in this library; the member follows a local one once it exists.
+        roleId: source === role ? roleId : null,
+        name: source.name,
+        instructions: `${source.instructions}\n\n${projectMemberContext(id, projectId)}`,
+        withheldTools: source.withheldTools ?? [],
+        modelSelection: source.modelSelection,
+        runtimeMode: source.runtimeMode,
       });
     });
 
     const ensureFeatureManager: CrewServiceShape["ensureFeatureManager"] = Effect.fn(
       "CrewService.ensureFeatureManager",
-    )(function* (projectId) {
+    )(function* (projectId, sentLead) {
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
@@ -822,6 +832,7 @@ export const CrewServiceLive = Layer.effect(
         featureManagerMemberId(projectId),
         projectId,
         FEATURE_MANAGER_ROLE_ID,
+        sentLead,
       );
       return manager.member;
     });
