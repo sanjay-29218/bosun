@@ -230,7 +230,7 @@ export function WorkList(props: {
   const [snoozedOpen, setSnoozedOpen] = useState(false);
   const sections: ReadonlyArray<WorkSection> = [...WORK_GROUPS, "snoozed", "settled"];
   return (
-    <div className="-mx-4 flex flex-col sm:-mx-6" onKeyDown={onRowListKeyDown}>
+    <div className="-mx-5 flex flex-col sm:-mx-6" onKeyDown={onRowListKeyDown}>
       {sections.map((section) => {
         const cards = cardsIn(items, section);
         const chats = items.chats[section] ?? [];
@@ -628,7 +628,7 @@ export function IssuesList(props: {
     );
   }
   return (
-    <div className="-mx-4 flex flex-col sm:-mx-6" onKeyDown={onRowListKeyDown}>
+    <div className="-mx-5 flex flex-col sm:-mx-6" onKeyDown={onRowListKeyDown}>
       {groups.milestones.map((group) => (
         <section key={issueKey(group.milestone)} className="flex flex-col">
           <BoardBand

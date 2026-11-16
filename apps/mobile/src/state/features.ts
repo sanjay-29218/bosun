@@ -4,6 +4,11 @@ import {
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import { createFeatureAtoms } from "@t3tools/client-runtime/state/features";
+import {
+  ticketIssue,
+  type EnvironmentIssue,
+  type EnvironmentMilestone,
+} from "@t3tools/client-runtime/state/issue-board";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -166,4 +171,82 @@ export function useFeatureBoard(targets: ReadonlyArray<FeatureBoardTarget>, acti
     }
     return { cards, errors, pending, refresh };
   }, [refresh, results]);
+}
+
+const issuesAtom = (target: FeatureBoardTarget) =>
+  featuresEnvironment.issues({
+    environmentId: target.environmentId,
+    input: { projectId: target.projectId },
+  });
+
+const ticketsAtom = (target: FeatureBoardTarget) =>
+  featuresEnvironment.tickets({
+    environmentId: target.environmentId,
+    input: { projectId: target.projectId },
+  });
+
+/**
+ * Every target's repository issues, milestones and tickets, merged; tickets are rows with a
+ * `ticketId`. Each project loads and fails on its own. While `active` they re-read on arrival
+ * and on foregrounding; the server also says when a project's issues may have changed.
+ */
+export function useIssueList(targets: ReadonlyArray<FeatureBoardTarget>, active: boolean) {
+  const registry = useContext(RegistryContext);
+  const key = JSON.stringify(targets.map(boardKey));
+  // Callers rebuild `targets` every render; the key is what identifies the set.
+  const [stable, setStable] = useState({ key, targets });
+  if (stable.key !== key) setStable({ key, targets });
+  const stableTargets = stable.key === key ? stable.targets : targets;
+  const resultsAtom = useMemo(
+    () =>
+      Atom.make((get) =>
+        stableTargets.map((target) => ({
+          target,
+          issues: get(issuesAtom(target)),
+          tickets: get(ticketsAtom(target)),
+        })),
+      ).pipe(Atom.withLabel(`issue-list:${key}`)),
+    [key, stableTargets],
+  );
+  const results = useAtomValue(resultsAtom);
+
+  const refresh = useCallback(() => {
+    for (const target of stableTargets) {
+      registry.refresh(issuesAtom(target));
+      registry.refresh(ticketsAtom(target));
+    }
+  }, [registry, stableTargets]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- re-reads issues on arrival and foregrounding while on screen; the listener is removed on hide or unmount.
+  useEffect(() => {
+    if (!active || stableTargets.length === 0) return undefined;
+    refresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => subscription.remove();
+  }, [active, refresh, stableTargets.length]);
+
+  return useMemo(() => {
+    const issues: EnvironmentIssue[] = [];
+    const milestones: EnvironmentMilestone[] = [];
+    const errors: string[] = [];
+    let pending = false;
+    for (const { target, issues: issuesResult, tickets: ticketsResult } of results) {
+      const owner = { environmentId: target.environmentId, projectId: target.projectId };
+      const value = Option.getOrNull(AsyncResult.value(issuesResult));
+      if (value !== null) {
+        for (const issue of value.issues) issues.push({ ...issue, ...owner, ticketId: null });
+        for (const milestone of value.milestones) milestones.push({ ...milestone, ...owner });
+      }
+      if (issuesResult.waiting && value === null) pending = true;
+      for (const ticket of Option.getOrElse(AsyncResult.value(ticketsResult), () => [])) {
+        issues.push(ticketIssue(ticket, target.environmentId));
+      }
+      for (const result of [issuesResult, ticketsResult]) {
+        if (result._tag === "Failure" && !Cause.hasInterruptsOnly(result.cause))
+          errors.push(formatEnvironmentQueryError(result.cause));
+      }
+    }
+    return { issues, milestones, pending, errors };
+  }, [results]);
 }

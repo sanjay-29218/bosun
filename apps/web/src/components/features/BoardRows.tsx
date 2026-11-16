@@ -802,7 +802,7 @@ export const UnstartedFeatureRow = memo(function UnstartedFeatureRow(props: {
 /** A parent's closed sub-issues, folded into one line under its open ones. */
 export function ClosedPartsLine(props: { readonly count: number }) {
   return (
-    <div className="relative flex h-8 items-center ps-14 text-xs text-muted-foreground max-sm:ps-10">
+    <div className="relative flex h-8 items-center ps-14 text-xs text-muted-foreground">
       <span
         aria-hidden
         className="pointer-events-none absolute start-8.5 top-0 h-4 w-3.5 rounded-es-md border-s border-b border-foreground/15"
