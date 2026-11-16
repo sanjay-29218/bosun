@@ -1,5 +1,6 @@
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as BotReach from "./bots/BotReach.ts";
+import * as BotTransfer from "./bots/BotTransfer.ts";
 import { FeatureRuntimeLive } from "./features/runtimeLayer.ts";
 import { StandingBriefingLive } from "./crew/StandingBriefing.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
@@ -885,6 +886,8 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
   // A bot's projects and requests on linked environments, for /mcp and RemoteDelegation.
   Layer.provide(BotReach.layer),
+  // Copying or moving a bot to a linked environment, for WebSocket and /mcp.
+  Layer.provide(BotTransfer.layer),
   // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.

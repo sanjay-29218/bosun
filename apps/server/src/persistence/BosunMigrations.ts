@@ -79,6 +79,7 @@ import ProjectManagerHome from "./Migrations/121_ProjectManagerHome.ts";
 import FullAccessAgents from "./Migrations/122_FullAccessAgents.ts";
 import NoCanWorkOn from "./Migrations/123_NoCanWorkOn.ts";
 import NoLongConversation from "./Migrations/124_NoLongConversation.ts";
+import BotTransfers from "./Migrations/125_BotTransfers.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -150,6 +151,7 @@ const migrationEntries = [
   [122, "FullAccessAgents", FullAccessAgents],
   [123, "NoCanWorkOn", NoCanWorkOn],
   [124, "NoLongConversation", NoLongConversation],
+  [125, "BotTransfers", BotTransfers],
 ] as const;
 
 const legacyNames = new Set([

@@ -181,7 +181,7 @@ function LinkedEnvironmentRow({
 }
 
 /** Links another machine to `environmentId`, through a pairing code. */
-function LinkEnvironmentAction({
+export function LinkEnvironmentAction({
   environmentId,
   label = "Link",
 }: {

@@ -18,8 +18,10 @@ import * as ThreadManagementService from "../../../orchestration-v2/ThreadManage
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
   BotProjectsResult,
+  LinkBotImport,
   LinkBotNotices,
   LinkBotProjects,
+  LinkBotRehome,
   LinkBotTask,
   ListedBot,
 } from "./linkTools.ts";
@@ -124,4 +126,6 @@ export const BotsToolkit = Toolkit.make(
   LinkBotProjects,
   LinkBotTask,
   LinkBotNotices,
+  LinkBotImport,
+  LinkBotRehome,
 );

@@ -43,6 +43,8 @@ import {
   BotCreateInput,
   BotDeleteInput,
   BotMoveProjectInput,
+  BotTransferInput,
+  BotTransferResult,
   BotSetPinInput,
   BotOperationError,
   BotReorderInput,
@@ -516,6 +518,7 @@ export const WS_METHODS = {
   botsReorder: "bots.reorder",
   botsMoveProject: "bots.moveProject",
   botsSetPin: "bots.setPin",
+  botsTransfer: "bots.transfer",
   botsOpenHeadquarters: "bots.openHeadquarters",
   botsStartNewSession: "bots.startNewSession",
   rolesList: "roles.list",
@@ -1347,6 +1350,11 @@ const WsBotsMoveProjectRpc = Rpc.make(WS_METHODS.botsMoveProject, {
 const WsBotsSetPinRpc = Rpc.make(WS_METHODS.botsSetPin, {
   payload: BotSetPinInput,
   success: Schema.Void,
+  error: BotRpcError,
+});
+const WsBotsTransferRpc = Rpc.make(WS_METHODS.botsTransfer, {
+  payload: BotTransferInput,
+  success: BotTransferResult,
   error: BotRpcError,
 });
 // Creates the bot's headquarters thread on first use; the client then navigates to it.
@@ -2534,6 +2542,7 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsBotsReorderRpc,
   WsBotsMoveProjectRpc,
   WsBotsSetPinRpc,
+  WsBotsTransferRpc,
   WsBotsOpenHeadquartersRpc,
   WsBotsStartNewSessionRpc,
   WsRolesListRpc,

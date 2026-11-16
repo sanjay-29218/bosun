@@ -491,7 +491,7 @@ it.effect(
 );
 
 it.effect(
-  "requires operate access to change, reset, open, restart or pin a project's manager, or pin a bot",
+  "requires operate access to change, reset, open, restart or pin a project's manager, or pin or transfer a bot",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -505,6 +505,7 @@ it.effect(
           WS_METHODS.crewSetProjectManagerPlacement,
           WS_METHODS.crewStartNewSession,
           WS_METHODS.botsSetPin,
+          WS_METHODS.botsTransfer,
         ]) {
           const command = createCommandPermissions(runtime, method);
           registry.set(

@@ -79,6 +79,8 @@ export const CrewGatedToolkits = {
       t3_bot_link_projects: "linkOnly",
       t3_bot_link_task: "linkOnly",
       t3_bot_link_notices: "linkOnly",
+      t3_bot_link_import: "linkOnly",
+      t3_bot_link_rehome: "linkOnly",
     },
     ["t3_bot_list", "t3_bot_move_project"],
   ),

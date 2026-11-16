@@ -19,6 +19,7 @@ import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
 import { BotReach } from "../bots/BotReach.ts";
+import { BotTransfer } from "../bots/BotTransfer.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../crew/CrewService.ts";
@@ -80,6 +81,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(OrchestratorV2)({}),
   Layer.mock(PeerForwarding)({}),
   Layer.mock(BotReach)({}),
+  Layer.mock(BotTransfer)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),
@@ -235,6 +237,8 @@ it.effect("every crew role and a plain thread reach every tool, with no grants",
       "t3_bot_link_projects",
       "t3_bot_link_task",
       "t3_bot_link_notices",
+      "t3_bot_link_import",
+      "t3_bot_link_rehome",
       "crew_ask_person",
     ]);
     const all = names(mcp.tools).filter((name) => !notListed.has(name));
