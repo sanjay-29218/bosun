@@ -69,6 +69,7 @@ const withSystem = <A, E>(
     readonly engine: OrchestrationEngineService["Service"];
     readonly sql: SqlClient.SqlClient;
     readonly settings: ServerSettingsService["Service"];
+    readonly runtime: CrewThreadRuntime["Service"];
     readonly query: {
       readonly getThreadDetailById: (threadId: ThreadId) => Effect.Effect<
         Option.Option<{
@@ -108,6 +109,7 @@ const withSystem = <A, E>(
       engine,
       sql: yield* SqlClient.SqlClient,
       settings: yield* ServerSettingsService,
+      runtime: yield* CrewThreadRuntime,
       query: {
         getThreadDetailById: (threadId) =>
           engine.getThreadRecords(threadId, ["messages"]).pipe(Effect.asSome),
@@ -388,6 +390,13 @@ describe("Bot foundation", () => {
           yield* settings.updateSettings({ defaultModelSelection: fallbackModel });
           const onDefault = yield* bots.ensureHeadquarters(CAPTAIN_ID);
           expect(onDefault.modelSelection).toEqual(fallbackModel);
+          // An edit to a bot with no model still reaches its open headquarters.
+          yield* sql`UPDATE bots SET runtime_mode = 'approval-required' WHERE id = ${CAPTAIN_ID}`;
+          yield* bots.syncHeadquarters(CAPTAIN_ID);
+          expect((yield* engine.getThreadShell(onDefault.threadId))?.runtimeMode).toBe(
+            "approval-required",
+          );
+          yield* sql`UPDATE bots SET runtime_mode = 'full-access' WHERE id = ${CAPTAIN_ID}`;
           // It keeps following the default until a model is chosen, then uses that one.
           expect(
             yield* sql`SELECT 1 FROM bots WHERE id = ${CAPTAIN_ID} AND model_selection_json IS NULL`,
@@ -932,7 +941,7 @@ describe("Bot foundation", () => {
         });
         yield* withSystem(
           NodePath.join(directory, "state.sqlite"),
-          ({ bots, engine, settings, store }) =>
+          ({ bots, engine, settings, store, runtime }) =>
             Effect.gen(function* () {
               yield* createProject(engine);
               yield* createBot(bots);
@@ -985,7 +994,50 @@ describe("Bot foundation", () => {
                   level: "error",
                 }),
               );
-              yield* settings.updateSettings({ fallbackModelSelection: fallbackModel });
+              // A notice that this run uses the fallback never lands on a run that doesn't.
+              yield* runtime.noteModelFallback(blocked.threadId, fallbackModel, {
+                title: "Using gpt-5.4-mini",
+                message: "Not this run.",
+              });
+              expect(
+                (yield* engine.getThreadRecords(blocked.threadId, ["turnItems"])).turnItems,
+              ).not.toContainEqual(expect.objectContaining({ message: "Not this run." }));
+              // Codex turned off for good: the launch is refused, and who asked hears why.
+              yield* settings.updateSettings({
+                providerInstances: {
+                  [fallbackModel.instanceId]: {
+                    driver: ProviderDriverKind.make("codex"),
+                    enabled: true,
+                    config: {},
+                  },
+                  [modelSelection.instanceId]: {
+                    driver: ProviderDriverKind.make("codex"),
+                    enabled: false,
+                    config: {},
+                  },
+                },
+              });
+              const refused = yield* bots
+                .createRun({
+                  id: "disabled-run",
+                  memberId: "execution-1",
+                  projectId,
+                  taskText: "Add a third small change",
+                })
+                .pipe(Effect.flip);
+              expect(refused.message).toBe(
+                "gpt-5.4 (codex) can't run: Codex is turned off here. The fallback model, gpt-5.4 (codex), can't run either: Codex is turned off here.",
+              );
+              yield* settings.updateSettings({
+                fallbackModelSelection: fallbackModel,
+                providerInstances: {
+                  [fallbackModel.instanceId]: {
+                    driver: ProviderDriverKind.make("codex"),
+                    enabled: true,
+                    config: {},
+                  },
+                },
+              });
               // A bot's headquarters follows the same rule each time it opens.
               yield* seedCrewTestBot;
               yield* bots.ensureDefaults(modelSelection);

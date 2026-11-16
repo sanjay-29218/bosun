@@ -95,9 +95,13 @@ export interface CrewThreadRuntimeShape {
     projectId: ProjectId,
     chosen: ModelSelection | null,
   ) => Effect.Effect<RunModel | null, CrewReadError>;
-  /** Shows `notice` in the thread's latest run, if it has one. */
+  /**
+   * Shows `notice` in the thread's latest run while it is unfinished and runs on `selection`; an
+   * idle thread's header already shows its model.
+   */
   readonly noteModelFallback: (
     threadId: ThreadId,
+    selection: ModelSelection,
     notice: NonNullable<RunModel["notice"]> & { readonly level?: "info" | "error" },
   ) => Effect.Effect<void>;
   /** Scratch or a bot's home, which never get a Project manager. */
@@ -190,6 +194,13 @@ const handoffCommandPrefix = (threadId: ThreadId) =>
   threadId.startsWith("bosun-run:") ? "bosun-handoff" : "bot-handoff";
 
 const sameModelSelection = Schema.toEquivalence(ModelSelection);
+const FINISHED_RUN_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "interrupted",
+  "failed",
+  "cancelled",
+  "rolled_back",
+]);
 
 export const CrewThreadRuntimeV2 = Layer.effect(
   CrewThreadRuntime,
@@ -402,14 +413,19 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         },
       ),
       noteModelFallback: Effect.fn("CrewThreadRuntime.noteModelFallback")(
-        function* (threadId, notice) {
+        function* (threadId, selection, notice) {
           const { runs } = yield* engine.getThreadRecords(threadId, ["runs"]);
           const run = runs.reduce<(typeof runs)[number] | undefined>(
             (latest, candidate) =>
               latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
             undefined,
           );
-          if (run === undefined) return;
+          if (
+            run === undefined ||
+            FINISHED_RUN_STATUSES.has(run.status) ||
+            !sameModelSelection(run.modelSelection, selection)
+          )
+            return;
           yield* launcher.recordNotice({
             threadId,
             runId: run.id,

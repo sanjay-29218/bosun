@@ -582,11 +582,6 @@ const make = Effect.gen(function* () {
             `Update Bosun on ${label} to give it work from ${self.label}.`,
           ),
         ),
-        // It answered, so it isn't waiting on anything: the request fails with what it said.
-        Effect.catchIf(
-          (error) => error.code === "orchestration_error",
-          (error) => failure("invalid_request", error.message),
-        ),
       );
   });
 

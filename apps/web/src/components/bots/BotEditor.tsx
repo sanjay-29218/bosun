@@ -284,7 +284,18 @@ export function BotEditor({
                         <p className="mt-1.5 text-xs text-muted-foreground">
                           Follows the default model until you pick one.
                         </p>
-                      ) : null}
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="xs"
+                          className="mt-1"
+                          disabled={saving || !canEdit}
+                          onClick={() => setModelSelection(null)}
+                        >
+                          Follow the default model
+                        </Button>
+                      )}
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">

@@ -100,7 +100,22 @@ describe("new thread model fallback", () => {
       { providers: [provider({ auth: { status: "unauthenticated" } }), available] },
       fallback,
     ],
-    ["uninstalled default", { providers: [available] }, fallback],
+    ["missing default", { providers: [available] }, fallback],
+    [
+      "uninstalled default",
+      { providers: [provider({ installed: false, status: "error" }), available] },
+      fallback,
+    ],
+    [
+      "default not checked yet",
+      {
+        providers: [
+          provider({ installed: false, status: "warning", auth: { status: "unknown" } }),
+          available,
+        ],
+      },
+      selection,
+    ],
     ["disabled default", { providers: [provider({ enabled: false }), available] }, fallback],
   ] as const)("resolves %s", (_name, overrides, expected) => {
     expect(resolveNewThreadModelSelection({ ...defaults, ...overrides }).selection).toEqual(
@@ -129,6 +144,12 @@ describe("new thread model fallback", () => {
       "Codex isn't signed in here",
     ],
     [[available], "not-installed", "Codex isn't installed here"],
+    // A provider turned off in Settings also reports itself as not installed.
+    [
+      [provider({ enabled: false, installed: false, status: "warning" }), available],
+      "disabled",
+      "Codex is turned off here",
+    ],
   ] as const)("says why the default can't run: %#", (providers, reason, text) => {
     const resolved = resolveNewThreadModelSelection({ ...defaults, providers });
     expect(resolved.fallback).toMatchObject({ reason, from: selection });

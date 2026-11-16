@@ -882,7 +882,7 @@ it.live("starts the project manager there, or says before starting anything why 
         )
         .pipe(Effect.flip);
       expect(invalid).toMatchObject({ code: "invalid_request", message: "Invalid task" });
-      // So does anything else the box answers: only a box that doesn't answer is waited for.
+      // A failure the box marks as passing (not a refusal) keeps the request waiting.
       const failedThere = yield* a.reach
         .launchProjectManager(
           headquartersScope,
@@ -892,7 +892,7 @@ it.live("starts the project manager there, or says before starting anything why 
         )
         .pipe(Effect.flip);
       expect(failedThere).toMatchObject({
-        code: "invalid_request",
+        code: "orchestration_error",
         message: "The lead's thread could not start.",
       });
 

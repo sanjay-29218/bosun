@@ -1209,14 +1209,29 @@ export const CrewServiceLive = Layer.effect(
         if (persisted === null || !sameRunRequest(persisted, request)) {
           return yield* Effect.fail(new CrewValidationError("Run ID belongs to another request"));
         }
-        if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) yield* dispatch(persisted);
+        const blocked = model.blocked;
+        if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
+          const dispatched = dispatch(persisted);
+          // A provider turned off refuses the launch outright; who asked hears why, not a
+          // dispatch error.
+          yield* blocked === null
+            ? dispatched
+            : dispatched.pipe(
+                Effect.catch(() =>
+                  store
+                    .markDispatchError(id, blocked)
+                    .pipe(Effect.andThen(Effect.fail(new CrewValidationError(blocked)))),
+                ),
+              );
+        }
         // Neither its model nor the fallback can run here: it starts anyway and fails in its own thread.
         const notice =
           model.notice ??
-          (model.blocked === null
+          (blocked === null
             ? null
-            : { title: "No model can run", message: model.blocked, level: "error" as const });
-        if (notice !== null) yield* runtime.noteModelFallback(persisted.threadId, notice);
+            : { title: "No model can run", message: blocked, level: "error" as const });
+        if (notice !== null)
+          yield* runtime.noteModelFallback(persisted.threadId, model.selection, notice);
         return yield* currentRun(id);
       },
     );
@@ -1367,6 +1382,8 @@ export const CrewServiceLive = Layer.effect(
       const run = { ...(yield* store.getRun(id))!, modelSelection };
       if (run.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
         yield* dispatch(run);
+        if (model.notice !== null)
+          yield* runtime.noteModelFallback(run.threadId, modelSelection, model.notice);
       } else {
         yield* runtime.restore(threadInput(run));
         const switched = yield* runtime.syncSettings(
@@ -1375,7 +1392,7 @@ export const CrewServiceLive = Layer.effect(
           modelSelection,
         );
         if (switched && model.notice !== null)
-          yield* runtime.noteModelFallback(run.threadId, model.notice);
+          yield* runtime.noteModelFallback(run.threadId, modelSelection, model.notice);
       }
       yield* (
         headquartersBotId(run.threadId) === null
@@ -1579,7 +1596,8 @@ export const CrewServiceLive = Layer.effect(
     const syncStanding = Effect.fn("CrewService.syncStanding")(function* (
       owner: StandingOwner | null,
     ) {
-      if (owner?.modelSelection == null) return;
+      // An owner with no saved model follows the default, so it syncs too.
+      if (owner === null) return;
       const run = yield* store.getRun(owner.runId);
       if (run?.dispatchState !== CREW_DISPATCH_STATE.STARTED) return;
       const model = yield* modelFor(owner, undefined, run.projectId);
@@ -1589,7 +1607,7 @@ export const CrewServiceLive = Layer.effect(
         model.selection,
       );
       if (switched && model.notice !== null)
-        yield* runtime.noteModelFallback(run.threadId, model.notice);
+        yield* runtime.noteModelFallback(run.threadId, model.selection, model.notice);
     });
 
     const syncHeadquarters: CrewServiceShape["syncHeadquarters"] = Effect.fn(

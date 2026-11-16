@@ -95,6 +95,10 @@ export interface ModelBlock {
   readonly resetsAt: string | null;
 }
 
+/** A snapshot from before its first status check, which reads as not installed; it may well run. */
+const isUnchecked = (provider: ServerProvider) =>
+  provider.status === "warning" && provider.auth.status === "unknown" && provider.version === null;
+
 /** Why `selection` can't run on these providers, or null when it can. */
 function modelSelectionBlock(input: {
   readonly selection: ModelSelection;
@@ -109,7 +113,7 @@ function modelSelectionBlock(input: {
     provider,
     resetsAt,
   });
-  if (!provider?.installed) return block("not-installed");
+  if (provider === undefined) return block("not-installed");
   if (
     !provider.enabled ||
     (input.settings &&
@@ -120,6 +124,7 @@ function modelSelectionBlock(input: {
       ))
   )
     return block("disabled");
+  if (!provider.installed && !isUnchecked(provider)) return block("not-installed");
   if (provider.auth.status === "unauthenticated") return block("unauthenticated");
   if (!isProviderAvailable(provider)) return block("unavailable");
   const window = exhaustedUsageWindow(provider, input.now, input.selection.model);
