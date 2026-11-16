@@ -8,7 +8,7 @@ import {
   Ticket,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
@@ -16,7 +16,7 @@ import { FeatureService } from "../../../features/FeatureService.ts";
 import * as IssueService from "../../../issues/IssueService.ts";
 import { TicketService } from "../../../tickets/TicketService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import { McpInvocationContext } from "../../McpInvocationContext.ts";
+import { hiddenFromOutsideClients, McpInvocationContext } from "../../McpInvocationContext.ts";
 import {
   READ_MANAGER_INSTRUCTIONS,
   UPDATE_MANAGER_INSTRUCTIONS,
@@ -50,7 +50,9 @@ const AskPerson = Tool.make("crew_ask_person", {
   success: Schema.Struct({ requestId: Schema.String, next: Schema.String }),
   failure,
   dependencies: [...dependencies, CrewApprovals],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const LinkIssue = Tool.make("crew_link_issue", {
   description:
@@ -67,7 +69,9 @@ const LinkIssue = Tool.make("crew_link_issue", {
   }),
   failure,
   dependencies: [...dependencies, FeatureService],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const ListIssues = Tool.make("crew_list_issues", {
   description:
@@ -112,7 +116,9 @@ const ListIssues = Tool.make("crew_list_issues", {
   }),
   failure,
   dependencies: [...dependencies, IssueService.IssueService, TicketService],
-}).annotate(Tool.Readonly, true);
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 /** `T-14` names a ticket; `#482` or `482` names an issue. */
 const TodoRef = Schema.String.annotate({
@@ -136,7 +142,9 @@ const CreateTodo = Tool.make("crew_create_todo", {
   }),
   failure,
   dependencies: [...dependencies, IssueService.IssueService, TicketService],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const ReadTodo = Tool.make("crew_read_todo", {
   description:
@@ -148,7 +156,9 @@ const ReadTodo = Tool.make("crew_read_todo", {
   ]),
   failure,
   dependencies: [...dependencies, IssueService.IssueService, TicketService],
-}).annotate(Tool.Readonly, true);
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const UpdateTodo = Tool.make("crew_update_todo", {
   description:
@@ -168,7 +178,9 @@ const UpdateTodo = Tool.make("crew_update_todo", {
   ]),
   failure,
   dependencies: [...dependencies, IssueService.IssueService, TicketService],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const Milestone = Schema.Struct({
   number: Schema.Int,
@@ -183,7 +195,9 @@ const CreateMilestone = Tool.make("crew_create_milestone", {
   success: Milestone,
   failure,
   dependencies: [...dependencies, IssueService.IssueService],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const UpdateMilestone = Tool.make("crew_update_milestone", {
   description: "Close or reopen a milestone of this thread's project, by title or number.",
@@ -194,7 +208,9 @@ const UpdateMilestone = Tool.make("crew_update_milestone", {
   success: Milestone,
   failure,
   dependencies: [...dependencies, IssueService.IssueService],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const ManagerInstructions = Schema.Struct({
   projectId: Schema.String,
@@ -216,7 +232,9 @@ const ReadManagerInstructions = Tool.make(READ_MANAGER_INSTRUCTIONS, {
   success: ManagerInstructions,
   failure,
   dependencies: [...dependencies, CrewService],
-}).annotate(Tool.Readonly, true);
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 const UpdateManagerInstructions = Tool.make(UPDATE_MANAGER_INSTRUCTIONS, {
   description:
@@ -229,7 +247,9 @@ const UpdateManagerInstructions = Tool.make(UPDATE_MANAGER_INSTRUCTIONS, {
   success: Schema.Struct({ ...ManagerInstructions.fields, appliesFrom: Schema.String }),
   failure,
   dependencies: [...dependencies, CrewService],
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, hiddenFromOutsideClients);
 
 export const CrewToolkit = Toolkit.make(
   AskPerson,

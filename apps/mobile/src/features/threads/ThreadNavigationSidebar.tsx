@@ -57,7 +57,10 @@ import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
 import { useHomeListOptions } from "../home/home-list-options";
-import { buildHomeListFilterMenuItems } from "../home/home-list-filter-menu";
+import {
+  buildHomeListFilterMenuItems,
+  homeListFilterEnvironments,
+} from "../home/home-list-filter-menu";
 import {
   buildHomeProjectScopes,
   resolveHomeProjectFilterScope,
@@ -242,12 +245,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const { confirmDeletePendingTask } = usePendingTaskListActions((params) =>
     selectDetail({ name: "Thread", params }),
   );
-  const environments = Object.values(savedConnectionsById)
-    .map((connection) => ({
-      environmentId: connection.environmentId,
-      label: connection.environmentLabel,
-    }))
-    .sort((left, right) => left.label.localeCompare(right.label));
+  const environments = homeListFilterEnvironments(workspaceEnvironments);
   const availableEnvironmentIds = new Set(
     environments.map((environment) => environment.environmentId),
   );
@@ -493,7 +491,6 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 ) === props.selectedThreadKey)
             }
             project={projectByKey.get(pendingScopeKey) ?? null}
-            projectTitle={projectTitleByProjectKey.get(pendingScopeKey)}
             environmentLabel={
               Object.keys(savedConnectionsById).length > 1
                 ? (savedConnectionsById[item.pendingTask.environmentId]?.environmentLabel ?? null)

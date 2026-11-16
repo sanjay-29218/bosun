@@ -13,7 +13,7 @@ import {
   WorkflowUpdateInput,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import { CrewService } from "../../../crew/CrewService.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
@@ -144,7 +144,9 @@ const StartFeature = Tool.make("t3_feature_start", {
       }),
     ),
   }),
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const FinishFeature = Tool.make("t3_feature_finish", {
   ...shared,
@@ -159,7 +161,9 @@ const FinishFeature = Tool.make("t3_feature_finish", {
     featureId: Schema.String,
     parentFeatureId: Schema.NullOr(Schema.String),
   }),
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const ListFeatures = Tool.make("t3_feature_list", {
   ...shared,

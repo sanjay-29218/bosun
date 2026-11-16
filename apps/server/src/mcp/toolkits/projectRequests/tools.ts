@@ -1,6 +1,6 @@
 import { EnvironmentId, OrchestratorMcpFailure, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { Tool, Toolkit } from "effect/ai";
+import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
@@ -49,7 +49,9 @@ const SendRequest = Tool.make("t3_project_send", {
       }),
     ),
   }),
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const ListRequests = Tool.make("t3_project_requests", {
   ...shared,
@@ -69,7 +71,8 @@ const ListRequests = Tool.make("t3_project_requests", {
   }),
 })
   .annotate(Tool.Readonly, true)
-  .annotate(Tool.Destructive, false);
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 const ReplyToRequest = Tool.make("t3_project_reply", {
   ...shared,
@@ -87,7 +90,9 @@ const ReplyToRequest = Tool.make("t3_project_reply", {
     status: RequestStatus,
     issue: Schema.NullOr(Schema.String),
   }),
-}).annotate(Tool.Destructive, false);
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromOutsideClients);
 
 /** Listed to crew threads; each handler checks who may use it. */
 export const ProjectRequestsToolkit = Toolkit.make(SendRequest, ListRequests, ReplyToRequest);

@@ -55,6 +55,8 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { OrchestratorDispatchError } from "../orchestration-v2/Orchestrator.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as DueHint from "../scheduling/DueHint.ts";
@@ -81,6 +83,7 @@ import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerificatio
 
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
+const isOrchestratorDispatchError = Schema.is(OrchestratorDispatchError);
 const PROMPT_TOO_LONG = "The filled-in prompt is too long.";
 const MISSING_BOT = "The bot this task runs as no longer exists.";
 const MISSING_MANAGER_PROJECT = "The project no longer exists.";
@@ -419,10 +422,12 @@ function errorMessage(error: unknown): string {
 
 /** A refusal of ours, such as a missing bot, reads as its sentence rather than a trace. */
 function dispatchErrorMessage(cause: Cause.Cause<unknown>): string {
-  const failure = Cause.findErrorOption(cause);
-  return Option.isSome(failure) && isScheduledTaskError(failure.value)
-    ? failure.value.message
-    : errorMessage(cause);
+  const failure = Cause.squash(cause);
+  if (isScheduledTaskError(failure)) return failure.message;
+  // Direct orchestration refusals are user-facing; nested defects can contain private data.
+  return isOrchestratorDispatchError(failure) && typeof failure.cause === "string"
+    ? (userFacingDispatchErrorMessage(failure.cause) ?? errorMessage(failure))
+    : errorMessage(failure);
 }
 
 function webhookPath(taskId: string, token: string): string {
