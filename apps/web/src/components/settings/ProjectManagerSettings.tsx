@@ -4,17 +4,11 @@ import {
   type ManagerCopy,
   managerHomeAmong,
   onSeveralMachines,
-  managerPermitted,
   type PlacedProject,
   planManagerPlacement,
 } from "@t3tools/client-runtime/project-manager-home";
 import { projectManagerLook } from "@t3tools/client-runtime/project-manager-look";
-import type {
-  BotLongConversation,
-  EnvironmentId,
-  ProjectManagerIcon,
-  ProjectManagerSettings,
-} from "@t3tools/contracts";
+import type { ProjectManagerIcon, ProjectManagerSettings } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import { useState } from "react";
 
@@ -35,14 +29,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { EditorField } from "./CrewAgentFields";
-import { LinkedMachineChecklist } from "./LinkedMachineChecklist";
 import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-
-const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
-  compact: "Compact",
-  "new-session": "Start a new session",
-};
 
 interface ProjectMember extends PlacedProject {
   readonly title: string;
@@ -64,8 +52,6 @@ export function ProjectManagerSection({
   const copies = copiesOf(members);
   const placed = copies.length === members.length && onSeveralMachines(copies);
   const home = placed ? managerHomeAmong(copies) : null;
-  // A project on one machine can still work on the machines it's linked to.
-  const worksFrom = home ?? (!placed && copies.length === 1 ? managerHomeAmong(copies) : null);
   const shown = placed
     ? members.filter(
         (member) =>
@@ -93,7 +79,6 @@ export function ProjectManagerSection({
           showEnvironment={shown.length > 1}
         />
       ))}
-      {worksFrom !== null ? <ProjectManagerCanWorkOn copies={copies} home={worksFrom} /> : null}
     </SettingsSection>
   );
 }
@@ -157,70 +142,6 @@ function ProjectManagerLivesOn({
   );
 }
 
-/**
- * The linked machines the manager may check threads and features on, talk to and start work on,
- * ticked on the machine it lives on. Each tick saves at once.
- */
-function ProjectManagerCanWorkOn({
-  copies,
-  home,
-}: {
-  readonly copies: ReadonlyArray<ManagerCopy>;
-  readonly home: ManagerCopy;
-}) {
-  const apply = useApplyManagerPlacement();
-  const canEdit = useAtomValue(
-    rolesEnvironment.setProjectManagerPlacement.permissionAtom(home.environmentId),
-  );
-  const [saving, setSaving] = useState(false);
-  const permitted = managerPermitted(home, copies);
-  const held = new Set(copies.map((copy) => copy.environmentId));
-
-  const toggle = async (environmentId: EnvironmentId, checked: boolean) => {
-    setSaving(true);
-    const failure = await apply(
-      {
-        away: [],
-        home: {
-          environmentId: home.environmentId,
-          input: {
-            projectId: home.projectId,
-            permittedEnvironmentIds: checked
-              ? [...permitted, environmentId]
-              : permitted.filter((id) => id !== environmentId),
-          },
-        },
-      },
-      copies,
-    );
-    setSaving(false);
-    if (failure !== null) {
-      toastManager.add({
-        type: "error",
-        title: "Could not save where the manager can work",
-        description: failure,
-      });
-    }
-  };
-
-  return (
-    <div className="px-4 py-4">
-      <LinkedMachineChecklist
-        environmentId={home.environmentId}
-        homeLabel={home.label}
-        description={`Machines linked to ${home.label} where the manager checks threads and features, talks to them, and starts work.`}
-        emptyDescription="Link another machine running Bosun, such as a VPS, so this project's manager can work there."
-        checked={permitted}
-        disabled={saving || !canEdit}
-        noteFor={(environmentId) =>
-          held.has(environmentId) ? null : "No copy of this project there yet"
-        }
-        onToggle={(environmentId, checked) => void toggle(environmentId, checked)}
-      />
-    </div>
-  );
-}
-
 function ProjectManagerMember({
   member,
   showEnvironment,
@@ -246,12 +167,7 @@ function ProjectManagerMember({
   const settings = query.data;
   // A save or a reset here, or new settings from elsewhere, start the form over; a new look or
   // on/off keeps what's being typed.
-  const formKey = JSON.stringify([
-    formGeneration,
-    settings.instructions,
-    settings.longConversation,
-    settings.customized,
-  ]);
+  const formKey = JSON.stringify([formGeneration, settings.instructions, settings.customized]);
   return (
     <>
       <ProjectManagerIconRow member={member} settings={settings} />
@@ -399,10 +315,8 @@ function ProjectManagerForm({
     rolesEnvironment.updateProjectManager.permissionAtom(member.environmentId),
   );
   const [instructions, setInstructions] = useState(settings.instructions);
-  const [longConversation, setLongConversation] = useState(settings.longConversation);
   const [saving, setSaving] = useState(false);
-  const edited =
-    instructions.trim() !== settings.instructions || longConversation !== settings.longConversation;
+  const edited = instructions.trim() !== settings.instructions;
 
   const run = async <A, E>(
     action: () => Promise<AtomCommandResult<A, E>>,
@@ -433,7 +347,6 @@ function ProjectManagerForm({
           input: {
             projectId: member.id,
             instructions: instructions.trim(),
-            longConversation,
             expectedRevision: settings.revision,
           },
         }),
@@ -519,30 +432,6 @@ function ProjectManagerForm({
             onChange={setInstructions}
           />
         </EditorField>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <EditorField label="Long conversations">
-            <Select
-              value={longConversation}
-              onValueChange={(next) => {
-                if (next === "compact" || next === "new-session") setLongConversation(next);
-              }}
-            >
-              <SelectTrigger aria-label="Long conversations">
-                <SelectValue>
-                  {(value: string) =>
-                    LONG_CONVERSATION_LABELS[value === "new-session" ? value : "compact"]
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                <SelectItem value="compact">{LONG_CONVERSATION_LABELS.compact}</SelectItem>
-                <SelectItem value="new-session">
-                  {LONG_CONVERSATION_LABELS["new-session"]}
-                </SelectItem>
-              </SelectPopup>
-            </Select>
-          </EditorField>
-        </div>
       </fieldset>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {edited ? (

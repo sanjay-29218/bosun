@@ -11,7 +11,7 @@ const modelSelection = { instanceId: "codex", model: "gpt-5-codex" };
 
 // Linked machines update at different times, so a newer client reads what older servers send.
 describe("agents from servers before #108, #112 and #157", () => {
-  it("decodes a bot with old tool and access fields and no permittedEnvironmentIds", () => {
+  it("decodes a bot with old tool, access and Can work on fields", () => {
     const bot = decodeBot({
       id: "bot-1",
       name: "Captain",
@@ -26,6 +26,7 @@ describe("agents from servers before #108, #112 and #157", () => {
       color: "blue",
       instructions: "",
       allowedTools: ["crew.delegate"],
+      permittedEnvironmentIds: ["vps"],
       runtimeMode: "full-access",
       modelSelection: null,
       longConversation: "compact",
@@ -35,7 +36,8 @@ describe("agents from servers before #108, #112 and #157", () => {
       updatedAt: "2026-11-01T00:00:00.000Z",
     });
     expect(bot).not.toHaveProperty("runtimeMode");
-    expect(bot.permittedEnvironmentIds).toEqual([]);
+    expect(bot).not.toHaveProperty("permittedEnvironmentIds");
+    expect(bot.linkedEnvironmentIds).toEqual([]);
   });
 
   it("decodes a role and project manager settings with old tool, access and model fields", () => {

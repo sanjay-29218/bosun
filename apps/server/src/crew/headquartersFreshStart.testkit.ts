@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
-import { FRESH_START_TOKENS, type FreshStartRecords } from "./headquartersFreshStart.ts";
+import type { FreshStartRecords } from "./headquartersFreshStart.ts";
 
 export const at = (minutes: number) =>
   DateTime.makeUnsafe(Date.parse("2026-10-30T12:00:00.000Z") + minutes * 60_000);
@@ -23,7 +23,7 @@ const modelSelection = { instanceId, model: "claude-opus-5-5" };
 export const nodeId = NodeId.make("root-node");
 
 /** A headquarters whose latest turn, `runId`, completed with `usedTokens` in its conversation. */
-export function freshStartRecords(usedTokens = FRESH_START_TOKENS): {
+export function freshStartRecords(usedTokens = 100_000): {
   -readonly [Key in keyof FreshStartRecords]: FreshStartRecords[Key];
 } {
   const run = {

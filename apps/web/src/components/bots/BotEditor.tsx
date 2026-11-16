@@ -2,7 +2,6 @@ import { useAtomValue } from "@effect/atom-react";
 import { BOT_AVATAR_PRESETS, randomBotAvatar } from "@t3tools/client-runtime/bot-avatar";
 import {
   type Bot,
-  type BotLongConversation,
   type BotAvatar as BotAvatarParts,
   type EnvironmentId,
   type ModelSelection,
@@ -24,24 +23,13 @@ import { InstructionsEditor } from "../InstructionsEditor";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { WizardTabs } from "../ui/wizard";
 import { BotHomeField } from "./BotHomeField";
-import { BotPermittedEnvironments } from "./BotPermittedEnvironments";
 import { BotAvatarPicker, BotColorPicker } from "./BotLook";
 
 type BotChange = Partial<
-  Pick<
-    Bot,
-    | "name"
-    | "avatar"
-    | "color"
-    | "instructions"
-    | "modelSelection"
-    | "longConversation"
-    | "permittedEnvironmentIds"
-  >
+  Pick<Bot, "name" | "avatar" | "color" | "instructions" | "modelSelection">
 >;
 
 /** Saves a bot. A failed save reloads the list, so another try uses the latest revision. */
@@ -62,11 +50,6 @@ function useSaveBot(environmentId: EnvironmentId, onFailure: () => void) {
     return false;
   };
 }
-
-const LONG_CONVERSATION_LABELS: Record<BotLongConversation, string> = {
-  compact: "Compact",
-  "new-session": "Start a new session",
-};
 
 type Tab = "behavior" | "projects" | "look";
 
@@ -117,9 +100,6 @@ export function BotEditor({
   // Null until someone picks one: the bot then follows this environment's default model.
   const [pickedModel, setModelSelection] = useState(bot?.modelSelection ?? null);
   const modelSelection = pickedModel ?? defaultModel;
-  const [longConversation, setLongConversation] = useState<BotLongConversation>(
-    bot?.longConversation ?? "compact",
-  );
   const homeLabel =
     useEnvironmentIdentities().find((identity) => identity.environmentId === environmentId)
       ?.label ?? "this machine";
@@ -130,15 +110,13 @@ export function BotEditor({
     avatar,
     color,
     modelSelection: pickedModel,
-    longConversation,
   };
   const edited = bot
     ? fields.name !== bot.name ||
       JSON.stringify(avatar) !== JSON.stringify(bot.avatar) ||
       color !== bot.color ||
       instructions.trim() !== bot.instructions ||
-      JSON.stringify(pickedModel) !== JSON.stringify(bot.modelSelection) ||
-      longConversation !== bot.longConversation
+      JSON.stringify(pickedModel) !== JSON.stringify(bot.modelSelection)
     : fields.name.length > 0 || instructions.trim().length > 0;
   // A new bot may leave instructions empty to start from the server's defaults.
   const canSave =
@@ -281,40 +259,11 @@ export function BotEditor({
                   )}
                 </div>
               </EditorField>
-              <EditorField label="Long conversations">
-                <Select
-                  value={longConversation}
-                  onValueChange={(next) => {
-                    if (next === "compact" || next === "new-session") setLongConversation(next);
-                  }}
-                >
-                  <SelectTrigger aria-label="Long conversations">
-                    <SelectValue>
-                      {(value: string) =>
-                        LONG_CONVERSATION_LABELS[value === "new-session" ? value : "compact"]
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value="compact">{LONG_CONVERSATION_LABELS.compact}</SelectItem>
-                    <SelectItem value="new-session">
-                      {LONG_CONVERSATION_LABELS["new-session"]}
-                    </SelectItem>
-                  </SelectPopup>
-                </Select>
-              </EditorField>
             </div>
           </>
         ) : tab === "projects" && bot ? (
           <>
             <BotHomeField environmentId={environmentId} homePath={bot.homePath ?? null} />
-            <BotPermittedEnvironments
-              environmentId={environmentId}
-              homeLabel={homeLabel}
-              bot={bot}
-              canEdit={canEdit}
-              onSave={(permittedEnvironmentIds) => save(bot, { permittedEnvironmentIds })}
-            />
             {projects}
           </>
         ) : (

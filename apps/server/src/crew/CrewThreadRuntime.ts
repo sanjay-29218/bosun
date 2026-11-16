@@ -12,7 +12,6 @@ import {
   ThreadId,
   type ProjectId,
   type ProjectRemoteManager,
-  type RunId,
   type RuntimeMode,
   type CrewTurnState,
 } from "@t3tools/contracts";
@@ -25,10 +24,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -149,11 +146,6 @@ export interface CrewThreadRuntimeShape {
     options?: { readonly from: ModelSelection },
   ) => Effect.Effect<boolean, OrchestrationDispatchError>;
   readonly start: (input: CrewThreadStart) => Effect.Effect<void, OrchestrationDispatchError>;
-  /** Each run that completes, in any thread. */
-  readonly completedRuns: Stream.Stream<
-    { readonly threadId: ThreadId; readonly runId: RunId },
-    OrchestrationDispatchError
-  >;
   readonly freshStartRecords: (
     threadId: ThreadId,
   ) => Effect.Effect<FreshStartRecords, OrchestrationDispatchError>;
@@ -496,13 +488,6 @@ export const CrewThreadRuntimeV2 = Layer.effect(
       }),
       setModel,
       start,
-      completedRuns: engine.streamDomainEvents.pipe(
-        Stream.filterMap((event) =>
-          event.type === "run.updated" && event.payload.status === "completed"
-            ? Result.succeed({ threadId: event.threadId, runId: event.payload.id })
-            : Result.failVoid,
-        ),
-      ),
       freshStartRecords: Effect.fn("CrewThreadRuntime.freshStartRecords")((threadId) =>
         engine.getThreadRecords(
           threadId,

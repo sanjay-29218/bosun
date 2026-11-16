@@ -24,30 +24,28 @@ bots, roles and workflows. There is nothing to grant. **Open thread** opens its 
 
 A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
 another bot, or bring one over; work that already started keeps running as the bot that started
-it. A bot can own a project on any machine it may work on (see **Can work on** below): the project
+it. A bot can own a project on its own machine or any machine linked to it (see below): the project
 stays on its machine, and the bot works on it from its own machine, with no copy of the bot
 there. That project's **Settings → Project → Bot** shows the owner as "Atlas · lives on Mac
 Studio". A project on a machine that isn't answering shows **Offline**; requests to it wait. Projects
-on a machine the bot may not work on, and on an environment that runs T3 Code without Bosun, are
-listed but can't be given to it until you tick that machine or install Bosun there. You can also change a
+on a machine that isn't linked to the bot's machine, and on an environment that runs T3 Code without Bosun, are
+listed but can't be given to it until you link that machine or install Bosun there. You can also change a
 project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
 its project manager, which runs on the project's default model (else the environment's). In the
-thread list it shows under every bot that may work on its machine, and a project on a machine that
+thread list it shows under every bot whose machine is linked to its machine, and a project on a machine that
 runs T3 Code without Bosun shows under every bot. Its project manager, pinned in the rail or listed
 under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
 home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
 Deleting a bot also deletes the automations that run as it.
 
-The **Projects** tab also lists, under **Can work on**, every machine linked to the bot's machine
-(see Linked environments in **Settings → Labs**), each with a checkbox and whether it's online. Tick
-as many as you like. A ticked machine is one the bot may start new work on; unticking it stops new work there, while work already running keeps
-going. The choice saves at once. New bots, and bots from before this setting, start with every
-linked machine ticked. A machine you link later is ticked for every bot too; linking the same machine
-again keeps what you unticked. **Link an environment** links another machine with a pairing code.
+Every bot and project manager can work on every machine linked to its own (Linked environments in
+**Settings → Labs**). That list, and each link's access level, is the only control: there is
+nothing to tick per bot. Unlinking a machine there stops new work on it, while work already running
+keeps going. A bot or manager still lives on one home machine.
 
 When the bot hands work to a project on a machine that's asleep or offline, the request waits
 instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
-is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no Feature manager role of its own runs the work with the lead role this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unticking the machine while a request waits fails it.
+is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no Feature manager role of its own runs the work with the lead role this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unlinking the machine while a request waits fails it.
 
 #### Projects owned by a copy of a bot on another machine
 
@@ -80,9 +78,7 @@ ones it started with until it starts a new session. Type **/new** in its compose
 mobile), to do that now: you keep the whole conversation, while the bot starts again from its
 current instructions and the last few messages and looks up ongoing work instead of remembering it.
 A **New session** divider in the thread shows where it began. A long conversation is otherwise compacted by
-its provider; set **Long conversations** to **Start a new session** on the bot to do this instead,
-once the bot has been quiet for half an hour. Opening the thread also brings back a deleted or
-archived headquarters.
+its provider. Opening the thread also brings back a deleted or archived headquarters.
 
 Each bot has a **home folder** of its own on its environment, where its headquarters works and
 keeps its notes: `~/.bosun/bots/<bot id>`, a plain folder rather than a Git repository. It's made
@@ -116,10 +112,10 @@ thread list with what it's doing: click it to open the manager, or its ⚙ for i
 also opens with **Open project manager** in the project's right-click menu or the command palette,
 or from the link in the bot's reply; the thread is made the first time. A bot's **Lineage** lists
 the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
-back if it was archived, and **/new** or **Start new session…** starts it over.
+back if it was archived, and **/new** or **Start new session…** in its thread's menu (on mobile, in
+the thread's header) starts it over. A long conversation is compacted by its provider.
 
-Its settings are in **Settings → Project → Project manager**: its icon, instructions, **Can work
-on** and **Long conversations**. Its model is the one in its thread's composer: it starts on the
+Its settings are in **Settings → Project → Project manager**: its icon and instructions. Its model is the one in its thread's composer: it starts on the
 project's default model, and a model you pick there stays for every later turn, request and
 automation. Each manager gets a robot look picked from its
 project until you **Change** it; **Use automatic** goes back. The icon saves on its own and
@@ -137,21 +133,17 @@ thread is archived until you turn it on again.
 A project cloned on several linked machines (matched by its repository) has one manager, on the
 machine it **Lives on**; its copies elsewhere have none of their own. The bot list, **Bots** and
 the project card show that one manager with its machine's name, and opening a copy's manager opens
-it. **Settings → Project → Project manager** shows **Lives on** and **Can work on**:
+it. **Settings → Project → Project manager** shows where it **Lives on**. It starts as the machine
+whose manager already has a thread, otherwise the machine of the project's bot. Picking another
+machine moves the manager there: the old machine's manager thread is archived, not deleted, its
+open requests go back to their senders, and its automations are paused.
 
-- **Lives on** starts as the machine whose manager already has a thread, otherwise the machine of
-  the project's bot. Picking another machine moves the manager there: the old machine's manager
-  thread is archived, not deleted, its open requests go back to their senders, and its
-  automations are paused.
-- **Can work on** lists every machine linked to the one it lives on, with whether it's online and
-  "No copy of this project there yet" for a machine without the project. Tick as many as you like;
-  a project on a single machine shows this list too. It starts as the bot's **Can work on**
-  machines that hold a copy. There the manager can check the copy's threads and open features, send
-  its threads messages and hear the answers, and start features and tasks. It picks the machine for
-  each feature, and the base branch it names is that machine's. When a feature or crew member
-  there stops to ask you something, the manager hears so and can tell you it's blocked; you answer
-  in that thread. A machine you haven't ticked is refused before anything starts there, and a
-  request for a machine that's offline waits until it's back.
+On every machine linked to the one it lives on, the manager can check the copy's threads and open
+features, send its threads messages and hear the answers, and start features and tasks. It picks
+the machine for each feature, and the base branch it names is that machine's. When a feature or
+crew member there stops to ask you something, the manager hears so and can tell you it's blocked;
+you answer in that thread. A machine that isn't linked can't be reached, and a request for a
+machine that's offline waits until it's back.
 
 If both machines already had a manager, the one on the machine it lives on stays, the other's
 thread is archived, and the one that stays is told which manager it replaced and where. This needs

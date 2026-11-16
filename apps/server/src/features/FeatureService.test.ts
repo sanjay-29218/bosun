@@ -1886,14 +1886,12 @@ describe("feature lead and crew", () => {
           const saved = yield* crew.updateProjectManager({
             projectId,
             instructions: "Manage it my way.",
-            longConversation: "new-session",
             expectedRevision: fresh.revision,
           });
           expect(saved).toMatchObject({
             icon,
             customized: true,
             revision: 3,
-            longConversation: "new-session",
           });
           expect((yield* shell())?.modelSelection).toEqual(picked);
           expect(
@@ -1916,7 +1914,6 @@ describe("feature lead and crew", () => {
             customized: false,
             revision: 5,
             instructions: before.instructions,
-            longConversation: "compact",
           });
           expect((yield* shell())?.modelSelection).toEqual(picked);
           const cleared = yield* crew.setProjectManagerIcon({ projectId, icon: null });
@@ -2124,11 +2121,7 @@ describe("feature lead and crew", () => {
           expect((yield* crew.ensureProjectManager(projectId)).instructions).toBe(rule);
           expect(yield* briefing()).toContain(rule);
           const after = yield* crew.projectManagerSettings(projectId);
-          expect(after).toMatchObject({
-            icon,
-            enabled: true,
-            longConversation: before.longConversation,
-          });
+          expect(after).toMatchObject({ icon, enabled: true });
 
           const stale = yield* Effect.flip(
             crew.updateProjectManagerInstructions({

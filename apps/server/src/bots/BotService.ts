@@ -155,15 +155,15 @@ const make = Effect.gen(function* () {
         16_000,
       ),
       modelSelection: input.modelSelection ?? null,
-      longConversation: input.longConversation ?? "compact",
-      permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
+      // Read back from the link list once stored.
+      linkedEnvironmentIds: [],
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
       pinned: true,
       revision: 1,
       createdAt: now,
       updatedAt: now,
     };
-    if (yield* store.insert(bot)) return bot;
+    if (yield* store.insert(bot)) return (yield* store.get(id)) ?? bot;
     // A concurrent create with the same ID won, or a crew member already has the ID.
     const winner = yield* store.get(id);
     if (winner && sameCreate(winner, input)) return winner;
@@ -198,12 +198,6 @@ const make = Effect.gen(function* () {
           ? {}
           : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
-        ...(input.longConversation === undefined
-          ? {}
-          : { longConversation: input.longConversation }),
-        ...(input.permittedEnvironmentIds === undefined
-          ? {}
-          : { permittedEnvironmentIds: [...new Set(input.permittedEnvironmentIds)] }),
         revision: previous.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };

@@ -1,7 +1,6 @@
 import {
   botHeadquartersRunId,
   botHeadquartersThreadId,
-  type BotLongConversation,
   CREW_DISPATCH_STATE,
   CREW_TURN_STATE,
   headquartersBotId,
@@ -20,21 +19,16 @@ import {
   ThreadId,
   type CrewTurnState,
   type ModelSelection,
-  type RunId,
   type RuntimeMode,
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as FiberMap from "effect/FiberMap";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
-import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
-import * as Stream from "effect/Stream";
 
 import type { OrchestratorV2Error as OrchestrationDispatchError } from "../orchestration-v2/Orchestrator.ts";
 import type { PersistenceSqlError, ProjectionRepositoryError } from "../persistence/Errors.ts";
@@ -51,9 +45,7 @@ import {
 import * as BotStore from "../bots/BotStore.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import {
-  FRESH_START_QUIET_MINUTES,
   freshStartBriefing,
-  freshStartDue,
   headquartersIdle,
   type FreshStartRecords,
 } from "./headquartersFreshStart.ts";
@@ -375,11 +367,6 @@ export interface CrewServiceShape {
     PersistenceSqlError
   >;
   readonly reconcileRuns: () => Effect.Effect<void, PersistenceSqlError>;
-  /**
-   * For bots set to start a new session, starts a headquarters over once its conversation grows
-   * long and it has been quiet a while. Other bots leave it to the provider's compaction.
-   */
-  readonly watchHeadquarters: () => Effect.Effect<void, never, Scope.Scope>;
   /** Starts a standing thread over in a fresh session now; refused while it works. */
   readonly startNewSession: (threadId: ThreadId) => Effect.Effect<void, CrewServiceError>;
 }
@@ -522,7 +509,6 @@ export const CrewServiceLive = Layer.effect(
           name,
           instructions,
           enabled: true,
-          longConversation: "compact",
           icon: null,
           customizedAt: null,
           revision: 1,
@@ -800,7 +786,6 @@ export const CrewServiceLive = Layer.effect(
     /** What a project's manager starts with: built-in instructions. */
     const projectManagerDefaults = (projectId: ProjectId) => ({
       instructions: builtInManagerInstructions(projectId),
-      longConversation: "compact" as const,
     });
 
     /**
@@ -859,7 +844,6 @@ export const CrewServiceLive = Layer.effect(
           projectId,
           enabled: member.enabled,
           instructions: managerInstructions(member, projectId),
-          longConversation: member.longConversation,
           customized: member.customizedAt !== null,
           revision: member.revision,
           threadId,
@@ -910,7 +894,6 @@ export const CrewServiceLive = Layer.effect(
         Effect.succeed({
           ...member,
           instructions,
-          longConversation: input.longConversation,
           customizedAt: now,
           revision: member.revision + 1,
           updatedAt: now,
@@ -1004,7 +987,6 @@ export const CrewServiceLive = Layer.effect(
         const saved = yield* updateProjectManager({
           projectId,
           instructions: input.instructions,
-          longConversation: current.longConversation,
           expectedRevision: input.expectedRevision,
         });
         return instructionsOf(saved);
@@ -1178,7 +1160,6 @@ export const CrewServiceLive = Layer.effect(
       readonly revision: number;
       /** Null opens its thread on the default model. */
       readonly modelSelection: ModelSelection | null;
-      readonly longConversation: BotLongConversation;
       readonly taskText: string;
       /** The project its thread lives in: a bot's home, made again if it was deleted. */
       readonly home: Effect.Effect<ProjectId, CrewServiceError>;
@@ -1218,7 +1199,6 @@ export const CrewServiceLive = Layer.effect(
         instructions: bot.instructions,
         revision: bot.revision,
         modelSelection: bot.modelSelection,
-        longConversation: bot.longConversation,
         taskText: headquartersTask(bot.id),
         home,
       } satisfies StandingOwner;
@@ -1236,7 +1216,6 @@ export const CrewServiceLive = Layer.effect(
         revision: member.revision,
         // Its thread's composer picks its model from then on.
         modelSelection: null,
-        longConversation: member.longConversation,
         taskText: projectManagerTask(projectId),
         home: runtime
           .projectExists(projectId)
@@ -1468,32 +1447,6 @@ export const CrewServiceLive = Layer.effect(
           records.messages,
         ),
       });
-
-    // A newer completed turn replaces the wait, so the quiet period restarts with each turn.
-    const startFreshWhenQuiet = Effect.fn("CrewService.startFreshWhenQuiet")(
-      function* (threadId: ThreadId, completedRunId: RunId) {
-        const owner = yield* ownerOfThread(threadId);
-        if (owner?.longConversation !== "new-session") return;
-        if (!freshStartDue(yield* runtime.freshStartRecords(threadId), completedRunId)) return;
-        yield* Effect.sleep(Duration.minutes(FRESH_START_QUIET_MINUTES));
-        const records = yield* runtime.freshStartRecords(threadId);
-        const current = yield* ownerOfThread(threadId);
-        const run = yield* store.getRun(owner.runId);
-        if (
-          current?.longConversation !== "new-session" ||
-          run?.threadId !== threadId ||
-          !freshStartDue(records, completedRunId)
-        )
-          return;
-        yield* startFresh(current, run, records, completedRunId);
-      },
-      (effect, threadId) =>
-        effect.pipe(
-          Effect.catch((cause) =>
-            Effect.logWarning("Standing thread fresh start skipped", { threadId, cause }),
-          ),
-        ),
-    );
 
     const startNewSession: CrewServiceShape["startNewSession"] = Effect.fn(
       "CrewService.startNewSession",
@@ -1758,18 +1711,6 @@ export const CrewServiceLive = Layer.effect(
         });
       }),
       startNewSession,
-      watchHeadquarters: Effect.fn("CrewService.watchHeadquarters")(function* () {
-        const waiting = yield* FiberMap.make<ThreadId>();
-        yield* runtime.completedRuns.pipe(
-          Stream.runForEach(({ threadId, runId }) =>
-            isStandingThread(threadId)
-              ? FiberMap.run(waiting, threadId, startFreshWhenQuiet(threadId, runId))
-              : Effect.void,
-          ),
-          Effect.catch((cause) => Effect.logWarning("Headquarters watch stopped", { cause })),
-          Effect.forkScoped,
-        );
-      }),
     } satisfies CrewServiceShape;
     // Library changes, and the bot models the defaults fill in, tell clients to re-read them.
     const changes = yield* crewChangeNotifier;

@@ -433,7 +433,7 @@ describe("logicalBotProjectKeys", () => {
       expect([...logicalBotProjectKeys(entry, bots, linked, vpsRunsBots)]).toEqual([]);
     }
     // A bot that may work on remote shows remote's projects with no bot, which it can take.
-    const permitted = { ...bots[1]!, permittedEnvironmentIds: [remote] };
+    const permitted = { ...bots[1]!, linkedEnvironmentIds: [remote] };
     expect([...logicalBotProjectKeys(permitted, bots, linked, vpsRunsBots)]).toEqual([
       "remote:loose",
     ]);
@@ -454,7 +454,7 @@ describe("logicalBotProjectKeys", () => {
     expect(lists.notAllowed.map((project) => project.id)).toEqual(["b", "c"]);
     expect(lists.withoutBots.map((project) => project.id)).toEqual(["omni"]);
 
-    const permitted = { ...social, permittedEnvironmentIds: [remote] };
+    const permitted = { ...social, linkedEnvironmentIds: [remote] };
     const given = [
       ...withVps,
       // Given to Social from its home: owned without a copy of Social there.

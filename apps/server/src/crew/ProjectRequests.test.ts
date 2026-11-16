@@ -357,7 +357,6 @@ it.effect("retires this copy's manager when it moves to another machine, deletin
     yield* requests.setManagerPlacement({
       projectId,
       remoteManager: null,
-      permittedEnvironmentIds: [EnvironmentId.make("environment-linux")],
       retired: { environmentLabel: "Linux box", threadId: ThreadId.make("bot-run:project-hq:x") },
     });
     const note = yield* sent;

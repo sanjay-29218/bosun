@@ -22,7 +22,6 @@ const settings = (fields: Partial<ProjectManagerSettings> = {}): ProjectManagerS
   projectId,
   enabled: true,
   instructions: "Manage the web app.",
-  longConversation: "compact",
   customized: false,
   revision: 1,
   threadId: null,

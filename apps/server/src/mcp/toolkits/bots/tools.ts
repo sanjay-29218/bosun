@@ -37,7 +37,7 @@ const shared = {
 const List = Tool.make("t3_bot_list", {
   ...shared,
   description:
-    "List an environment's bots in rail order; there may be none. Each bot owns projects (a project's botId); a project with a null botId has no bot. Each bot names its home environment and the linked environments it may start work on (permittedEnvironments).",
+    "List an environment's bots in rail order; there may be none. Each bot owns projects (a project's botId); a project with a null botId has no bot. Each bot names its home environment and the linked environments it works on (permittedEnvironments): every one linked to its home.",
   parameters: Schema.Struct({ environmentId: OrchestratorMcpEnvironmentTarget }),
   success: Schema.Struct({ bots: Schema.Array(ListedBot) }),
 })
@@ -55,7 +55,7 @@ const Create = Tool.make("t3_bot_create", {
 const Update = Tool.make("t3_bot_update", {
   ...shared,
   description:
-    "Change a bot's name, avatar, color, instructions, default model, the linked environments it may start work on, or what its headquarters does when its conversation grows long. Omitted fields are kept; permittedEnvironmentIds replaces the whole list. Pass the bot's current revision as expectedRevision.",
+    "Change a bot's name, avatar, color, instructions or default model. Omitted fields are kept. Pass the bot's current revision as expectedRevision.",
   parameters: BotUpdateInput,
   success: Bot,
 });

@@ -72,20 +72,14 @@ const leadRole = { modelSelection: { ...modelSelection, model: "gpt-5.4-mini" } 
 /** What a request's lead runs with there: its lead role's model, with the access sent. */
 const carried = { ...leadRole, runtimeMode: "full-access" as const };
 
-const bot = (
-  id: string,
-  name: string,
-  position: number,
-  permittedEnvironmentIds = [box.environmentId, couch.environmentId],
-): Bot => ({
+const bot = (id: string, name: string, position: number): Bot => ({
   id,
   name,
   avatar: { head: "round", face: "visor", eyes: "round", top: "none", cheeks: false, smile: true },
   color: "blue",
   instructions: "",
   modelSelection,
-  longConversation: "compact",
-  permittedEnvironmentIds,
+  linkedEnvironmentIds: [],
   position,
   revision: 1,
   createdAt: "2026-11-05T00:00:00.000Z",
@@ -98,7 +92,6 @@ const project = (
   remoteBot: ProjectRemoteBot | null = null,
   manager: {
     readonly remoteManager?: ProjectRemoteManager;
-    readonly managerPermittedEnvironmentIds?: ReadonlyArray<string>;
   } = {},
 ) =>
   ({
@@ -424,10 +417,7 @@ const makeLaptop = (captain = bot(CAPTAIN_ID, "Captain", 0), botsHere = [captain
             bots: botsHere,
             posted,
             projects: [
-              // Its manager may work on the box only, whatever Captain may do.
-              project("project:laptop", "laptop-app", CAPTAIN_ID, null, {
-                managerPermittedEnvironmentIds: [box.environmentId],
-              }),
+              project("project:laptop", "laptop-app", CAPTAIN_ID),
               project("project:scratch:hidden", "No project", CAPTAIN_ID),
               project("project:captain-home:hidden", "Captain", CAPTAIN_ID),
             ],
@@ -534,7 +524,8 @@ it.live("Captain here lists, sees and takes its projects on a linked environment
           { id: "bot:social-box", name: "Social" },
         ],
       });
-      // Here, Captain may work on the box, which answers, and the couch, which is asleep.
+      // Here, Captain may work on every linked machine: the box, which answers, and the couch,
+      // which is asleep.
       const own = yield* a.call("t3_bot_list", {});
       expect(own.isError, JSON.stringify(own.content)).toBe(false);
       expect(own.structuredContent).toMatchObject({
@@ -697,50 +688,54 @@ const managerScope: McpInvocationContext.McpThreadInvocationScope = {
   thread: { ...headquartersScope.thread, threadId: managerThread },
 };
 
-it.live("a project's manager works on its project's copy on a permitted machine only", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const boxSeen = yield* Ref.make<Seen>(nothingSeen);
-      const b = yield* serveBox(boxSeen);
-      const a = yield* makeLaptop();
-      yield* linkTo(a.links, b, "full-access");
-      const manager = { managerProjectId: ProjectId.make("project:laptop") };
+it.live(
+  "a project's manager works on its project's copy on any linked machine, nothing ticked",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const boxSeen = yield* Ref.make<Seen>(nothingSeen);
+        const b = yield* serveBox(boxSeen);
+        const a = yield* makeLaptop();
+        yield* linkTo(a.links, b, "full-access");
+        const manager = { managerProjectId: ProjectId.make("project:laptop") };
 
-      // Its project here and the copy on the box whose manager it is.
-      const listed = JSON.stringify(yield* a.callAs(managerScope)("t3_bot_projects", {}));
-      expect(listed).toContain("laptop-app's manager");
-      expect(listed).toContain('\\"projectId\\":\\"project:web\\"');
-      expect(listed).not.toContain("project:omni");
+        // Its project here and the copy on the box whose manager it is.
+        const listed = JSON.stringify(yield* a.callAs(managerScope)("t3_bot_projects", {}));
+        expect(listed).toContain("laptop-app's manager");
+        expect(listed).toContain('\\"projectId\\":\\"project:web\\"');
+        expect(listed).not.toContain("project:omni");
 
-      // A request for the box's copy starts there as that project's Feature manager.
-      const launched = yield* a.reach.launchProjectManager(
-        managerScope,
-        box.environmentId,
-        manager,
-        launch("project:web"),
-      );
-      expect(launched.threadId).toMatch(/^bot-run:link-task:/);
-      expect((yield* Ref.get(boxSeen)).runs).toMatchObject([
-        { memberId: "bot-manager:project:web", projectId: "project:web" },
-      ]);
-      // Its manager isn't Captain, so the box's owner stays as it was.
-      expect((yield* Ref.get(boxSeen)).moves).toEqual([]);
-
-      // A copy with its own manager there, and a machine it may not work on, start nothing.
-      const refused = (environmentId: typeof box.environmentId, projectId: string) =>
-        a.reach.launchProjectManager(managerScope, environmentId, manager, launch(projectId)).pipe(
-          Effect.flip,
-          Effect.map((error) => error.message),
+        // A request for the box's copy starts there as that project's Feature manager.
+        const launched = yield* a.reach.launchProjectManager(
+          managerScope,
+          box.environmentId,
+          manager,
+          launch("project:web"),
         );
-      expect(yield* refused(box.environmentId, "project:notes")).toBe(
-        "notes on Box has its own project manager, not laptop-app's manager from Laptop. Set it to live on Laptop in Project settings → Project manager first.",
-      );
-      expect(yield* refused(couch.environmentId, "project:couch")).toContain(
-        "laptop-app's manager isn't allowed to work on environment-couch. Nothing was started there.",
-      );
-      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
-    }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+        expect(launched.threadId).toMatch(/^bot-run:link-task:/);
+        expect((yield* Ref.get(boxSeen)).runs).toMatchObject([
+          { memberId: "bot-manager:project:web", projectId: "project:web" },
+        ]);
+        // Its manager isn't Captain, so the box's owner stays as it was.
+        expect((yield* Ref.get(boxSeen)).moves).toEqual([]);
+
+        // A copy with its own manager there, and a machine that isn't linked, start nothing.
+        const refused = (environmentId: typeof box.environmentId, projectId: string) =>
+          a.reach
+            .launchProjectManager(managerScope, environmentId, manager, launch(projectId))
+            .pipe(
+              Effect.flip,
+              Effect.map((error) => error.message),
+            );
+        expect(yield* refused(box.environmentId, "project:notes")).toBe(
+          "notes on Box has its own project manager, not laptop-app's manager from Laptop. Set it to live on Laptop in Project settings → Project manager first.",
+        );
+        expect(yield* refused(couch.environmentId, "project:couch")).toContain(
+          "environment-couch isn't linked to this machine, so nothing was started there.",
+        );
+        expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
+      }),
+    ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
 it.live(
@@ -1020,30 +1015,32 @@ it.effect("refuses a bot's project work over a link below full access", () =>
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("refuses new work on a linked environment the bot isn't allowed on", () =>
+it.effect("starts a bot's work on any linked environment, and none on an unlinked one", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const boxSeen = yield* Ref.make<Seen>(nothingSeen);
       const b = yield* serveBox(boxSeen);
-      const a = yield* makeLaptop(bot(CAPTAIN_ID, "Captain", 0, [couch.environmentId]));
+      const a = yield* makeLaptop();
       yield* linkTo(a.links, b, "full-access");
 
+      // Nothing is ticked anywhere: the link is all it takes.
+      yield* a.reach.launchProjectManager(
+        headquartersScope,
+        box.environmentId,
+        { botId: CAPTAIN_ID },
+        launch("project:omni"),
+      );
+      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
       const refused = yield* a.reach
         .launchProjectManager(
           headquartersScope,
-          box.environmentId,
+          couch.environmentId,
           { botId: CAPTAIN_ID },
-          launch("project:omni"),
+          launch("project:couch"),
         )
         .pipe(Effect.flip);
-      expect(refused.code).toBe("capability_denied");
-      expect(refused.message).toContain("Captain isn't allowed to start work on Box");
-      expect((yield* Ref.get(boxSeen)).runs).toEqual([]);
-      // Listing its projects there is still allowed.
-      const listed = yield* a.call("t3_bot_projects", {});
-      expect(listed.structuredContent).toMatchObject({
-        projects: expect.arrayContaining([expect.objectContaining({ projectId: "project:omni" })]),
-      });
+      expect(refused.message).toContain("environment-couch isn't linked to this machine");
+      expect((yield* Ref.get(boxSeen)).runs).toHaveLength(1);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

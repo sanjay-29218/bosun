@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 
-import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
-import { BotAvatar, BotLongConversation } from "./bots.ts";
+import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { BotAvatar } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor, ProjectRemoteManager } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
@@ -166,7 +166,6 @@ export const ProjectManagerSettings = Schema.Struct({
   /** Off, its bot does the project's work itself and its thread is archived. */
   enabled: Schema.Boolean,
   instructions: Schema.String,
-  longConversation: BotLongConversation,
   /** Saved in the project, rather than its defaults. */
   customized: Schema.Boolean,
   /** The member's revision; 0 before the project has one. */
@@ -180,7 +179,6 @@ export type ProjectManagerSettings = typeof ProjectManagerSettings.Type;
 export const ProjectManagerUpdateInput = Schema.Struct({
   projectId: ProjectId,
   instructions: Schema.String,
-  longConversation: BotLongConversation,
   expectedRevision: Schema.Int,
 });
 export type ProjectManagerUpdateInput = typeof ProjectManagerUpdateInput.Type;
@@ -201,14 +199,13 @@ export const ProjectManagerIconInput = Schema.Struct({
 export type ProjectManagerIconInput = typeof ProjectManagerIconInput.Type;
 
 /**
- * Where a project's manager lives and works. `remoteManager` set moves it to another
+ * Where a project's manager lives. `remoteManager` set moves it to another
  * environment's copy and retires this copy's manager; null brings it here. `retired` notes in the
  * manager's thread here which copy's manager was retired for it.
  */
 export const ProjectManagerPlacementInput = Schema.Struct({
   projectId: ProjectId,
   remoteManager: Schema.optionalKey(Schema.NullOr(ProjectRemoteManager)),
-  permittedEnvironmentIds: Schema.optionalKey(Schema.NullOr(Schema.Array(EnvironmentId))),
   retired: Schema.optionalKey(
     Schema.Struct({ environmentLabel: Schema.String, threadId: ThreadId }),
   ),

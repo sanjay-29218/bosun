@@ -66,7 +66,6 @@ function Form(props: {
   // When someone else saved first, the refresh brings their revision in place of this form.
   const { busy, error, run } = useRun(() => undefined);
   const [instructions, setInstructions] = useState(settings.instructions);
-  const [longConversation, setLongConversation] = useState(settings.longConversation);
   const target = { environmentId: project.environmentId };
   const canSave = canEdit && !busy && !!instructions.trim();
 
@@ -103,7 +102,6 @@ function Form(props: {
         input: {
           projectId: project.id,
           instructions: instructions.trim(),
-          longConversation,
           expectedRevision: settings.revision,
         },
       });
@@ -175,19 +173,6 @@ function Form(props: {
         className="min-h-28"
         editable={canEdit && !busy}
       />
-      <View className="flex-row flex-wrap gap-1.5">
-        <Action
-          label={
-            longConversation === "new-session"
-              ? "Long conversations: new session"
-              : "Long conversations: compact"
-          }
-          disabled={!canEdit}
-          onPress={() =>
-            setLongConversation(longConversation === "new-session" ? "compact" : "new-session")
-          }
-        />
-      </View>
       <View className="flex-row flex-wrap gap-1.5">
         <Action label="Save" disabled={!canSave} onPress={() => void save()} />
         {settings.customized ? (

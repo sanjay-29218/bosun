@@ -25,7 +25,7 @@ const atlas = logicalBotOf(studio, {
   id: "bot-atlas",
   name: "Atlas",
   position: 0,
-  permittedEnvironmentIds: [macbook],
+  linkedEnvironmentIds: [macbook],
 });
 const scout = logicalBotOf(studio, { ...look, id: "bot-scout", name: "Scout", position: 1 });
 const juno = logicalBotOf(macbook, { ...look, id: "bot-juno", name: "Juno", position: 0 });

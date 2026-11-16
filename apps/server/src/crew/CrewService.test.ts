@@ -20,14 +20,12 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   ThreadId,
-  type RunId,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Result from "effect/Result";
-import { TestClock } from "effect/testing";
 import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
 import { describe, expect } from "vite-plus/test";
@@ -54,7 +52,7 @@ import * as BotStore from "../bots/BotStore.ts";
 import { CrewService, CrewServiceLive, featureManagerMemberId } from "./CrewService.ts";
 import { CrewStore, CrewStoreLive } from "./CrewStore.ts";
 import { CrewThreadRuntime } from "./CrewThreadRuntime.ts";
-import { freshStartRecords, runId } from "./headquartersFreshStart.testkit.ts";
+import { freshStartRecords } from "./headquartersFreshStart.testkit.ts";
 import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
 const projectId = ProjectId.make("bot-test-project");
@@ -260,7 +258,6 @@ describe("Bot foundation", () => {
               id: FEATURE_MANAGER_ROLE_ID,
               name: "Lead from the laptop",
               instructions: "Lead the work.",
-              withheldTools: [],
               modelSelection: sentModel,
               runtimeMode: "auto-accept-edits",
             });
@@ -270,7 +267,6 @@ describe("Bot foundation", () => {
               name: "Lead from the laptop",
               instructions: `Lead the work.\n\nYou manage project ${projectId}.`,
               modelSelection: sentModel,
-              runtimeMode: "auto-accept-edits",
             });
             expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
             // A local role that's turned off leaves it as sent.
@@ -678,7 +674,6 @@ describe("Bot foundation", () => {
           moveThread: () => Effect.die("unused"),
           restore: () => Effect.void,
           setModel: () => Effect.succeed(false),
-          completedRuns: Stream.empty,
           freshStartRecords: () => Effect.die("unused"),
           startFresh: () => Effect.void,
           pin: () => Effect.void,
@@ -767,138 +762,78 @@ describe("Bot foundation", () => {
       }),
   );
 
-  effectIt.effect(
-    "starts a long headquarters over only for bots that choose it, after a quiet spell",
-    () =>
-      Effect.gen(function* () {
-        const completions = yield* Queue.unbounded<{
-          readonly threadId: ThreadId;
-          readonly runId: RunId;
-        }>();
-        const checks = yield* Queue.unbounded<ThreadId>();
-        const fresh = yield* Queue.unbounded<{
-          readonly threadId: ThreadId;
-          readonly key: string;
-        }>();
-        const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
-          projectExists: () => Effect.succeed(true),
-          projectRemoteManager: () => Effect.succeed(null),
-          projectBotId: () => Effect.succeed(null),
-          projectModelSelection: () => Effect.succeed(null),
-          runModelSelection: (_projectId, chosen) =>
-            Effect.succeed(chosen && { selection: chosen, notice: null, blocked: null }),
-          noteModelFallback: () => Effect.void,
-          archive: () => Effect.void,
-          isHiddenProject: () => Effect.succeed(false),
-          botHome: () => Effect.die("unused"),
-          moveThread: () => Effect.die("unused"),
-          restore: () => Effect.void,
-          setModel: () => Effect.succeed(false),
-          completedRuns: Stream.fromQueue(completions),
-          freshStartRecords: (threadId) =>
-            Queue.offer(checks, threadId).pipe(Effect.as(freshStartRecords())),
-          startFresh: (input) => Queue.offer(fresh, input).pipe(Effect.asVoid),
-          pin: () => Effect.void,
-          unpin: () => Effect.void,
-          start: () => Effect.void,
-          getTurnState: () => Effect.succeed("pending" as const),
-          replayPending: () => Effect.void,
-          interrupt: () => Effect.void,
-          listPendingStartedRunIds: () => Effect.succeed([]),
-        });
-        const layer = CrewServiceLive.pipe(
-          Layer.provideMerge(CrewStoreLive),
-          Layer.provideMerge(BotStore.layer),
-          Layer.provide(fakeRuntime),
-          Layer.provide(SqlitePersistence.layerMemory),
-        );
-        yield* Effect.gen(function* () {
-          const crew = yield* CrewService;
-          const store = yield* CrewStore;
-          const botStore = yield* BotStore.BotStore;
-          for (const longConversation of ["compact", "new-session"] as const) {
-            const id = `bot-${longConversation}`;
-            yield* botStore.insert({
-              id,
-              name: id,
-              avatar: {
-                head: "round",
-                face: "visor",
-                eyes: "round",
-                top: "none",
-                cheeks: false,
-                smile: true,
-              },
-              color: "blue",
-              instructions: "Run my projects.",
-              modelSelection,
-              longConversation,
-              permittedEnvironmentIds: [],
-              position: 1,
-              revision: 1,
-              createdAt: "2026-10-30T00:00:00.000Z",
-              updatedAt: "2026-10-30T00:00:00.000Z",
-            });
-            yield* store.insertRun({
-              id: botHeadquartersRunId(id),
-              memberId: id,
-              projectId,
-              threadId: botHeadquartersThreadId(id),
-              taskText: "Lead the bot's work.",
-              title: id,
-              instructions: "Run my projects.",
-              memberRevision: 1,
-              modelSelection,
-              runtimeMode: "full-access",
-              dispatchState: "started",
-              recoveryAttempt: 0,
-              lastError: null,
-              createdAt: "2026-10-30T00:00:00.000Z",
-              dispatchedAt: "2026-10-30T00:00:00.000Z",
-              workspace: null,
-            });
-          }
-          yield* crew.watchHeadquarters();
-          const freshThreadId = botHeadquartersThreadId("bot-new-session");
-          yield* Queue.offer(completions, {
-            threadId: botHeadquartersThreadId("bot-compact"),
-            runId,
-          });
-          yield* Queue.offer(completions, { threadId: freshThreadId, runId });
-          expect(yield* Queue.take(checks)).toBe(freshThreadId);
-          yield* TestClock.adjust("29 minutes");
-          expect(yield* Queue.size(fresh)).toBe(0);
-          yield* TestClock.adjust("1 minute");
-          expect(yield* Queue.take(fresh)).toMatchObject({ threadId: freshThreadId, key: runId });
-          expect(yield* Queue.size(fresh)).toBe(0);
-
-          // A project's manager takes the same path, by its member's setting.
-          yield* store.insertMember({
-            id: `project-manager:${projectId}`,
-            projectId,
-            featureId: null,
-            roleId: null,
-            roleRevision: null,
-            name: "Project manager",
-            instructions: "Manage the project.",
+  effectIt.effect("starts a bot's headquarters or a project's manager over when asked", () =>
+    Effect.gen(function* () {
+      const checks = yield* Queue.unbounded<ThreadId>();
+      const fresh = yield* Queue.unbounded<{
+        readonly threadId: ThreadId;
+        readonly key: string;
+      }>();
+      const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
+        projectExists: () => Effect.succeed(true),
+        projectRemoteManager: () => Effect.succeed(null),
+        projectBotId: () => Effect.succeed(null),
+        projectModelSelection: () => Effect.succeed(null),
+        runModelSelection: (_projectId, chosen) =>
+          Effect.succeed(chosen && { selection: chosen, notice: null, blocked: null }),
+        noteModelFallback: () => Effect.void,
+        archive: () => Effect.void,
+        isHiddenProject: () => Effect.succeed(false),
+        botHome: () => Effect.die("unused"),
+        moveThread: () => Effect.die("unused"),
+        restore: () => Effect.void,
+        setModel: () => Effect.succeed(false),
+        freshStartRecords: (threadId) =>
+          Queue.offer(checks, threadId).pipe(Effect.as(freshStartRecords())),
+        startFresh: (input) => Queue.offer(fresh, input).pipe(Effect.asVoid),
+        pin: () => Effect.void,
+        unpin: () => Effect.void,
+        start: () => Effect.void,
+        getTurnState: () => Effect.succeed("pending" as const),
+        replayPending: () => Effect.void,
+        interrupt: () => Effect.void,
+        listPendingStartedRunIds: () => Effect.succeed([]),
+      });
+      const layer = CrewServiceLive.pipe(
+        Layer.provideMerge(CrewStoreLive),
+        Layer.provideMerge(BotStore.layer),
+        Layer.provide(fakeRuntime),
+        Layer.provide(SqlitePersistence.layerMemory),
+      );
+      yield* Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const store = yield* CrewStore;
+        const botStore = yield* BotStore.BotStore;
+        {
+          const id = "bot-ops";
+          yield* botStore.insert({
+            id,
+            name: id,
+            avatar: {
+              head: "round",
+              face: "visor",
+              eyes: "round",
+              top: "none",
+              cheeks: false,
+              smile: true,
+            },
+            color: "blue",
+            instructions: "Run my projects.",
             modelSelection,
-            enabled: true,
-            longConversation: "new-session",
-            icon: null,
-            customizedAt: null,
+            linkedEnvironmentIds: [],
+            position: 1,
             revision: 1,
             createdAt: "2026-10-30T00:00:00.000Z",
             updatedAt: "2026-10-30T00:00:00.000Z",
           });
-          const managerThreadId = projectHeadquartersThreadId(projectId);
           yield* store.insertRun({
-            id: projectHeadquartersRunId(projectId),
-            memberId: `project-manager:${projectId}`,
+            id: botHeadquartersRunId(id),
+            memberId: id,
             projectId,
-            threadId: managerThreadId,
-            taskText: "Manage the project.",
-            title: "Project manager",
-            instructions: "Manage the project.",
+            threadId: botHeadquartersThreadId(id),
+            taskText: "Lead the bot's work.",
+            title: id,
+            instructions: "Run my projects.",
             memberRevision: 1,
             modelSelection,
             runtimeMode: "full-access",
@@ -909,16 +844,54 @@ describe("Bot foundation", () => {
             dispatchedAt: "2026-10-30T00:00:00.000Z",
             workspace: null,
           });
-          // The bot's check after its quiet spell is done with.
-          yield* Queue.takeAll(checks);
-          yield* Queue.offer(completions, { threadId: managerThreadId, runId });
-          expect(yield* Queue.take(checks)).toBe(managerThreadId);
-          yield* TestClock.adjust("30 minutes");
-          expect(yield* Queue.take(fresh)).toMatchObject({ threadId: managerThreadId, key: runId });
-          yield* crew.startNewSession(managerThreadId);
-          expect((yield* Queue.take(fresh)).key).toMatch(/^manual:/);
-        }).pipe(Effect.provide(layer), Effect.scoped);
-      }),
+        }
+        const headquarters = botHeadquartersThreadId("bot-ops");
+        yield* crew.startNewSession(headquarters);
+        expect(yield* Queue.take(fresh)).toMatchObject({ threadId: headquarters });
+
+        // A project's manager starts over the same way.
+        yield* store.insertMember({
+          id: `project-manager:${projectId}`,
+          projectId,
+          featureId: null,
+          roleId: null,
+          roleRevision: null,
+          name: "Project manager",
+          instructions: "Manage the project.",
+          modelSelection,
+          enabled: true,
+          icon: null,
+          customizedAt: null,
+          revision: 1,
+          createdAt: "2026-10-30T00:00:00.000Z",
+          updatedAt: "2026-10-30T00:00:00.000Z",
+        });
+        const managerThreadId = projectHeadquartersThreadId(projectId);
+        yield* store.insertRun({
+          id: projectHeadquartersRunId(projectId),
+          memberId: `project-manager:${projectId}`,
+          projectId,
+          threadId: managerThreadId,
+          taskText: "Manage the project.",
+          title: "Project manager",
+          instructions: "Manage the project.",
+          memberRevision: 1,
+          modelSelection,
+          runtimeMode: "full-access",
+          dispatchState: "started",
+          recoveryAttempt: 0,
+          lastError: null,
+          createdAt: "2026-10-30T00:00:00.000Z",
+          dispatchedAt: "2026-10-30T00:00:00.000Z",
+          workspace: null,
+        });
+        yield* crew.startNewSession(managerThreadId);
+        const manual = yield* Queue.take(fresh);
+        expect(manual).toMatchObject({ threadId: managerThreadId });
+        expect(manual.key).toMatch(/^manual:/);
+        expect(yield* Queue.size(fresh)).toBe(0);
+      }).pipe(Effect.provide(layer), Effect.scoped);
+    }),
   );
 
   effectIt.effect.each([

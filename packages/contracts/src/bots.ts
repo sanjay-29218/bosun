@@ -83,13 +83,6 @@ export const BotAvatar = Schema.Struct({
 });
 export type BotAvatar = typeof BotAvatar.Type;
 
-/**
- * What a bot's headquarters does once its conversation grows long: let the provider compact it,
- * or start a fresh session in the same thread at the next quiet moment.
- */
-export const BotLongConversation = Schema.Literals(["compact", "new-session"]);
-export type BotLongConversation = typeof BotLongConversation.Type;
-
 /** Labels the briefing that opens a headquarters' new session, so clients mark where it began. */
 export const BOT_FRESH_START_LABEL = "Fresh start";
 const isFreshStartRecord = Schema.is(
@@ -111,12 +104,11 @@ export const Bot = Schema.Struct({
   instructions: Schema.String,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
-  longConversation: BotLongConversation,
   /**
-   * Linked environments the bot may start new work on. Its home is the environment that stores
-   * it; ids no longer linked stay saved and are ignored.
+   * Every environment linked to its home, the one that stores it. A bot works on each of them;
+   * the global link list is the only control. Read-only, worked out when listed.
    */
-  permittedEnvironmentIds: listDefaultingToEmpty(EnvironmentId),
+  linkedEnvironmentIds: listDefaultingToEmpty(EnvironmentId),
   /** Rail order, counted from 0. */
   position: Schema.Int,
   /** Shown in the main rail; every bot is listed under Bots either way. Absent: pinned. */
@@ -140,7 +132,6 @@ export const BotCreateInput = Schema.Struct({
   color: ProjectIconColor,
   instructions: Schema.optionalKey(Schema.String),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-  longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotCreateInput = typeof BotCreateInput.Type;
 
@@ -153,8 +144,6 @@ export const BotUpdateInput = Schema.Struct({
   color: Schema.optionalKey(ProjectIconColor),
   instructions: Schema.optionalKey(Schema.String),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-  longConversation: Schema.optionalKey(BotLongConversation),
-  permittedEnvironmentIds: Schema.optionalKey(Schema.Array(EnvironmentId)),
 });
 export type BotUpdateInput = typeof BotUpdateInput.Type;
 
