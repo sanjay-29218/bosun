@@ -148,6 +148,8 @@ interface Environment {
   readonly fallbackModelSelection?: ModelSelection;
   /** Runs as a run is created there, before it is recorded. */
   readonly beforeCreate?: Effect.Effect<void>;
+  /** False: no Feature manager role there, so its manager comes only from a sent lead role. */
+  readonly crewSetUp?: boolean;
 }
 
 /** What one environment's services were asked to change. */
@@ -275,8 +277,16 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
               : { modelSelection, runtimeMode: "full-access" }),
           enabled: true,
         } as never),
-      ensureFeatureManager: (projectId) =>
-        Effect.succeed({ id: `bot-manager:${projectId}` } as never),
+      ensureFeatureManager: (projectId, sentLead) =>
+        data.crewSetUp !== false
+          ? Effect.succeed({ id: `bot-manager:${projectId}` } as never)
+          : sentLead === undefined
+            ? Effect.fail(
+                Object.assign(new Error("Set up the crew before handing it project work"), {
+                  _tag: "CrewValidationError",
+                }) as never,
+              )
+            : Effect.succeed({ id: `bot-manager:${projectId}:${sentLead.name}` } as never),
       // A run whose task says so is still queued, as one whose dispatch failed.
       cancelQueuedRun: (id) =>
         Ref.get(seen).pipe(
@@ -651,6 +661,41 @@ it.live(
           fallbackModelSelection: claudeModel,
         })).startForLink(linkScope("full-access"), { ...signedOut, clientRequestId: "stuck" });
         expect(blocked.threadId).toMatch(/^bot-run:link-task:/);
+        // With no Feature manager role there, the lead role sent runs the work.
+        const noCrew = yield* reachWith({ crewSetUp: false });
+        const sentLead = {
+          id: "role:feature-manager",
+          name: "Lead",
+          instructions: "Lead the work.",
+          ...leadRole,
+        };
+        yield* noCrew.startForLink(linkScope("full-access"), {
+          ...request,
+          clientRequestId: "no-crew-sent-lead",
+          workflow: {
+            workflow: {
+              id: FEATURE_DELIVERY_WORKFLOW_ID,
+              name: "Feature delivery",
+              instructions: "",
+              leadRoleId: sentLead.id,
+              crewRoleIds: [],
+              revision: 1,
+            },
+            roles: [sentLead],
+          },
+        });
+        expect((yield* Ref.get(boxSeen)).runs.at(-1)).toMatchObject({
+          memberId: "bot-manager:project:omni:Lead",
+          carried: leadRole,
+        });
+        // With no lead role sent either, it's refused for good, not left waiting.
+        const unset = yield* noCrew
+          .startForLink(linkScope("full-access"), { ...request, clientRequestId: "no-crew" })
+          .pipe(Effect.flip);
+        expect(unset).toMatchObject({
+          code: "invalid_request",
+          message: "Set up the crew before handing it project work",
+        });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

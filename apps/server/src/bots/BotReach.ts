@@ -159,6 +159,12 @@ export class BotReach extends Context.Service<
 const failure = (code: OrchestratorMcpFailure["code"], message: string) =>
   new OrchestratorMcpFailure({ code, message });
 
+const UNREACHABLE = "which isn't reachable";
+/** This side's word that the environment didn't answer, not a failure the other side sent. */
+export const isUnreachable = (error: OrchestratorMcpFailure) =>
+  isUnanswered(error) ||
+  (error.code === "orchestration_error" && error.message.includes(UNREACHABLE));
+
 const unavailable = (error: { readonly message: string }) =>
   failure("orchestration_error", error.message);
 
@@ -555,12 +561,19 @@ const make = Effect.gen(function* () {
     const cleanup = input.cancelIfStarted === true;
     // Cleanup goes by the request's own record, whatever became of who asked or its permission.
     const { home, link, label } = yield* asker(environmentId, actor, !cleanup);
+    // As the other side would refuse it, before link forwarding's generic runtime-mode refusal.
+    if (!cleanup && link !== undefined && link.access !== "full-access") {
+      return yield* failure(
+        "capability_denied",
+        `${label} is linked with ${link.access} access, and a bot's project work there needs full access. Link ${label} again with full access in Settings → Environments → Linked environments.`,
+      );
+    }
     // Unreachable is the one failure a waiting request retries.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
       return yield* failure(
         "orchestration_error",
-        `Project ${input.projectId} is on ${label}, which isn't reachable (${sinceText(reached, yield* DateTime.now)}). Nothing was started there.`,
+        `Project ${input.projectId} is on ${label}, ${UNREACHABLE} (${sinceText(reached, yield* DateTime.now)}). Nothing was started there.`,
       );
     });
     yield* links
@@ -709,9 +722,15 @@ const make = Effect.gen(function* () {
               "This Bosun is newer than the environment that sent this; update it to share roles.",
             );
           }
+          // A request this environment refuses as it is stays refused; anything else may pass.
+          const refusedOrPassing = (error: { readonly _tag: string; readonly message: string }) =>
+            failure(
+              error._tag === "CrewValidationError" ? "invalid_request" : "orchestration_error",
+              error.message,
+            );
           const manager = yield* crew
-            .ensureFeatureManager(project.id)
-            .pipe(Effect.mapError(unavailable));
+            .ensureFeatureManager(project.id, leadRole)
+            .pipe(Effect.mapError(refusedOrPassing));
           // As a request here does: its own worktree, branched from the project's current branch.
           const base = yield* git
             .currentBranch(project.workspaceRoot)
@@ -736,15 +755,7 @@ const make = Effect.gen(function* () {
                     },
                   }),
             })
-            .pipe(
-              // A request this environment refuses as it is stays refused; anything else may pass.
-              Effect.mapError((error) =>
-                failure(
-                  error._tag === "CrewValidationError" ? "invalid_request" : "orchestration_error",
-                  error.message,
-                ),
-              ),
-            );
+            .pipe(Effect.mapError(refusedOrPassing));
           return { threadId: run.threadId, runId: null, modelSelection: run.modelSelection };
         }),
       );

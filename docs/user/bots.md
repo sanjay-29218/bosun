@@ -52,7 +52,7 @@ again keeps what you unticked. **Link an environment** links another machine wit
 
 When the bot hands work to a project on a machine that's asleep or offline, the request waits
 instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
-is back**, and it starts by itself once that machine answers, even after a restart. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unticking the machine while a request waits fails it.
+is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no Feature manager role of its own runs the work with the lead role this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unticking the machine while a request waits fails it.
 
 #### Copy or move a bot to another machine
 

@@ -1662,10 +1662,15 @@ it.effect("a request the box refuses fails with why, and is only asked about aft
               Effect.fail(
                 input.cancelIfStarted === true
                   ? new OrchestratorMcpFailure({ code: "run_not_found", message: "Nothing runs." })
-                  : new OrchestratorMcpFailure({
-                      code: "invalid_request",
-                      message: "Refused there.",
-                    }),
+                  : input.clientRequestId.endsWith(":passing")
+                    ? new OrchestratorMcpFailure({
+                        code: "orchestration_error",
+                        message: "The lead's thread could not start.",
+                      })
+                    : new OrchestratorMcpFailure({
+                        code: "invalid_request",
+                        message: "Refused there.",
+                      }),
               ),
             ),
           ),
@@ -1686,6 +1691,12 @@ it.effect("a request the box refuses fails with why, and is only asked about aft
       expect(yield* Ref.get(asked)).toEqual([false, true]);
       expect(yield* a.projections.getOpenRemoteDelegatedTasks).toEqual([]);
       expect(yield* Ref.get(thread.launched)).toBeNull();
+
+      // A failure the box sends as passing keeps it waiting, and says what the box said.
+      expect(requested(yield* requestOnBox(a, "passing"))).toMatchObject({
+        status: "waiting",
+        summary: "Waiting for Box: The lead's thread could not start.",
+      });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
