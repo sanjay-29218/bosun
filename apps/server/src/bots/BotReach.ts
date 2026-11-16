@@ -561,6 +561,13 @@ const make = Effect.gen(function* () {
     const cleanup = input.cancelIfStarted === true;
     // Cleanup goes by the request's own record, whatever became of who asked or its permission.
     const { home, link, label } = yield* asker(environmentId, actor, !cleanup);
+    // As the other side would refuse it, before link forwarding's generic runtime-mode refusal.
+    if (!cleanup && link !== undefined && link.access !== "full-access") {
+      return yield* failure(
+        "capability_denied",
+        `${label} is linked with ${link.access} access, and a bot's project work there needs full access. Link ${label} again with full access in Settings → Environments → Linked environments.`,
+      );
+    }
     // Unreachable is the one failure a waiting request retries.
     const unreachable = Effect.gen(function* () {
       const reached = link?.lastReachedAt ?? null;
