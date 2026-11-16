@@ -502,13 +502,15 @@ function TargetRow({
         />
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-sm font-medium",
+            "max-w-[45%] shrink-0 truncate text-sm font-medium",
             reason !== null && "text-muted-foreground",
           )}
         >
           {link.label}
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">{reason ?? "Reachable"}</span>
+        <span className="min-w-0 flex-1 text-right text-xs text-muted-foreground">
+          {reason ?? "Reachable"}
+        </span>
       </label>
     </li>
   );
