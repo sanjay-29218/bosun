@@ -27,13 +27,12 @@ A bot's **Projects** tab lists the projects it owns on every connected environme
 gives it another, and the **✕** on a row takes one off it, leaving that project with no bot; work
 that already started keeps running as the bot that started it. Projects and bots don't need each
 other: a project works with no bot, and a bot with no projects. **Add project** lists the projects
-on the bot's own machine and on the machines linked to it (see **Can work on** below); other
-machines' projects don't show. A project on a linked machine stays there, and the bot works on it
-from its own machine, with no copy of the bot there. Adding one also ticks that machine under **Can
-work on**, so the bot can hand it work straight away. That project's **Settings → Project → Bot**
-shows the owner as "Atlas · lives on Mac Studio". A project on a machine that isn't answering shows
-**Offline**; requests to it wait. A project on a machine you later untick shows **Not allowed**.
-Projects on a linked machine that runs T3 Code without Bosun, or that's linked below **Full
+on the bot's own machine and on the machines linked to it (Linked environments in **Settings →
+Labs**); other machines' projects don't show. A project on a linked machine stays there, and the
+bot works on it from its own machine, with no copy of the bot there; once added, the bot can hand
+it work straight away. That project's **Settings → Project → Bot** shows the owner as "Atlas ·
+lives on Mac Studio". A project on a machine that isn't answering shows **Offline**; requests to it
+wait. Projects on a linked machine that runs T3 Code without Bosun, or that's linked below **Full
 access**, are listed but can't be added until you install Bosun there or link it again with Full
 access. You can also change a project's bot in **Settings → Project → Bot**, or
 pick **No bot**: a project with no bot still has its project manager, which runs on the project's

@@ -123,7 +123,6 @@ const transferredBot = (bot: Bot): TransferredBot => ({
   runtimeMode: bot.runtimeMode,
   modelSelection: bot.modelSelection,
   longConversation: bot.longConversation,
-  permittedEnvironmentIds: bot.permittedEnvironmentIds,
 });
 
 const remoteBotOf = (home: BotHome): ProjectRemoteBot => ({
@@ -257,13 +256,9 @@ const make = Effect.gen(function* () {
           return yield* failure("invalid_request", `Bot ID ${newBotId} is already in use here.`);
         }
         if (input.dryRun === true) return { botId: newBotId, linkedEnvironmentIds, undone: false };
-        // It may work where the original could and on the original's home, as far as links reach.
-        const permitted = [...input.bot.permittedEnvironmentIds, from.environmentId].filter((id) =>
-          linkedEnvironmentIds.includes(id),
-        );
         yield* bots
           .insertCopy({
-            bot: { ...input.bot, id: newBotId, permittedEnvironmentIds: permitted },
+            bot: { ...input.bot, id: newBotId },
             copiedFrom: { environmentId: from.environmentId, botId: from.botId },
             homeFiles: input.homeFiles,
           })

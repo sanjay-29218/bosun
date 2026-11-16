@@ -118,7 +118,6 @@ export type BotCopy = Pick<
   | "runtimeMode"
   | "modelSelection"
   | "longConversation"
-  | "permittedEnvironmentIds"
 >;
 
 const text = (value: string, field: string, max: number) => {
@@ -193,7 +192,10 @@ const make = Effect.gen(function* () {
 
   /** Inserts `bot` at the end of the rail, or returns the bot already under its ID if `same`. */
   const insertUnlocked = Effect.fn("BotService.insertBot")(function* (
-    bot: Omit<Bot, "position" | "pinned" | "revision" | "createdAt" | "updatedAt">,
+    bot: Omit<
+      Bot,
+      "position" | "pinned" | "revision" | "createdAt" | "updatedAt" | "permittedEnvironmentIds"
+    >,
     same: (existing: Bot) => Effect.Effect<boolean, BotServiceError>,
     copiedFrom?: BotStore.CopiedFrom,
   ) {
@@ -206,6 +208,7 @@ const make = Effect.gen(function* () {
     const all = yield* store.list;
     const inserted: Bot = {
       ...bot,
+      permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
       pinned: true,
       revision: 1,
@@ -237,7 +240,6 @@ const make = Effect.gen(function* () {
         runtimeMode: input.runtimeMode ?? "full-access",
         modelSelection: input.modelSelection ?? null,
         longConversation: input.longConversation ?? "compact",
-        permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
       },
       (existing) => Effect.succeed(sameCreate(existing, input)),
     );
@@ -424,7 +426,6 @@ const make = Effect.gen(function* () {
             runtimeMode: sent.runtimeMode,
             modelSelection: sent.modelSelection,
             longConversation: sent.longConversation,
-            permittedEnvironmentIds: [...new Set(sent.permittedEnvironmentIds)],
           },
           // The same copy, even renamed here since: it came from the same bot.
           (existing) =>

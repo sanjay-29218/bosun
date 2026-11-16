@@ -185,7 +185,7 @@ export const TransferredAutomation = Schema.Struct({
 });
 export type TransferredAutomation = typeof TransferredAutomation.Type;
 
-/** A bot's settings as its copy on another machine gets them; Can work on is worked out there. */
+/** A bot's settings as its copy on another machine gets them. */
 export const TransferredBot = Schema.Struct({
   name: Bot.fields.name,
   avatar: Bot.fields.avatar,
@@ -195,7 +195,6 @@ export const TransferredBot = Schema.Struct({
   runtimeMode: Bot.fields.runtimeMode,
   modelSelection: Bot.fields.modelSelection,
   longConversation: Bot.fields.longConversation,
-  permittedEnvironmentIds: Bot.fields.permittedEnvironmentIds,
 });
 export type TransferredBot = typeof TransferredBot.Type;
 

@@ -161,7 +161,6 @@ function EnvironmentBotPage({
     environmentId,
     ...(links.data?.links ?? []).map((link) => link.environmentId),
   ]);
-  const update = useAtomCommand(botsEnvironment.update, { reportFailure: false });
   const canTransfer = useAtomValue(botsEnvironment.transfer.permissionAtom(environmentId));
   const [transferMode, setTransferMode] = useState<BotTransferMode | null>(null);
   // Bumped to remount the form, which discards its draft.
@@ -211,17 +210,6 @@ function EnvironmentBotPage({
     botEnvironmentIds,
     reachableEnvironmentIds,
   );
-  const grantAccess = async (linkedId: EnvironmentId) => {
-    const result = await update({
-      environmentId,
-      input: {
-        id: bot.id,
-        expectedRevision: bot.revision,
-        permittedEnvironmentIds: [...bot.permittedEnvironmentIds, linkedId],
-      },
-    });
-    return result._tag === "Success" ? null : formatEnvironmentQueryError(result.cause);
-  };
   const transferred = (result: BotTransferResult, mode: BotTransferMode) => {
     const target = environmentLabels.get(result.bot.environmentId) ?? "the other machine";
     const title =
@@ -280,7 +268,6 @@ function EnvironmentBotPage({
             availableProjects={projectLists.available}
             projectsWithoutBots={projectLists.withoutBots}
             environmentLabels={environmentLabels}
-            grantAccess={grantAccess}
             limitedEnvironmentIds={limitedEnvironmentIds}
           />
         }

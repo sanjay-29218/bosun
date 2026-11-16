@@ -637,7 +637,6 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
           withheldTools: copy.withheldTools,
           longConversation: copy.longConversation,
           modelSelection: copy.modelSelection,
-          permittedEnvironmentIds: copy.permittedEnvironmentIds,
         },
         {
           name: "Sky",
@@ -646,8 +645,6 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
           withheldTools: ["preview"],
           longConversation: "new-session",
           modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-          // Where Sky could work, and Sky's home, as far as the box's links reach.
-          permittedEnvironmentIds: [laptop.environmentId],
         },
       );
       assert.equal(yield* env.read(`${copy!.homePath}/memory/notes.md`), "Be brief.");

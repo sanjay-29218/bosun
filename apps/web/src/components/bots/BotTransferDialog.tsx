@@ -442,7 +442,7 @@ function ModeOption(props: {
   );
 }
 
-/** A linked machine, as Can work on draws it; disabled with its reason when it can't take one. */
+/** A linked machine with its health; disabled with its reason when it can't take a bot. */
 function TargetRow({
   link,
   reason,

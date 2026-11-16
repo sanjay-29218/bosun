@@ -160,7 +160,7 @@ const withoutBosunReason = (environmentLabel: string) =>
 /**
  * A bot's projects on every machine this client knows, each removable, plus a way to add one
  * from its home or a machine linked to it. A project on another machine stays there and is this
- * bot's by its `remoteBot`; adding one there also lets the bot work on that machine.
+ * bot's by its `remoteBot`.
  */
 export function BotProjectList({
   environmentId,
@@ -171,7 +171,6 @@ export function BotProjectList({
   projectsWithoutBots,
   environmentLabels,
   limitedEnvironmentIds,
-  grantAccess,
 }: {
   readonly environmentId: EnvironmentId;
   readonly bot: LogicalBot;
@@ -180,8 +179,6 @@ export function BotProjectList({
   readonly availableProjects: readonly EnvironmentProject[];
   readonly projectsWithoutBots: readonly EnvironmentProject[];
   readonly environmentLabels: ReadonlyMap<EnvironmentId, string>;
-  /** Ticks a linked machine under Can work on; the error to show, or null once saved. */
-  readonly grantAccess: (environmentId: EnvironmentId) => Promise<string | null>;
   /** Linked machines below full access, where the bot couldn't work on a project it got. */
   readonly limitedEnvironmentIds: ReadonlySet<EnvironmentId>;
 }) {
@@ -214,16 +211,8 @@ export function BotProjectList({
         title: `Could not ${add ? "add" : "remove"} ${project.title}`,
         description,
       });
-    // Adding a project on a machine the bot may not work on yet lets it work there first.
-    const granted =
-      add && !logicalBotWorksOn(bot, project.environmentId)
-        ? await grantAccess(project.environmentId)
-        : null;
-    if (granted !== null) fail(granted);
-    else {
-      const error = await moveToBot(project, add ? bot : null);
-      if (error !== null) fail(error);
-    }
+    const error = await moveToBot(project, add ? bot : null);
+    if (error !== null) fail(error);
     setMoving(false);
   };
   const groupByEnvironment = (projects: readonly EnvironmentProject[]) => {
