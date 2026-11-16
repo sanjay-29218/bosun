@@ -930,6 +930,21 @@ it.live("starts the project manager there, or says before starting anything why 
         runtimeMode: "approval-required",
       });
 
+      // The box answers its descriptor, then a gateway in front of its /mcp answers 503: the
+      // request waits as for a box that is away, not refused.
+      yield* Ref.set(b.mcpStatus, 503);
+      const gatewayDown = yield* a.reach
+        .launchProjectManager(
+          headquartersScope,
+          box.environmentId,
+          { botId: CAPTAIN_ID },
+          { ...launch("project:omni"), clientRequestId: "gateway-down" },
+        )
+        .pipe(Effect.flip);
+      expect(gatewayDown.code).toBe("orchestration_error");
+      expect(gatewayDown.message).toMatch(/Project project:omni is on Box, which isn't reachable/);
+      yield* Ref.set(b.mcpStatus, null);
+
       yield* linkSleepingCouch(a.links);
       const asleep = yield* a.reach
         .launchProjectManager(

@@ -1212,14 +1212,14 @@ export const CrewServiceLive = Layer.effect(
         const blocked = model.blocked;
         if (persisted.dispatchState === CREW_DISPATCH_STATE.QUEUED) {
           const dispatched = dispatch(persisted);
-          // A provider turned off refuses the launch outright; who asked hears why, not a
-          // dispatch error.
+          // A provider turned off refuses the launch outright; who asked hears why, and the run
+          // is dropped so recovery never starts it later.
           yield* blocked === null
             ? dispatched
             : dispatched.pipe(
                 Effect.catch(() =>
                   store
-                    .markDispatchError(id, blocked)
+                    .deleteQueuedRun(id)
                     .pipe(Effect.andThen(Effect.fail(new CrewValidationError(blocked)))),
                 ),
               );

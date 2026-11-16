@@ -1028,6 +1028,8 @@ describe("Bot foundation", () => {
               expect(refused.message).toBe(
                 "gpt-5.4 (codex) can't run: Codex is turned off here. The fallback model, gpt-5.4 (codex), can't run either: Codex is turned off here.",
               );
+              // Nothing is left queued for recovery to start once Codex is back.
+              expect(yield* store.getRun("disabled-run")).toBeNull();
               yield* settings.updateSettings({
                 fallbackModelSelection: fallbackModel,
                 providerInstances: {
