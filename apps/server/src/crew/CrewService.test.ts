@@ -266,6 +266,65 @@ describe("Bot foundation", () => {
       }),
   );
 
+  effectIt.effect(
+    "with no Feature manager role here, a project's manager comes from the lead role sent, or says what to set up",
+    () =>
+      Effect.gen(function* () {
+        const directory = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "bot-manager-sent-")),
+        );
+        yield* withSystem(NodePath.join(directory, "state.sqlite"), ({ bots, store, engine }) =>
+          Effect.gen(function* () {
+            yield* createProject(engine);
+            const refused = yield* Effect.flip(bots.ensureFeatureManager(projectId));
+            expect(refused).toMatchObject({ _tag: "CrewValidationError" });
+            expect(refused.message).toContain("Feature manager role");
+            const sentModel = { ...modelSelection, model: "gpt-5.4-mini" };
+            const manager = yield* bots.ensureFeatureManager(projectId, {
+              id: FEATURE_MANAGER_ROLE_ID,
+              name: "Lead from the laptop",
+              instructions: "Lead the work.",
+              withheldTools: [],
+              modelSelection: sentModel,
+              runtimeMode: "auto-accept-edits",
+            });
+            expect(manager).toMatchObject({
+              id: featureManagerMemberId(projectId),
+              roleId: null,
+              name: "Lead from the laptop",
+              instructions: `Lead the work.\n\nYou manage project ${projectId}.`,
+              modelSelection: sentModel,
+              runtimeMode: "auto-accept-edits",
+            });
+            expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
+            // A local role that's turned off leaves it as sent.
+            yield* bots.ensureDefaults(modelSelection);
+            const local = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
+            yield* bots.updateRole({ ...local, enabled: false, expectedRevision: local.revision });
+            expect(yield* bots.ensureFeatureManager(projectId)).toEqual(manager);
+            // Turned on, it follows the local role, and that role's edits.
+            const off = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
+            yield* bots.updateRole({ ...off, enabled: true, expectedRevision: off.revision });
+            yield* bots.ensureFeatureManager(projectId);
+            const on = (yield* store.getRole(FEATURE_MANAGER_ROLE_ID))!;
+            yield* bots.updateRole({
+              ...on,
+              instructions: "Lead here.",
+              expectedRevision: on.revision,
+            });
+            expect(yield* store.getMember(featureManagerMemberId(projectId))).toMatchObject({
+              roleId: FEATURE_MANAGER_ROLE_ID,
+              instructions: `Lead here.\n\nYou manage project ${projectId}.`,
+            });
+          }),
+        ).pipe(
+          Effect.ensuring(
+            Effect.promise(() => NodeFSP.rm(directory, { recursive: true, force: true })),
+          ),
+        );
+      }),
+  );
+
   effectIt.effect("project-level members follow their role's edits until customized", () =>
     Effect.gen(function* () {
       const directory = yield* Effect.promise(() =>
