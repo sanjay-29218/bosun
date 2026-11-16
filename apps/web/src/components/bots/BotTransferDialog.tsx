@@ -214,6 +214,9 @@ function TransferForm({
   const targetSilent =
     list !== null &&
     (movingLink === undefined || movingHealth === "unreachable" || movingHealth === "expired");
+  // A confirmed move it can't finish, such as one whose copy is gone there, may stop waiting.
+  const cannotFinish =
+    moving !== null && target === moving.targetEnvironmentId && current?.status === "failed";
   const cancelPendingMove = async () => {
     if (moving === null || pendingLabel === null) return;
     const cancel = (how: "undo" | "forget") =>
@@ -240,7 +243,8 @@ function TransferForm({
     } else {
       setRunning(true);
       result = await cancel("undo");
-      if (result._tag !== "Success") {
+      // Giving up without the target is offered only when it's silent; otherwise it said why.
+      if (result._tag !== "Success" && targetSilent) {
         setRunning(false);
         const confirmed = await requestConfirmDialog(
           `${formatEnvironmentQueryError(result.cause)}\nCancel the move anyway? ${bot.name}'s automations stay off here; turn them on only once you're sure ${pendingLabel} doesn't run them.`,
@@ -296,7 +300,7 @@ function TransferForm({
                   ? `${pendingLabel} already runs ${bot.name}. Move it to ${pendingLabel} again to finish removing it here.`
                   : `Move it to ${pendingLabel} again to finish, or cancel the move to keep it here.`}
               </AlertDescription>
-              {moving?.state === "confirmed" && !targetSilent ? null : (
+              {moving?.state === "confirmed" && !targetSilent && !cannotFinish ? null : (
                 <AlertAction>
                   <Button size="xs" variant="outline" onClick={() => void cancelPendingMove()}>
                     {moving?.state === "confirmed" ? "Stop waiting" : "Cancel move"}

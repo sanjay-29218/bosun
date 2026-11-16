@@ -501,6 +501,23 @@ const make = Effect.gen(function* () {
         store.deleteUnlessOwning(id, DateTime.formatIso(yield* DateTime.now), homeRoot),
       );
       if (result === "owns-projects") return yield* ownsProjects;
+      // Once more now the bot is gone: an automation saved, or a home made, meanwhile goes too.
+      yield* scheduledTasks
+        .deleteForBot(id)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Removed bot's automation stayed", { id, error }),
+          ),
+        );
+      if (Option.isSome(root)) {
+        yield* fileSystem
+          .remove(root.value, { recursive: true, force: true })
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Removed bot's home folder stayed", { id, error }),
+            ),
+          );
+      }
       if (options?.forgetId === true) yield* store.purge(id);
     }),
   });

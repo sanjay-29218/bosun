@@ -930,7 +930,7 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
       const forget = yield* env.transfer("move", false, { cancelMove: "forget" }).pipe(Effect.flip);
       assert.equal(
         forget.message,
-        "Box answers, and Sky already moved there. Move it to Box again to finish.",
+        "Box answers, and Sky already moved there. Move it to Box again to finish, or unlink Box to stop waiting.",
       );
       assert.equal((yield* env.getBot(env.onBox, NEW_ID))?.name, "Sky");
       assert.deepEqual(
@@ -964,6 +964,41 @@ it.layer(Layer.mergeAll(NodeServices.layer))("BotTransfer", (it) => {
       assert.isNull((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo);
       // The box keeps its copy and the projects it took.
       assert.equal((yield* env.getProject(env.onBox, env.boxProject)).botId, NEW_ID);
+    }),
+  );
+
+  it.effect("a confirmed move whose copy is gone won't finish, and can stop waiting", () =>
+    Effect.gen(function* () {
+      const env = yield* setup();
+      yield* env.chmod(env.laptopRoot, 0o555);
+      yield* env.transfer("move").pipe(Effect.flip);
+      yield* env.chmod(env.laptopRoot, 0o755);
+      // Someone deleted the copy on the box since.
+      yield* env.onBox(
+        Effect.gen(function* () {
+          const projects = yield* ProjectService.ProjectService;
+          yield* projects.assignBot({
+            commandId: CommandId.make("command:box-api-free"),
+            projectId: env.boxProject,
+            botId: null,
+          });
+          const bots = yield* BotService.BotService;
+          yield* bots.delete(NEW_ID);
+        }),
+      );
+
+      // Finishing would hand Sky's projects to nothing and remove the last Sky.
+      const again = yield* env
+        .transfer("move", false, { newBotId: "bot-fresh-dialog" })
+        .pipe(Effect.flip);
+      assert.equal(again.message, "Box no longer has Sky's copy. Stop waiting to keep Sky here.");
+      assert.isNotNull(yield* env.getBot(env.onLaptop, "bot-sky"));
+
+      // The box answers, but has nothing of Sky, so Sky may stop waiting and stay.
+      const stopped = yield* env.transfer("move", false, { cancelMove: "forget" });
+      assert.equal(stopped.bot.id, "bot-sky");
+      assert.isNull((yield* env.getBot(env.onLaptop, "bot-sky"))?.movingTo);
+      assert.equal((yield* env.getProject(env.onLaptop, env.laptopProject)).botId, "bot-sky");
     }),
   );
 

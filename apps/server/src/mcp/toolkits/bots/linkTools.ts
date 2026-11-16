@@ -15,6 +15,7 @@ import {
   ThreadId,
   WorkflowSnapshot,
 } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
 
@@ -218,6 +219,8 @@ export const LinkBotImport = Tool.make("t3_bot_link_import", {
     linkedEnvironmentIds: Schema.Array(EnvironmentId),
     /** For `discard`: whether there was a copy to undo. */
     undone: Schema.Boolean,
+    /** Whether a copy of `home`'s bot is here under `newBotId` once the call is done. */
+    copyExists: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
   }),
 }).annotate(Tool.Destructive, false);
 

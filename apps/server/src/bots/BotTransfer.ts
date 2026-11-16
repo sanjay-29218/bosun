@@ -7,6 +7,7 @@ import {
   CommandId,
   type EnvironmentId,
   OrchestratorMcpFailure,
+  type PeerLink,
   type Project,
   type ProjectRemoteBot,
   type ScheduledTask,
@@ -15,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -250,13 +252,20 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         if (input.discard === true) {
           const undone = yield* discardImport(from, newBotId);
-          return { botId: newBotId, linkedEnvironmentIds, undone };
+          return { botId: newBotId, linkedEnvironmentIds, undone, copyExists: false };
         }
         const existing = yield* bots.get(newBotId).pipe(Effect.mapError(unavailable));
         if (existing !== null && !(yield* isCopyOf(from, newBotId))) {
           return yield* failure("invalid_request", `Bot ID ${newBotId} is already in use here.`);
         }
-        if (input.dryRun === true) return { botId: newBotId, linkedEnvironmentIds, undone: false };
+        if (input.dryRun === true) {
+          return {
+            botId: newBotId,
+            linkedEnvironmentIds,
+            undone: false,
+            copyExists: existing !== null,
+          };
+        }
         yield* bots
           .insertCopy({
             bot: { ...input.bot, id: newBotId },
@@ -298,7 +307,7 @@ const make = Effect.gen(function* () {
               reason: copiedReason(from.label),
             })
             .pipe(Effect.mapError(unavailable));
-          return { botId: newBotId, linkedEnvironmentIds, undone: false };
+          return { botId: newBotId, linkedEnvironmentIds, undone: false, copyExists: true };
         }
         // The move confirms here: the copy takes its projects here and its automations run.
         const owned = yield* projectsHere(
@@ -321,7 +330,7 @@ const make = Effect.gen(function* () {
         yield* scheduledTasks.resumeTasks(
           ids((automation) => automation.enabled && !isWebhook(automation)),
         );
-        return { botId: newBotId, linkedEnvironmentIds, undone: false };
+        return { botId: newBotId, linkedEnvironmentIds, undone: false, copyExists: true };
       }),
     );
   });
@@ -487,6 +496,12 @@ const make = Effect.gen(function* () {
       Effect.mapError((error) => refuse(callFailure(error))),
     );
     const targetLinks = checked.linkedEnvironmentIds;
+    // Finishing hands everything to the copy; without it, that would leave the bot nowhere.
+    if (pending?.state === "confirmed" && !checked.copyExists) {
+      return yield* refuse(
+        `${label} no longer has ${bot.name}'s copy. Stop waiting to keep ${bot.name} here.`,
+      );
+    }
 
     const local = (yield* projectsHere((project) => project.botId === bot.id).pipe(
       Effect.mapError((error) => refuse(error.message)),
@@ -675,6 +690,14 @@ const make = Effect.gen(function* () {
     return { ...prepared.result, warnings };
   });
 
+  /** A target that isn't linked, whose link expired, or that doesn't answer. */
+  const isSilent = Effect.fn("BotTransfer.isSilent")(function* (link: PeerLink | undefined) {
+    if (link === undefined) return true;
+    if (DateTime.isLessThanOrEqualTo(link.expiresAt, yield* DateTime.now)) return true;
+    const reached = yield* Effect.result(links.resolve(link.environmentId));
+    return Result.isFailure(reached) && reached.failure.reason === "unreachable";
+  });
+
   /**
    * Gives up the bot's unfinished move. Its copy there is undone when the target answers, and the
    * automations run here again; otherwise, with `forget`, they stay off, since it may run them.
@@ -703,29 +726,38 @@ const make = Effect.gen(function* () {
       label: self.label,
     };
     const finish = `Move it to ${label} again to finish.`;
+    const discardInput: ImportInput = {
+      home,
+      newBotId: pending.newBotId,
+      mode: "move",
+      bot: transferredBot(bot),
+      homeFiles: [],
+      automations: [],
+    };
     let undone = false;
     if (pending.state === "confirmed") {
       // The copy runs there now: undoing it would lose it on both machines.
       if (how === "undo") return yield* refuse(`${bot.name} already moved to ${label}. ${finish}`);
-      // Stop waiting only for a target that can't be reached; one that answers can finish it.
-      if (link !== undefined) {
-        const reached = yield* Effect.result(links.resolve(target));
-        if (Result.isSuccess(reached)) {
-          return yield* refuse(`${Label} answers, and ${bot.name} already moved there. ${finish}`);
+      // Stop waiting only when the copy can't run there: the target is silent, or it lost it.
+      const unlink = `Move it to ${label} again to finish, or unlink ${label} to stop waiting.`;
+      if (!(yield* isSilent(link))) {
+        const checked = yield* Effect.result(
+          forwarding.call(personScope(self.environmentId, bot.id), LinkBotImport, target, {
+            ...discardInput,
+            dryRun: true,
+          }),
+        );
+        if (Result.isSuccess(checked) && checked.success.copyExists) {
+          return yield* refuse(`${Label} answers, and ${bot.name} already moved there. ${unlink}`);
         }
-        if (reached.failure.reason !== "unreachable" && reached.failure.reason !== "expired") {
-          return yield* refuse(reached.failure.message);
+        if (Result.isFailure(checked) && !isUnanswered(checked.failure)) {
+          return yield* refuse(`${checked.failure.message} ${unlink}`);
         }
       }
-    } else if (link !== undefined) {
+    } else if (!(yield* isSilent(link))) {
       const discarded = yield* Effect.result(
         forwarding.call(personScope(self.environmentId, bot.id), LinkBotImport, target, {
-          home,
-          newBotId: pending.newBotId,
-          mode: "move",
-          bot: transferredBot(bot),
-          homeFiles: [],
-          automations: [],
+          ...discardInput,
           discard: true,
         }),
       );
