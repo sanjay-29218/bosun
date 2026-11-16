@@ -18,6 +18,7 @@ import {
   featureDropAction,
   featureFinished,
   featureOpenThreadId,
+  featureProgress,
   featureRef,
   groupFeaturesByColumn,
   matchesFeatureSearch,
@@ -188,6 +189,31 @@ describe("status columns", () => {
     ).toBe(false);
     // A top-level feature that reported waits for the person to review it.
     expect(featureColumn(card("f", { report }), [lead("run-2")])).toBe("needs-you");
+  });
+
+  it("names a feature's status: Needs input, Working, Waiting, Done or Failed", () => {
+    const report = { outcome: "finished" as const, runId: "run-2" };
+    const lead = (fields: Partial<BoardThreadShell>) => featureThread("lead-f", "f", fields);
+    const statusOf = (
+      threads: ReadonlyArray<BoardThreadShell>,
+      overrides: Partial<EnvironmentFeatureCard> = {},
+    ) => featureProgress(card("f", overrides), threads).status;
+    const stopped = {
+      runtime: runtime("idle"),
+      latestRun: { runId: "run-2", status: "completed" },
+    };
+
+    expect(statusOf([], { leadThreadId: null })).toBe("not-started");
+    expect(statusOf([lead({ runtime: runtime("running") })])).toBe("working");
+    expect(statusOf([lead({ hasPendingApprovals: true })])).toBe("needs-input");
+    expect(statusOf([lead({ pendingSubagentRequest: "user_input" })])).toBe("needs-input");
+    // A lead that stopped with the feature unfinished is Waiting, not the person's turn.
+    expect(statusOf([lead(stopped as never)])).toBe("waiting");
+    expect(statusOf([lead(stopped as never)], { report })).toBe("done");
+    expect(statusOf([lead({ latestRun: { runId: "run-2", status: "failed" } } as never)])).toBe(
+      "failed",
+    );
+    expect(statusOf([lead(stopped as never)], { status: "closed" })).toBe("done");
   });
 
   it("opens the thread asking you something, longest wait first, else the lead", () => {

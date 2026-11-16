@@ -1,20 +1,19 @@
 import {
   FEATURE_CARD_ACTION_LABELS,
+  FEATURE_STATUS_LABELS,
   featureCardQuickActions,
-  featureColumn,
-  featureFinished,
+  featureProgress,
   featureRef,
   threadBoardColumn,
-  threadNeedsYouKind,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
   type FeatureColumn,
+  type FeatureStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueRef, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
 import {
   formatWorkingDurationLabel,
   resolveThreadWorkingStartedAt,
-  threadRuntimeIsActive,
 } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -23,19 +22,13 @@ import { featureIssueRef, type EnvironmentId } from "@t3tools/contracts";
 import {
   AlarmClockOffIcon,
   CheckIcon,
-  CircleCheckIcon,
-  CircleDashedIcon,
-  CircleIcon,
   GitBranchIcon,
   ListTreeIcon,
-  MessageCircleQuestionIcon,
   MessageSquareIcon,
   MilestoneIcon,
   NotebookTextIcon,
   PlayIcon,
-  ShieldQuestionIcon,
   Undo2Icon,
-  UserRoundIcon,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -53,6 +46,7 @@ import { useNowSecond } from "../../hooks/useNowSecond";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
+import { STATUS_LOOK } from "../crew/CrewRosterIcon";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import type { IssueStructureFacts } from "./boardNesting.logic";
 import { PartOf } from "./IssueStructure";
@@ -69,88 +63,31 @@ import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 import { CloseTodoButton, ReopenTodoButton } from "./todoState";
 
-interface FeatureStatus {
+interface FeatureStatusLook {
   readonly label: string;
   readonly className: string;
   readonly icon: LucideIcon;
 }
 
-const WORKING: FeatureStatus = {
-  label: "Working",
-  className: "text-info-foreground",
-  icon: CircleDashedIcon,
-};
-const APPROVAL: FeatureStatus = {
-  label: "Approval",
-  className: "text-warning-foreground",
-  icon: ShieldQuestionIcon,
-};
-const INPUT: FeatureStatus = {
-  label: "Input",
-  className: "text-indigo-600 dark:text-indigo-300",
-  icon: MessageCircleQuestionIcon,
-};
-
-/** A lead that reported its feature finished: the person reviews it, then closes it. */
-const READY_FOR_REVIEW: FeatureStatus = {
-  label: "Ready for review",
-  className: "text-success-foreground",
-  icon: CircleCheckIcon,
-};
-
-const waitingStatus = (shell: EnvironmentThreadShell) =>
-  shell.hasPendingApprovals || shell.pendingSubagentRequest === "approval" ? APPROVAL : INPUT;
-
-const waitsOnYou = (shell: EnvironmentThreadShell) =>
-  threadNeedsYouKind(shell) !== null || shell.pendingSubagentRequest != null;
+const statusLook = (status: FeatureStatus): FeatureStatusLook => ({
+  label: FEATURE_STATUS_LABELS[status],
+  ...STATUS_LOOK[status],
+});
 
 /**
  * Where a feature stands, from its lead's and crew's threads, and the thread that puts it there:
- * the one waiting on you, else the one running. Status words and icons reuse the sidebar's, so
- * a feature reads the same on the board as its threads do in the sidebar.
+ * the one waiting on you, else the one running.
  */
 export function featureStatus(
   card: EnvironmentFeatureCard,
   threads: ReadonlyArray<EnvironmentThreadShell>,
 ): {
   readonly column: FeatureColumn;
-  readonly status: FeatureStatus;
+  readonly status: FeatureStatusLook;
   readonly thread: EnvironmentThreadShell | null;
 } {
-  const live = threads.filter((thread) => thread.archivedAt === null);
-  const column = featureColumn(card, live);
-  switch (column) {
-    case "todo":
-      return {
-        column,
-        status: { label: "Not started", className: "text-muted-foreground", icon: CircleIcon },
-        thread: null,
-      };
-    case "working":
-      return {
-        column,
-        status: WORKING,
-        thread: live.find((thread) => threadRuntimeIsActive(thread.runtime)) ?? null,
-      };
-    case "needs-you": {
-      const waiting = live.find(waitsOnYou) ?? null;
-      return {
-        column,
-        status: waiting
-          ? waitingStatus(waiting)
-          : featureFinished(card, live)
-            ? READY_FOR_REVIEW
-            : { label: "Your turn", className: "text-warning-foreground", icon: UserRoundIcon },
-        thread: waiting,
-      };
-    }
-    case "done":
-      return {
-        column,
-        status: { label: "Done", className: "text-success-foreground", icon: CircleCheckIcon },
-        thread: null,
-      };
-  }
+  const progress = featureProgress(card, threads);
+  return { ...progress, status: statusLook(progress.status) };
 }
 
 // Self-ticking like the sidebar's, so a working card re-renders only this label each second.
@@ -362,12 +299,12 @@ export const chatSince = (shell: EnvironmentThreadShell) =>
   shell.latestRun?.completedAt ?? shell.updatedAt;
 
 /** The words a chat shows for its column, or null in Done, which shows its time instead. */
-export function chatStatus(shell: EnvironmentThreadShell): FeatureStatus | null {
+export function chatStatus(shell: EnvironmentThreadShell): FeatureStatusLook | null {
   switch (threadBoardColumn(shell)) {
     case "needs-you":
-      return waitingStatus(shell);
+      return statusLook("needs-input");
     case "working":
-      return WORKING;
+      return statusLook("working");
     case "done":
       return null;
   }

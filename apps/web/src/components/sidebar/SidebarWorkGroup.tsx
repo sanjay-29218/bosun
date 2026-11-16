@@ -31,8 +31,8 @@ import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "../Sidebar
 export type SidebarWorkGroup = WorkGroup<EnvironmentThreadShell>;
 
 const STATUS_LABELS: Partial<Record<SidebarThreadStatus, string>> = {
-  approval: "Approval",
-  input: "Input",
+  approval: "Needs input",
+  input: "Needs input",
   working: "Working",
   failed: "Failed",
 };

@@ -4,11 +4,12 @@ import {
   collectNeedsYou,
   FEATURE_CARD_ACTION_LABELS,
   FEATURE_COLUMN_LABELS,
+  FEATURE_STATUS_LABELS,
   featureCardActions,
   featureCardKey,
   featureCardQuickActions,
-  featureColumn,
   featureOpenThreadId,
+  featureProgress,
   featureRef,
   groupFeaturesByColumn,
   matchesFeatureSearch,
@@ -16,7 +17,7 @@ import {
   threadsByFeature,
   type EnvironmentFeatureCard,
   type FeatureColumn,
-  type NeedsYouKind,
+  type FeatureStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import type {
   EnvironmentProject,
@@ -39,8 +40,8 @@ const COLUMN_ORDER: ReadonlyArray<FeatureColumn> = ["needs-you", "working", "tod
 function FeatureRow(props: {
   readonly card: EnvironmentFeatureCard;
   readonly projectTitle: string | null;
-  /** A child feature's own column, shown since its group is its parent's. */
-  readonly childColumn?: FeatureColumn;
+  /** A child feature's own status, shown since its group is its parent's. */
+  readonly childStatus?: FeatureStatus;
   /** The thread a tap opens: the one asking you something, else the lead. */
   readonly openThreadId: ThreadId | null;
   readonly onOpenThread: (environmentId: EnvironmentId, threadId: ThreadId) => void;
@@ -86,7 +87,7 @@ function FeatureRow(props: {
         }}
         className={cn(
           "flex-row items-center gap-3 border-b border-border px-4 py-3 active:opacity-70",
-          props.childColumn !== undefined && "py-2 pl-8",
+          props.childStatus !== undefined && "py-2 pl-8",
         )}
       >
         <View className="min-w-0 flex-1 gap-0.5">
@@ -98,9 +99,9 @@ function FeatureRow(props: {
           <Text className="font-t3-medium text-base text-foreground" numberOfLines={2}>
             {card.title}
           </Text>
-          {ref || props.childColumn !== undefined ? (
+          {ref || props.childStatus !== undefined ? (
             <Text className="text-xs text-foreground-secondary" numberOfLines={1}>
-              {[ref, props.childColumn && FEATURE_COLUMN_LABELS[props.childColumn]]
+              {[ref, props.childStatus && FEATURE_STATUS_LABELS[props.childStatus]]
                 .filter(Boolean)
                 .join(" · ")}
             </Text>
@@ -123,19 +124,12 @@ function FeatureRow(props: {
   );
 }
 
-const NEEDS_YOU_THREAD_LABEL: Record<NeedsYouKind, { label: string; className: string }> = {
-  approval: { label: "Approval", className: "text-warning-foreground" },
-  question: { label: "Input", className: "text-adaptive-indigo-600-300" },
-};
-
 /** A thread outside any feature that waits on you: a tool approval or a question. */
 function NeedsYouThreadRow(props: {
   readonly shell: EnvironmentThreadShell;
-  readonly kind: NeedsYouKind;
   readonly projectTitle: string | null;
   readonly onOpenThread: (environmentId: EnvironmentId, threadId: ThreadId) => void;
 }) {
-  const label = NEEDS_YOU_THREAD_LABEL[props.kind];
   return (
     <Pressable
       accessibilityRole="button"
@@ -148,7 +142,9 @@ function NeedsYouThreadRow(props: {
             {props.projectTitle}
           </Text>
         ) : null}
-        <Text className={cn("font-t3-bold text-xs", label.className)}>{label.label}</Text>
+        <Text className="font-t3-bold text-xs text-warning-foreground">
+          {FEATURE_STATUS_LABELS["needs-input"]}
+        </Text>
       </View>
       <Text className="font-t3-medium text-base text-foreground" numberOfLines={2}>
         {workThreadLabel(props.shell) || "Untitled thread"}
@@ -234,7 +230,7 @@ export function FeatureBoard(props: {
       children: (card: EnvironmentFeatureCard) =>
         (nested.children.get(featureCardKey(card)) ?? []).map((child) => ({
           child,
-          column: featureColumn(child, nested.threads.get(featureCardKey(child)) ?? []),
+          status: featureProgress(child, nested.threads.get(featureCardKey(child)) ?? []).status,
         })),
     };
   }, [board.cards, projectTitles, props.searchQuery, props.threads]);
@@ -262,12 +258,12 @@ export function FeatureBoard(props: {
           openThreadId={columns.openThreadId(card)}
           onOpenThread={props.onOpenThread}
         />
-        {columns.children(card).map(({ child, column }) => (
+        {columns.children(card).map(({ child, status }) => (
           <FeatureRow
             key={featureCardKey(child)}
             card={child}
             projectTitle={null}
-            childColumn={column}
+            childStatus={status}
             openThreadId={columns.openThreadId(child)}
             onOpenThread={props.onOpenThread}
           />
@@ -326,7 +322,6 @@ export function FeatureBoard(props: {
                 <NeedsYouThreadRow
                   key={item.key}
                   shell={item.shell}
-                  kind={item.kind}
                   projectTitle={projectTitleFor(item.shell.environmentId, item.shell.projectId)}
                   onOpenThread={props.onOpenThread}
                 />

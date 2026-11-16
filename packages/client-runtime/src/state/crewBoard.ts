@@ -78,8 +78,11 @@ export const FEATURE_COLUMN_LABELS: Record<FeatureColumn, string> = {
 /** The shell fields a column reads from a feature's threads, or from a chat. */
 export type BoardThreadShell = NeedsYouShell &
   Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime"> & {
-    readonly latestRun?: Pick<NonNullable<EnvironmentThreadShell["latestRun"]>, "runId"> | null;
+    readonly latestRun?:
+      | (Pick<LatestRun, "runId"> & { readonly status?: LatestRun["status"] })
+      | null;
   };
+type LatestRun = NonNullable<EnvironmentThreadShell["latestRun"]>;
 
 /**
  * Whether the feature's lead reported it finished (t3_feature_finish) during its latest run, so
@@ -122,6 +125,61 @@ export function featureColumn(
   if (live.some((thread) => threadRuntimeIsActive(thread.runtime))) return "working";
   // A child that reported finished handed its work to its parent's lead, not to the person.
   return card.parentFeatureId !== undefined && featureFinished(card, live) ? "done" : "needs-you";
+}
+
+// ── Status words ─────────────────────────────────────────────────────
+
+/** The only words a crew member, lead or feature shows for where it stands. */
+export type CrewStatus = "working" | "needs-input" | "waiting" | "done" | "failed";
+/** A feature can also be one nobody has started. */
+export type FeatureStatus = CrewStatus | "not-started";
+
+export const FEATURE_STATUS_LABELS: Record<FeatureStatus, string> = {
+  working: "Working",
+  "needs-input": "Needs input",
+  waiting: "Waiting",
+  done: "Done",
+  failed: "Failed",
+  "not-started": "Not started",
+};
+
+export const threadFailed = (shell: Pick<BoardThreadShell, "runtime" | "latestRun">): boolean =>
+  shell.runtime?.status === "failed" || shell.latestRun?.status === "failed";
+
+/**
+ * Where a feature stands, from its lead's and crew's threads, and the thread that puts it there:
+ * the one asking the person something, else the one running. A lead that stopped short of
+ * finishing is Waiting; one that reported the feature finished is Done.
+ */
+export function featureProgress<Shell extends BoardThreadShell>(
+  card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
+  threads: ReadonlyArray<Shell>,
+): {
+  readonly column: FeatureColumn;
+  readonly status: FeatureStatus;
+  readonly thread: Shell | null;
+} {
+  const live = threads.filter((thread) => thread.archivedAt === null);
+  const column = featureColumn(card, live);
+  switch (column) {
+    case "todo":
+      return { column, status: "not-started", thread: null };
+    case "working":
+      return {
+        column,
+        status: "working",
+        thread: live.find((thread) => threadRuntimeIsActive(thread.runtime)) ?? null,
+      };
+    case "done":
+      return { column, status: "done", thread: null };
+    case "needs-you": {
+      const asking = live.find(threadWaitsOnYou);
+      if (asking) return { column, status: "needs-input", thread: asking };
+      if (featureFinished(card, live)) return { column, status: "done", thread: null };
+      const lead = live.find((thread) => thread.id === card.leadThreadId);
+      return { column, status: lead && threadFailed(lead) ? "failed" : "waiting", thread: null };
+    }
+  }
 }
 
 /**
