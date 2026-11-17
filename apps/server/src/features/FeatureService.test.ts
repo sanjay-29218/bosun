@@ -457,6 +457,70 @@ describe("feature lead and crew", () => {
       ),
   );
 
+  effectIt.effect(
+    "a machine holding a copy of a workflow runs it with no snapshot, and keeps running features when it goes",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const features = yield* FeatureService;
+          const laptop = { environmentId: EnvironmentId.make("env-laptop"), label: "Laptop" };
+          const role = (id: string, name: string) => ({
+            id,
+            name,
+            instructions: `You are the laptop's ${name}.`,
+            modelSelection,
+            enabled: true,
+          });
+          const copy = {
+            owner: laptop,
+            workflows: [
+              {
+                id: "workflow:release",
+                name: "Release",
+                instructions: "Have the Writer write the notes, then ship.",
+                leadRoleId: "role:release-lead",
+                crewRoleIds: ["role:writer"],
+                revision: 4,
+              },
+            ],
+            roles: [role("role:release-lead", "Release lead"), role("role:writer", "Writer")],
+          };
+          expect(yield* crew.applyLibraryCopy(copy)).toEqual([]);
+
+          // Started here, by this machine's own thread, with the laptop off.
+          const started = yield* features.launch({
+            projectId,
+            title: "Ship 1.2",
+            brief: "Ship release 1.2",
+            workspace: "local",
+            workflowId: "workflow:release",
+            requesterThreadId: ThreadId.make("bot-run:bot-hq:bot-ops"),
+          });
+          const opening = (yield* userTexts(started.leadThreadId))[0]!;
+          expect(opening).toContain("You are the laptop's Release lead.");
+          expect(opening).toContain(
+            "Workflow: Release\nHave the Writer write the notes, then ship.",
+          );
+          const writerId = started.feature.crewAssignments["role:writer"]!;
+          expect((yield* (yield* CrewStore).getMember(writerId))?.instructions).toBe(
+            "You are the laptop's Writer.",
+          );
+
+          // The laptop unticks this machine: the copy goes, and the running feature keeps its crew.
+          expect(yield* crew.applyLibraryCopy({ ...copy, workflows: [], roles: [] })).toEqual([]);
+          expect(yield* crew.getWorkflow("workflow:release")).toBeNull();
+          expect(yield* crew.getRole("role:writer")).toBeNull();
+          expect(yield* (yield* CrewStore).getMember(writerId)).toMatchObject({
+            name: "Writer",
+            instructions: "You are the laptop's Writer.",
+            enabled: true,
+          });
+          expect((yield* features.get(started.feature.id))?.status).toBe("open");
+        }),
+      ),
+  );
+
   effectIt.effect("starts child features that report back to their parent's lead once", () =>
     withSystem(
       Effect.gen(function* () {

@@ -254,7 +254,29 @@ on. Each project gets its own Feature manager the first time a feature needs one
 changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see
 [Project managers](#project-managers)).
 
-Editing bots, workflows and roles is available on web and desktop.
+### On other machines
+
+Every machine you link (see [Link another environment](remote-access.md#link-another-environment))
+gets a copy of every workflow and role made on this one, so a feature can run there with them even
+while this machine is off. Linking is the only step. A workflow's or role's settings list each
+linked machine and when it last got a copy.
+
+The machine where one was made owns it. On the others, a copy says **Managed from** that machine
+and can't be edited there; edit it on the owner, and every copy follows. A machine that's off
+keeps its last copy and catches up when it's back. Two machines linked both ways each copy what
+they made to the other; a copy is never copied on again.
+
+Every machine has its own Feature delivery and starter roles. If you change one here, it replaces
+the untouched one on your linked machines; ones that are the same everywhere stay each machine's
+own. If a machine has its own edited workflow or role with the same id, it keeps it, and the list
+here says so.
+
+Unlinking a machine removes this machine's copies there, if it answers; features already running
+there keep going. Feature delivery, the starter roles, and roles that machine's own workflows use
+stay there as its own. A machine that's off when you unlink it keeps the copies.
+
+Editing bots, workflows and roles is available on web and desktop. On mobile, copies show where
+they're managed from and can't be edited.
 
 ## Feature threads
 

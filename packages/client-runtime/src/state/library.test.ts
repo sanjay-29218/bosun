@@ -19,6 +19,8 @@ const role = (id: string, overrides: Partial<RoleConfig> = {}): RoleConfig => ({
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
   enabled: true,
   revision: 1,
+  managedFrom: null,
+  copies: [],
   ...overrides,
 });
 
@@ -29,6 +31,8 @@ const delivery: WorkflowConfig = {
   leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: ["role:builder"],
   revision: 1,
+  managedFrom: null,
+  copies: [],
 };
 
 describe("roleAvailabilityNote", () => {

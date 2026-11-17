@@ -40,6 +40,8 @@ import {
   LinkBotNotices,
   LinkBotProjects,
   LinkBotTask,
+  type LibraryCopyRefusal,
+  type LibraryCopySet,
   type LinkedNotice,
   type ListedBot,
   type ManagerHome,
@@ -133,6 +135,17 @@ export class BotReach extends Context.Service<
       actor: LaunchActor,
       input: ProjectManagerLaunch,
     ) => Effect.Effect<LaunchedProjectManager, OrchestratorMcpFailure>;
+    /**
+     * For a linked environment: makes the workflows and roles here it manages match `copy`,
+     * returning those this environment kept as its own. Needs a full-access link, as work does.
+     */
+    readonly libraryForLink: (
+      scope: McpInvocationContext.McpInvocationScope,
+      copy: LibraryCopySet,
+    ) => Effect.Effect<
+      { readonly refused: ReadonlyArray<LibraryCopyRefusal> },
+      OrchestratorMcpFailure
+    >;
     /**
      * For a linked environment's project manager: what the requests it started here heard since
      * `since`, oldest first.
@@ -739,6 +752,28 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const libraryForLink: BotReach["Service"]["libraryForLink"] = Effect.fn(
+    "BotReach.libraryForLink",
+  )(function* (scope, copy) {
+    const self = yield* here;
+    if (scope.client?.linked !== true) {
+      return yield* failure(
+        "capability_denied",
+        "Only a linked environment copies workflows and roles here.",
+      );
+    }
+    if (scope.client.access !== "full-access") {
+      return yield* failure(
+        "capability_denied",
+        `${self.label} is linked with ${scope.client.access} access, and copying workflows there needs full access. Link ${self.label} again with full access in Settings → Environments → Linked environments.`,
+      );
+    }
+    const refused = yield* crew
+      .applyLibraryCopy(copy)
+      .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
+    return { refused };
+  });
+
   const noticesForLink: BotReach["Service"]["noticesForLink"] = Effect.fn(
     "BotReach.noticesForLink",
   )(function* (home, since) {
@@ -835,6 +870,7 @@ const make = Effect.gen(function* () {
     launchProjectManager,
     startForLink,
     noticesForLink,
+    libraryForLink,
     relayManagerNotices,
   });
 });

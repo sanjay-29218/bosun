@@ -28,6 +28,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
+import { LibraryMachines, ManagedFromNotice } from "./LibraryMachines";
 
 /** The composer's provider and model choices for one environment. */
 function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
@@ -155,9 +156,11 @@ export function RoleEditorForm({
 }) {
   const create = useAtomCommand(rolesEnvironment.create);
   const save = useSaveRole(environmentId);
-  const canEdit = useAtomValue(
+  const managedFrom = role?.managedFrom ?? null;
+  const permitted = useAtomValue(
     (role ? rolesEnvironment.update : rolesEnvironment.create).permissionAtom(environmentId),
   );
+  const canEdit = permitted && managedFrom === null;
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
@@ -205,6 +208,7 @@ export function RoleEditorForm({
         void submit();
       }}
     >
+      {managedFrom === null ? null : <ManagedFromNotice noun="role" owner={managedFrom} />}
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
         <SettingsSection title="Role" hideTitle>
           <div className="space-y-5 px-3 py-4 sm:px-4">
@@ -245,6 +249,9 @@ export function RoleEditorForm({
             }
           />
         </SettingsSection>
+        {role !== null && managedFrom === null ? (
+          <LibraryMachines environmentId={environmentId} item={role} />
+        ) : null}
       </fieldset>
       {/* Pinned to the pane's bottom, so Save stays in reach below long instructions. */}
       <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">

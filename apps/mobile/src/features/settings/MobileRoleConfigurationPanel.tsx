@@ -60,11 +60,14 @@ function Editor(props: {
   const [baseRevision, setBaseRevision] = useState(props.role?.revision);
   const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
+  const managedFrom = props.role?.managedFrom ?? null;
+
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
         {props.role?.name ?? "New role"}
       </Text>
+      {managedFrom === null ? null : <ManagedFrom noun="role" label={managedFrom.label} />}
       <AppTextInput
         accessibilityLabel="Role name"
         placeholder="Name"
@@ -94,12 +97,12 @@ function Editor(props: {
         value={model}
         onChangeText={setModel}
       />
-      {props.role ? (
+      {props.role && managedFrom === null ? (
         <Action label={`Enabled: ${enabled ? "on" : "off"}`} onPress={() => setEnabled(!enabled)} />
       ) : null}
       <Action
         label="Save role"
-        disabled={!canSave || props.busy}
+        disabled={!canSave || props.busy || managedFrom !== null}
         onPress={() => {
           const modelSelection: ModelSelection = {
             instanceId: ProviderInstanceId.make(instanceId.trim()),
@@ -125,6 +128,15 @@ function Editor(props: {
         }}
       />
     </View>
+  );
+}
+
+/** A copy of another machine's workflow or role, edited on that machine. */
+export function ManagedFrom(props: { readonly noun: "workflow" | "role"; readonly label: string }) {
+  return (
+    <Text className="text-xs text-foreground-muted">
+      Managed from {props.label}. This {props.noun} is a copy; edit it on {props.label}.
+    </Text>
   );
 }
 

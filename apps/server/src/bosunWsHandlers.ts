@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect";
 import type { BotService } from "./bots/BotService.ts";
 import type { BotTransfer } from "./bots/BotTransfer.ts";
 import type { CrewService } from "./crew/CrewService.ts";
+import type { LibraryCopies } from "./crew/LibraryCopies.ts";
 import type { ProjectRequests } from "./crew/ProjectRequests.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
@@ -22,6 +23,7 @@ export interface BosunWsServices {
   readonly bots: BotService["Service"];
   readonly botTransfer: BotTransfer["Service"];
   readonly crew: CrewService["Service"];
+  readonly library: LibraryCopies["Service"];
   readonly projectRequests: ProjectRequests["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
@@ -38,6 +40,7 @@ export const layerBosunWsRpc = ({
   bots,
   botTransfer,
   crew,
+  library,
   projectRequests,
   features,
   issues,
@@ -138,33 +141,33 @@ export const layerBosunWsRpc = ({
             .startNewSession(botHeadquartersThreadId(input.botId))
             .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.rolesList]: () =>
-          crew
-            .listRoles()
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+          library.listRoles.pipe(
+            Effect.mapError((error) => new CrewOperationError({ reason: String(error) })),
+          ),
         [WS_METHODS.rolesCreate]: (input) =>
-          crew
+          library
             .createRole(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.rolesUpdate]: (input) =>
-          crew
+          library
             .updateRole(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.workflowsList]: () =>
-          crew
-            .listWorkflows()
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+          library.listWorkflows.pipe(
+            Effect.mapError((error) => new CrewOperationError({ reason: String(error) })),
+          ),
         [WS_METHODS.workflowsCreate]: (input) =>
-          crew
+          library
             .createWorkflow(input)
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.workflowsUpdate]: (input) =>
-          crew
+          library
             .updateWorkflow(input)
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.workflowsDelete]: (input) =>
-          crew
+          library
             .deleteWorkflow(input.id)
-            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: String(error) }))),
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.crewConfiguration]: (input) =>
           crew
             .projectConfiguration(input.projectId)

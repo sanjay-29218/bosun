@@ -22,6 +22,8 @@ const reviewer: RoleConfig = {
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
   enabled: true,
   revision: 1,
+  managedFrom: null,
+  copies: [],
 };
 const featureManager: RoleConfig = { ...reviewer, id: FEATURE_MANAGER_ROLE_ID, name: "Lead" };
 const designer: RoleConfig = { ...reviewer, id: "role:designer", name: "Designer" };
@@ -32,6 +34,8 @@ const featureDelivery: WorkflowConfig = {
   leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: [reviewer.id],
   revision: 3,
+  managedFrom: null,
+  copies: [],
 };
 
 // Stable arrays, like the query results the real hook returns.

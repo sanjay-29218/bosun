@@ -1,6 +1,7 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { ProjectId, ThreadId } from "./baseSchemas.ts";
+import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { BotAvatar } from "./bots.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor, ProjectRemoteManager } from "./project.ts";
@@ -44,6 +45,33 @@ export type CrewMemberSummary = typeof CrewMemberSummary.Type;
 
 export const CrewProjectInput = Schema.Struct({ projectId: ProjectId });
 
+/** The linked machine a copied workflow or role is managed from, where it is edited. */
+export const LibraryOwner = Schema.Struct({ environmentId: EnvironmentId, label: Schema.String });
+export type LibraryOwner = typeof LibraryOwner.Type;
+
+/**
+ * A linked machine's copy of a workflow or role, as the machine that owns it sees it. Every
+ * linked machine gets one; a machine with no entry hasn't answered since it was linked.
+ */
+export const LibraryCopy = Schema.Struct({
+  environmentId: EnvironmentId,
+  /** The revision that machine last got; null until it got one. */
+  deliveredRevision: Schema.NullOr(Schema.Int),
+  deliveredAt: Schema.NullOr(Schema.String),
+  /** Why it isn't there: that machine has its own with the same id, or can't take copies. */
+  problem: Schema.NullOr(Schema.String),
+});
+export type LibraryCopy = typeof LibraryCopy.Type;
+
+/** Older servers send neither. */
+const libraryCopyFields = {
+  /** Set on a copy: it is edited on that machine and read-only here. */
+  managedFrom: Schema.NullOr(LibraryOwner).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+  copies: Schema.Array(LibraryCopy).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+};
+
 /** A global role: who a lead or crew member is. Editing it never rewrites existing members. */
 export const RoleConfig = Schema.Struct({
   id: Schema.String,
@@ -52,16 +80,18 @@ export const RoleConfig = Schema.Struct({
   modelSelection: ModelSelection,
   enabled: Schema.Boolean,
   revision: Schema.Int,
+  ...libraryCopyFields,
 });
 export type RoleConfig = typeof RoleConfig.Type;
-export const RoleCreateInput = Schema.Struct({
+const roleFields = {
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
   modelSelection: ModelSelection,
-});
+};
+export const RoleCreateInput = Schema.Struct({ ...roleFields });
 export const RoleUpdateInput = Schema.Struct({
-  ...RoleCreateInput.fields,
+  ...roleFields,
   expectedRevision: Schema.Int,
   enabled: Schema.Boolean,
 });
@@ -72,6 +102,16 @@ export const FEATURE_DELIVERY_WORKFLOW_ID = "workflow:feature-delivery";
  * revision there, and the roles it names. A feature started for that request runs on these
  * instead of the library where it runs, which never gains them.
  */
+/** A role as it travels between machines. */
+export const SnapshotRole = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  instructions: Schema.String,
+  modelSelection: ModelSelection,
+  /** Older peers require it. Every role runs with full access, so it is ignored. */
+  runtimeMode: Schema.optionalKey(RuntimeMode),
+});
+export type SnapshotRole = typeof SnapshotRole.Type;
 export const WorkflowSnapshot = Schema.Struct({
   workflow: Schema.Struct({
     id: Schema.String,
@@ -81,16 +121,7 @@ export const WorkflowSnapshot = Schema.Struct({
     crewRoleIds: Schema.Array(Schema.String),
     revision: Schema.Int,
   }),
-  roles: Schema.Array(
-    Schema.Struct({
-      id: Schema.String,
-      name: Schema.String,
-      instructions: Schema.String,
-      modelSelection: ModelSelection,
-      /** Older peers require it. Every role runs with full access, so it is ignored. */
-      runtimeMode: Schema.optionalKey(RuntimeMode),
-    }),
-  ),
+  roles: Schema.Array(SnapshotRole),
 });
 export type WorkflowSnapshot = typeof WorkflowSnapshot.Type;
 /** The built-in workflow whose lead splits big work into child features. */
@@ -107,17 +138,19 @@ export const WorkflowConfig = Schema.Struct({
   leadRoleId: Schema.String,
   crewRoleIds: Schema.Array(Schema.String),
   revision: Schema.Int,
+  ...libraryCopyFields,
 });
 export type WorkflowConfig = typeof WorkflowConfig.Type;
-export const WorkflowCreateInput = Schema.Struct({
+const workflowFields = {
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
   leadRoleId: Schema.String,
   crewRoleIds: Schema.Array(Schema.String),
-});
+};
+export const WorkflowCreateInput = Schema.Struct({ ...workflowFields });
 export const WorkflowUpdateInput = Schema.Struct({
-  ...WorkflowCreateInput.fields,
+  ...workflowFields,
   expectedRevision: Schema.Int,
 });
 export const WorkflowDeleteInput = Schema.Struct({ id: Schema.String });

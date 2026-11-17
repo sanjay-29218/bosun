@@ -9,6 +9,7 @@ import {
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
   FEATURE_MANAGER_ROLE_ID,
+  type LibraryOwner,
   ProjectId,
   projectHeadquartersRunId,
   projectHeadquartersThreadId,
@@ -20,6 +21,7 @@ import {
   type CrewTurnState,
   type ModelSelection,
   type RuntimeMode,
+  type SnapshotRole,
   type WorkflowSnapshot,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -132,6 +134,7 @@ const DEFAULT_ROLES = [
   instructions: crewMemberInstructions(role.name),
   ...role,
 }));
+const DEFAULT_ROLE_IDS: ReadonlySet<string> = new Set(DEFAULT_ROLES.map((role) => role.id));
 
 export interface CreateCrewMemberInput {
   readonly id: string;
@@ -196,6 +199,82 @@ export interface CrewRunView {
   readonly status: "queued" | "running" | "completed" | "failed" | "interrupted";
 }
 
+/** Every workflow and role a linked machine made, which it copies here. */
+export interface LibraryCopyInput {
+  readonly owner: LibraryOwner;
+  readonly workflows: ReadonlyArray<WorkflowSnapshot["workflow"]>;
+  readonly roles: ReadonlyArray<SnapshotRole & { readonly enabled: boolean }>;
+}
+export interface LibraryCopyRefusal {
+  readonly kind: "workflow" | "role";
+  readonly id: string;
+  readonly reason: string;
+}
+
+/** Whether a copy would change nothing a person sees, so the revision stays. */
+const sameLibraryFields = <T extends object>(existing: T, fields: Partial<T>) =>
+  Object.entries(fields).every(
+    ([key, value]) => JSON.stringify(existing[key as keyof T]) === JSON.stringify(value),
+  );
+
+/** Workflows `ensureDefaults` creates when they are missing. */
+const BUILT_IN_WORKFLOWS: ReadonlyArray<CreateWorkflowInput> = [
+  {
+    id: FEATURE_DELIVERY_WORKFLOW_ID,
+    name: "Feature delivery",
+    instructions: FEATURE_DELIVERY_INSTRUCTIONS,
+    leadRoleId: FEATURE_MANAGER_ROLE_ID,
+    crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
+      role.id === FEATURE_MANAGER_ROLE_ID ? [] : [role.id],
+    ),
+  },
+  {
+    id: EPIC_WORKFLOW_ID,
+    name: "Epic",
+    instructions: EPIC_INSTRUCTIONS,
+    leadRoleId: FEATURE_MANAGER_ROLE_ID,
+    crewRoleIds: ["role:planner", "role:qa-tester"],
+  },
+];
+const BUILT_IN_WORKFLOW_IDS: ReadonlySet<string> = new Set(
+  BUILT_IN_WORKFLOWS.map((workflow) => workflow.id),
+);
+
+/**
+ * A built-in every machine seeds for itself, still as it was seeded. A copy replaces one only
+ * when its owner changed it, so two machines with the same stock built-ins keep their own.
+ */
+const isStock = (
+  kind: LibraryCopyRefusal["kind"],
+  item: { readonly id: string; readonly name: string; readonly instructions: string } & Partial<
+    Pick<Workflow, "leadRoleId" | "crewRoleIds">
+  >,
+) =>
+  kind === "role"
+    ? DEFAULT_ROLES.some(
+        (stock) =>
+          stock.id === item.id &&
+          stock.name === item.name &&
+          stock.instructions === item.instructions,
+      )
+    : BUILT_IN_WORKFLOWS.some(
+        (stock) =>
+          stock.id === item.id &&
+          sameLibraryFields(item, {
+            name: stock.name,
+            instructions: stock.instructions,
+            leadRoleId: stock.leadRoleId,
+            crewRoleIds: stock.crewRoleIds,
+          }),
+      );
+
+const managedHere = (item: { readonly name: string; readonly managedFrom: LibraryOwner | null }) =>
+  item.managedFrom === null
+    ? null
+    : new CrewValidationError(
+        `${item.name} is managed from ${item.managedFrom.label}. Edit it there.`,
+      );
+
 export interface CrewServiceShape {
   /**
    * Creates the missing default roles, and gives bots without a model `modelSelection`. Existing
@@ -231,6 +310,13 @@ export interface CrewServiceShape {
   readonly deleteWorkflow: (id: string) => Effect.Effect<void, CrewServiceError>;
   readonly getWorkflow: (id: string) => Effect.Effect<Workflow | null, PersistenceSqlError>;
   readonly listWorkflows: () => Effect.Effect<ReadonlyArray<Workflow>, PersistenceSqlError>;
+  /**
+   * Makes the workflows and roles here managed from `copy.owner` match its set, and returns what
+   * it kept as this machine's own instead (see `LibraryCopySet`).
+   */
+  readonly applyLibraryCopy: (
+    copy: LibraryCopyInput,
+  ) => Effect.Effect<ReadonlyArray<LibraryCopyRefusal>, CrewServiceError>;
   /**
    * The project's member of a workflow's lead role: its Feature manager for that role,
    * else one made from the role on first use.
@@ -569,6 +655,7 @@ export const CrewServiceLive = Layer.effect(
           instructions,
           modelSelection: input.modelSelection,
           enabled: true,
+          managedFrom: null,
           revision: 1,
           createdAt: now,
           updatedAt: now,
@@ -608,6 +695,8 @@ export const CrewServiceLive = Layer.effect(
         if (!previous) {
           return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.id}`));
         }
+        const managed = managedHere(previous);
+        if (managed) return yield* Effect.fail(managed);
         if (previous.revision !== input.expectedRevision) {
           return yield* Effect.fail(
             new CrewValidationError(
@@ -632,21 +721,26 @@ export const CrewServiceLive = Layer.effect(
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
         };
-        // Project-level members follow in the same transaction, so a standing run never sees
-        // the new role with an old member.
-        yield* store.transaction(
-          Effect.gen(function* () {
-            if (!(yield* store.updateRole(updated, previous.revision))) {
-              return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
-            }
-            for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
-              yield* followRole(member, updated);
-            }
-          }),
-        );
+        yield* store.transaction(saveRole(updated, previous.revision));
         return updated;
       },
     );
+
+    /**
+     * Writes a role and brings its project-level members along, inside the caller's
+     * transaction, so a standing run never sees the new role with an old member.
+     */
+    const saveRole = Effect.fn("CrewService.saveRole")(function* (
+      updated: Role,
+      expectedRevision: number,
+    ) {
+      if (!(yield* store.updateRole(updated, expectedRevision))) {
+        return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
+      }
+      for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
+        yield* followRole(member, updated);
+      }
+    });
 
     /** The workflow's fields, checked, with its crew deduplicated and without its lead. */
     const workflowFields = Effect.fn("CrewService.workflowFields")(function* (
@@ -685,6 +779,7 @@ export const CrewServiceLive = Layer.effect(
       const workflow: Workflow = {
         id,
         ...(yield* workflowFields(input)),
+        managedFrom: null,
         revision: 1,
         createdAt: now,
         updatedAt: now,
@@ -700,6 +795,8 @@ export const CrewServiceLive = Layer.effect(
       if (!previous) {
         return yield* Effect.fail(new CrewValidationError(`Workflow not found: ${input.id}`));
       }
+      const managed = managedHere(previous);
+      if (managed) return yield* Effect.fail(managed);
       const stale = new CrewValidationError(
         `Workflow changed: it is at revision ${previous.revision}; reload and retry`,
       );
@@ -714,6 +811,142 @@ export const CrewServiceLive = Layer.effect(
         return yield* Effect.fail(stale);
       }
       return updated;
+    });
+
+    const applyLibraryCopy: CrewServiceShape["applyLibraryCopy"] = Effect.fn(
+      "CrewService.applyLibraryCopy",
+    )(function* (copy) {
+      const { owner } = copy;
+      const now = DateTime.formatIso(yield* DateTime.now);
+      const refused: Array<LibraryCopyRefusal> = [];
+      const fromOwner = (managedFrom: LibraryOwner | null) =>
+        managedFrom?.environmentId === owner.environmentId;
+      /**
+       * Whether the copy writes over `existing`: when it is the owner's already, or a stock
+       * built-in the owner changed. One with the same content stays as it is; anything else
+       * this machine has stays its own, and the owner hears why.
+       */
+      const takes = (
+        kind: LibraryCopyRefusal["kind"],
+        existing: Parameters<typeof isStock>[1] & {
+          readonly managedFrom: LibraryOwner | null;
+        },
+        sameContent: boolean,
+      ) => {
+        if (fromOwner(existing.managedFrom)) return true;
+        if (sameContent) return false;
+        if (existing.managedFrom === null && isStock(kind, existing)) return true;
+        refused.push({
+          kind,
+          id: existing.id,
+          reason:
+            existing.managedFrom === null
+              ? `It has its own ${existing.name}.`
+              : `Its ${existing.name} is managed from ${existing.managedFrom.label}.`,
+        });
+        return false;
+      };
+      yield* store.transaction(
+        Effect.gen(function* () {
+          for (const sent of copy.roles) {
+            const fields = {
+              name: sent.name,
+              instructions: sent.instructions,
+              modelSelection: sent.modelSelection,
+              enabled: sent.enabled,
+              managedFrom: owner,
+            };
+            const existing = yield* store.getRole(sent.id);
+            if (existing === null) {
+              yield* store.insertRole({
+                id: sent.id,
+                ...fields,
+                revision: 1,
+                createdAt: now,
+                updatedAt: now,
+              });
+              continue;
+            }
+            // A machine's own model stays: providers differ between machines.
+            const sameRole = sameLibraryFields(existing, {
+              name: sent.name,
+              instructions: sent.instructions,
+              enabled: sent.enabled,
+            });
+            if (!takes("role", existing, sameRole)) continue;
+            if (sameLibraryFields(existing, fields)) continue;
+            yield* saveRole(
+              { ...existing, ...fields, revision: existing.revision + 1, updatedAt: now },
+              existing.revision,
+            );
+          }
+          for (const sent of copy.workflows) {
+            const fields = {
+              name: sent.name,
+              instructions: sent.instructions,
+              leadRoleId: sent.leadRoleId,
+              crewRoleIds: sent.crewRoleIds,
+              managedFrom: owner,
+            };
+            const existing = yield* store.getWorkflow(sent.id);
+            if (existing === null) {
+              yield* store.insertWorkflow({
+                id: sent.id,
+                ...fields,
+                revision: 1,
+                createdAt: now,
+                updatedAt: now,
+              });
+              continue;
+            }
+            const { managedFrom: _owner, ...content } = fields;
+            if (!takes("workflow", existing, sameLibraryFields(existing, content))) continue;
+            if (sameLibraryFields(existing, fields)) continue;
+            yield* store.updateWorkflow(
+              { ...existing, ...fields, revision: existing.revision + 1, updatedAt: now },
+              existing.revision,
+            );
+          }
+          // What the owner stopped copying here goes, but a built-in stays as this machine's own,
+          // so it is never left without Feature delivery or its roles.
+          const sentWorkflows = new Set(copy.workflows.map((workflow) => workflow.id));
+          for (const workflow of yield* store.listWorkflows()) {
+            if (!fromOwner(workflow.managedFrom) || sentWorkflows.has(workflow.id)) continue;
+            if (BUILT_IN_WORKFLOW_IDS.has(workflow.id)) {
+              yield* store.updateWorkflow(
+                {
+                  ...workflow,
+                  managedFrom: null,
+                  revision: workflow.revision + 1,
+                  updatedAt: now,
+                },
+                workflow.revision,
+              );
+            } else {
+              yield* store.deleteWorkflow(workflow.id);
+            }
+          }
+          const sentRoles = new Set(copy.roles.map((role) => role.id));
+          // A role this machine's other workflows still use stays, as its own.
+          const stillUsed = new Set(
+            (yield* store.listWorkflows())
+              .filter((workflow) => !fromOwner(workflow.managedFrom))
+              .flatMap((workflow) => [workflow.leadRoleId, ...workflow.crewRoleIds]),
+          );
+          for (const role of yield* store.listRoles()) {
+            if (!fromOwner(role.managedFrom) || sentRoles.has(role.id)) continue;
+            if (DEFAULT_ROLE_IDS.has(role.id) || stillUsed.has(role.id)) {
+              yield* store.updateRole(
+                { ...role, managedFrom: null, revision: role.revision + 1, updatedAt: now },
+                role.revision,
+              );
+            } else {
+              yield* store.deleteRole(role.id);
+            }
+          }
+        }),
+      );
+      return refused;
     });
 
     /** A member of `roleId` for the project, carrying the role's configuration. */
@@ -1535,25 +1768,7 @@ export const CrewServiceLive = Layer.effect(
             ),
           );
         }
-        const builtIn: ReadonlyArray<CreateWorkflowInput> = [
-          {
-            id: FEATURE_DELIVERY_WORKFLOW_ID,
-            name: "Feature delivery",
-            instructions: FEATURE_DELIVERY_INSTRUCTIONS,
-            leadRoleId: FEATURE_MANAGER_ROLE_ID,
-            crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
-              role.id === FEATURE_MANAGER_ROLE_ID ? [] : [role.id],
-            ),
-          },
-          {
-            id: EPIC_WORKFLOW_ID,
-            name: "Epic",
-            instructions: EPIC_INSTRUCTIONS,
-            leadRoleId: FEATURE_MANAGER_ROLE_ID,
-            crewRoleIds: ["role:planner", "role:qa-tester"],
-          },
-        ];
-        for (const workflow of builtIn) {
+        for (const workflow of BUILT_IN_WORKFLOWS) {
           if (yield* store.getWorkflow(workflow.id)) continue;
           yield* createWorkflow(workflow).pipe(
             Effect.catch((error) =>
@@ -1584,6 +1799,9 @@ export const CrewServiceLive = Layer.effect(
       createWorkflow,
       updateWorkflow,
       deleteWorkflow: Effect.fn("CrewService.deleteWorkflow")(function* (id) {
+        const existing = yield* store.getWorkflow(id);
+        const managed = existing === null ? null : managedHere(existing);
+        if (managed) return yield* Effect.fail(managed);
         if (id === FEATURE_DELIVERY_WORKFLOW_ID) {
           return yield* Effect.fail(
             new CrewValidationError("Feature delivery can be edited but not deleted"),
@@ -1593,6 +1811,7 @@ export const CrewServiceLive = Layer.effect(
       }),
       getWorkflow: store.getWorkflow,
       listWorkflows: store.listWorkflows,
+      applyLibraryCopy,
       instantiate: Effect.fn("CrewService.instantiate")(function* (id, projectId, roleId) {
         const role = yield* store.getRole(roleId);
         if (!role?.enabled) {
@@ -1723,6 +1942,7 @@ export const CrewServiceLive = Layer.effect(
       createWorkflow: library(service.createWorkflow),
       updateWorkflow: library(service.updateWorkflow),
       deleteWorkflow: library(service.deleteWorkflow),
+      applyLibraryCopy: library(service.applyLibraryCopy),
     } satisfies CrewServiceShape;
   }),
 );
