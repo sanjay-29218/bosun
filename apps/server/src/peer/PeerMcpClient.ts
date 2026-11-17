@@ -97,7 +97,8 @@ const linkedEnvironmentsOffThere = new OrchestratorMcpFailure({
     "The linked environment has Linked environments turned off. Turn it on in its Settings → Labs.",
 });
 
-const stoppedAnswering = new OrchestratorMcpFailure({
+/** The answer that never came back; `isUnanswered` knows it. */
+export const stoppedAnswering = new OrchestratorMcpFailure({
   code: "orchestration_error",
   message: LINKED_ENVIRONMENT_STOPPED_ANSWERING,
 });

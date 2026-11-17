@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 
 import * as BotReach from "../../../bots/BotReach.ts";
 import * as BotService from "../../../bots/BotService.ts";
+import * as BotTransfer from "../../../bots/BotTransfer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { readCaller } from "../../threadAccess.ts";
@@ -29,6 +30,7 @@ export const layer = McpToolAccess.toLayer(
   BotsToolkit,
   Effect.gen(function* () {
     const reach = yield* BotReach.BotReach;
+    const transfer = yield* BotTransfer.BotTransfer;
     return {
       t3_bot_list: McpToolAccess.reads(() => reach.list.pipe(Effect.map((bots) => ({ bots })))),
       t3_bot_create: McpToolAccess.writesWithCapability((input) =>
@@ -84,6 +86,21 @@ export const layer = McpToolAccess.toLayer(
         (input) =>
           McpInvocationContext.McpInvocationContext.pipe(
             Effect.flatMap((scope) => reach.libraryForLink(scope, input)),
+          ),
+        { linkedCallers: "allowed" },
+      ),
+      // As with a task, the service checks the link's access and names what to change.
+      t3_bot_link_import: McpToolAccess.writes(
+        (input) =>
+          McpInvocationContext.McpInvocationContext.pipe(
+            Effect.flatMap((scope) => transfer.importForLink(scope, input)),
+          ),
+        { linkedCallers: "allowed" },
+      ),
+      t3_bot_link_rehome: McpToolAccess.writes(
+        (input) =>
+          McpInvocationContext.McpInvocationContext.pipe(
+            Effect.flatMap((scope) => transfer.rehomeForLink(scope, input)),
           ),
         { linkedCallers: "allowed" },
       ),

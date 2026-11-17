@@ -1,17 +1,23 @@
 import {
   Bot,
+  BotTransferMode,
   EnvironmentId,
   LibraryOwner,
   ModelSelection,
   NodeId,
+  OrchestrationV2ThreadLaunchWorkspaceStrategy,
   OrchestratorMcpFailure,
   ProjectId,
+  ProviderInteractionMode,
   RunId,
   RuntimeMode,
   SnapshotRole,
+  ScheduledTaskThreadMode,
+  ScheduledTaskUpsertSchedule,
   ThreadId,
   WorkflowSnapshot,
 } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
 
@@ -192,3 +198,63 @@ export const LinkLibrary = Tool.make("t3_crew_link_library", {
 })
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.Destructive, false);
+/** An automation that runs as a bot, as its copy on another machine needs it. */
+export const TransferredAutomation = Schema.Struct({
+  /** Its ID where it came from, so a repeated copy saves the same automation again. */
+  id: Schema.String,
+  title: Schema.String,
+  prompt: Schema.String,
+  /** Whether it was on where it came from; only a move turns it on again there. */
+  enabled: Schema.Boolean,
+  /** A webhook's signing secret never travels; its copy has a new URL and no signature check. */
+  schedule: ScheduledTaskUpsertSchedule,
+  threadMode: Schema.optional(ScheduledTaskThreadMode),
+  workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+});
+export type TransferredAutomation = typeof TransferredAutomation.Type;
+
+/** A bot's settings as its copy on another machine gets them. */
+export const TransferredBot = Schema.Struct({
+  name: Bot.fields.name,
+  avatar: Bot.fields.avatar,
+  color: Bot.fields.color,
+  instructions: Bot.fields.instructions,
+  modelSelection: Bot.fields.modelSelection,
+});
+export type TransferredBot = typeof TransferredBot.Type;
+
+export const LinkBotImport = Tool.make("t3_bot_link_import", {
+  ...shared,
+  description:
+    "Makes a copy here of the calling environment's bot (`home`) as `newBotId`, with its home folder files and automations, turned off. A move also takes the projects here that bot owned and turns on the automations that were on. Repeating it returns the same copy. `dryRun` changes nothing; `discard` undoes a copy with that `newBotId` from that bot.",
+  parameters: Schema.Struct({
+    home: BotHome,
+    newBotId: Schema.String,
+    mode: BotTransferMode,
+    bot: TransferredBot,
+    homeFiles: Schema.Array(Schema.Struct({ path: Schema.String, contentBase64: Schema.String })),
+    automations: Schema.Array(TransferredAutomation),
+    dryRun: Schema.optional(Schema.Boolean),
+    discard: Schema.optional(Schema.Boolean),
+  }),
+  success: Schema.Struct({
+    botId: Schema.String,
+    /** The environments this one links to, whose projects can stay with the copy. */
+    linkedEnvironmentIds: Schema.Array(EnvironmentId),
+    /** For `discard`: whether there was a copy to undo. */
+    undone: Schema.Boolean,
+    /** Whether a copy of `home`'s bot is here under `newBotId` once the call is done. */
+    copyExists: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
+  }),
+}).annotate(Tool.Destructive, false);
+
+export const LinkBotRehome = Tool.make("t3_bot_link_rehome", {
+  ...shared,
+  description:
+    "Gives the projects here owned by the calling environment's bot (`from`) to `to`, a bot on a linked environment, or to no bot when it's null, as when that bot moved to another machine.",
+  parameters: Schema.Struct({ from: BotHome, to: Schema.NullOr(BotHome) }),
+  success: Schema.Struct({ moved: Schema.Int }),
+}).annotate(Tool.Destructive, false);

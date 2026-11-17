@@ -98,6 +98,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.botsReorder]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsMoveProject]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsSetPin]: AuthOrchestrationOperateScope,
+  [WS_METHODS.botsTransfer]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsOpenHeadquarters]: AuthOrchestrationOperateScope,
   [WS_METHODS.botsStartNewSession]: AuthOrchestrationOperateScope,
   [WS_METHODS.featuresStart]: AuthOrchestrationOperateScope,

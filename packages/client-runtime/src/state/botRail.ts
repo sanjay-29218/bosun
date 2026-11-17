@@ -286,34 +286,33 @@ export function railProjectKeys(input: {
 }
 
 /**
- * A rail entry's projects on every connected environment: the ones it owns, the ones it can
- * take (on its home and the environments it may work on), the ones on environments it may not
- * work on, and the ones on environments without bots (`botEnvironmentIds` leaves them out),
- * which no bot can take until that environment runs Bosun.
+ * A rail entry's projects: the ones it owns, wherever they are, and the ones it can add, on its
+ * home and the machines linked to it (`reachableEnvironmentIds`). Projects there on environments
+ * without bots (`botEnvironmentIds` leaves them out) are listed apart: no bot can take them until
+ * that environment runs Bosun.
  */
 export function logicalBotProjectLists<Project extends OwnedProject & { readonly id: string }>(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<Project>,
   botEnvironmentIds: ReadonlySet<EnvironmentId>,
+  reachableEnvironmentIds: ReadonlySet<EnvironmentId>,
 ): {
   readonly owned: ReadonlyArray<Project>;
   readonly available: ReadonlyArray<Project>;
-  readonly notAllowed: ReadonlyArray<Project>;
   readonly withoutBots: ReadonlyArray<Project>;
 } {
   const resolve = createProjectOwnerResolver(bots);
   const owned: Project[] = [];
   const available: Project[] = [];
-  const notAllowed: Project[] = [];
   const withoutBots: Project[] = [];
   for (const project of projects) {
     if (resolve(project) === bot.key) owned.push(project);
+    else if (!reachableEnvironmentIds.has(project.environmentId)) continue;
     else if (!botEnvironmentIds.has(project.environmentId)) withoutBots.push(project);
-    else if (logicalBotWorksOn(bot, project.environmentId)) available.push(project);
-    else notAllowed.push(project);
+    else available.push(project);
   }
-  return { owned, available, notAllowed, withoutBots };
+  return { owned, available, withoutBots };
 }
 
 /**

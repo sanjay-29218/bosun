@@ -58,6 +58,7 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { TicketService } from "../tickets/TicketService.ts";
 import * as BotReach from "./BotReach.ts";
 import * as BotService from "./BotService.ts";
+import * as BotTransfer from "./BotTransfer.ts";
 
 const CAPTAIN_ID = "bot-ops";
 
@@ -327,6 +328,7 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
 /** The crew toolkits and what they read besides BotReach's data. */
 const layerToolServices = Layer.mergeAll(
   Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+  Layer.mock(BotTransfer.BotTransfer)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(LibraryCopies)({}),
   Layer.mock(ProjectRequests)({}),

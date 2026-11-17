@@ -39,6 +39,7 @@ import { CrewService } from "../crew/CrewService.ts";
 import { LibraryCopies } from "../crew/LibraryCopies.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
+import * as BotTransfer from "../bots/BotTransfer.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -2055,6 +2056,7 @@ it.effect("lists Bosun's tools to every thread, and the crew's own only to crew 
                 ),
             }),
             Layer.mock(BotReach.BotReach)({ list: Effect.succeed([]) }),
+            Layer.mock(BotTransfer.BotTransfer)({}),
             Layer.mock(RemoteDelegation.RemoteDelegation)({
               delegate: (_scope, input) =>
                 Effect.sync(() => {

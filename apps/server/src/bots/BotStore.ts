@@ -1,4 +1,4 @@
-import { Bot, ModelSelection } from "@t3tools/contracts";
+import { Bot, BotPendingMove, EnvironmentId, ModelSelection } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -15,9 +15,20 @@ const BotRow = Schema.Struct({
   linkedEnvironmentIds: Schema.fromJsonString(Bot.fields.linkedEnvironmentIds),
   modelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   pinned: Schema.BooleanFromBit,
+  movingTo: Schema.optionalKey(Schema.NullOr(Schema.fromJsonString(BotPendingMove))),
 });
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(BotRow));
 const encodeRow = Schema.encodeSync(BotRow);
+
+/** The bot on another environment a copy here was made from. */
+export const CopiedFrom = Schema.Struct({ environmentId: EnvironmentId, botId: Schema.String });
+export type CopiedFrom = typeof CopiedFrom.Type;
+const PendingMoveJson = Schema.NullOr(Schema.fromJsonString(BotPendingMove));
+const CopiedFromJson = Schema.NullOr(Schema.fromJsonString(CopiedFrom));
+const encodePendingMove = Schema.encodeSync(PendingMoveJson);
+const decodePendingMove = Schema.decodeEffect(PendingMoveJson);
+const encodeCopiedFrom = Schema.encodeSync(CopiedFromJson);
+const decodeCopiedFrom = Schema.decodeEffect(CopiedFromJson);
 
 export type DeleteBotResult = "deleted" | "missing" | "owns-projects";
 
@@ -27,8 +38,24 @@ export class BotStore extends Context.Service<
     /** Every bot in rail order. Deleted bots are left out here and in `get`. */
     readonly list: Effect.Effect<ReadonlyArray<Bot>, PersistenceSqlError>;
     readonly get: (id: string) => Effect.Effect<Bot | null, PersistenceSqlError>;
-    /** False when the ID is taken, by a bot (deleted ones too) or by a crew member. */
-    readonly insert: (bot: Bot) => Effect.Effect<boolean, PersistenceSqlError>;
+    /**
+     * False when the ID is taken, by a bot (deleted ones too) or by a crew member. `copiedFrom`
+     * names the bot on another environment a copy was made from.
+     */
+    readonly insert: (
+      bot: Bot,
+      copiedFrom?: CopiedFrom,
+    ) => Effect.Effect<boolean, PersistenceSqlError>;
+    /** The move a bot has under way, or null; null too for a missing bot. */
+    readonly pendingMove: (id: string) => Effect.Effect<BotPendingMove | null, PersistenceSqlError>;
+    readonly setPendingMove: (
+      id: string,
+      move: BotPendingMove | null,
+    ) => Effect.Effect<void, PersistenceSqlError>;
+    /** Every environment linked to this one, as its link table holds them. */
+    readonly linkedEnvironmentIds: Effect.Effect<ReadonlyArray<EnvironmentId>, PersistenceSqlError>;
+    /** The bot another environment's copy here came from, or null for any other bot. */
+    readonly copiedFrom: (id: string) => Effect.Effect<CopiedFrom | null, PersistenceSqlError>;
     /** False when the bot changed since `expectedRevision`. */
     readonly update: (
       bot: Bot,
@@ -43,6 +70,8 @@ export class BotStore extends Context.Service<
       deletedAt: string,
       homeWorkspaceRoot: string | null,
     ) => Effect.Effect<DeleteBotResult, PersistenceSqlError>;
+    /** Frees a deleted bot's ID, as for a copy that was undone before anyone used it. */
+    readonly purge: (id: string) => Effect.Effect<void, PersistenceSqlError>;
     /** Pins the bot to the main rail or unpins it; false when there's no such bot. */
     readonly setPinned: (
       id: string,
@@ -80,7 +109,8 @@ const make = Effect.gen(function* () {
           SELECT environment_id FROM peer_environment_links ORDER BY environment_id
         )) AS "linkedEnvironmentIds",
         position, pinned, revision,
-        created_at AS "createdAt", updated_at AS "updatedAt"
+        created_at AS "createdAt", updated_at AS "updatedAt",
+        moving_json AS "movingTo"
       FROM bots WHERE deleted_at IS NULL AND ${id === undefined ? sql`1 = 1` : sql`id = ${id}`}
       ORDER BY position, created_at, id
     `.pipe(
@@ -91,17 +121,18 @@ const make = Effect.gen(function* () {
   return BotStore.of({
     list: select(),
     get: Effect.fn("BotStore.get")((id) => select(id).pipe(Effect.map((rows) => rows[0] ?? null))),
-    insert: Effect.fn("BotStore.insert")((bot) => {
+    insert: Effect.fn("BotStore.insert")((bot, copiedFrom) => {
       const row = encodeRow({ ...bot, pinned: bot.pinned ?? true });
+      const origin = encodeCopiedFrom(copiedFrom ?? null);
       return sql<{ readonly id: string }>`
         INSERT OR IGNORE INTO bots (
           id, name, avatar_json, color, instructions, model_selection_json, position,
-          pinned, revision, created_at, updated_at
+          pinned, revision, created_at, updated_at, copied_from_json
         )
         SELECT ${row.id}, ${row.name}, ${row.avatar}, ${row.color}, ${row.instructions},
           ${row.modelSelection},
           ${row.position}, ${row.pinned}, ${row.revision},
-          ${row.createdAt}, ${row.updatedAt}
+          ${row.createdAt}, ${row.updatedAt}, ${origin}
         WHERE NOT EXISTS (SELECT 1 FROM crew_members WHERE id = ${row.id})
         RETURNING id
       `.pipe(
@@ -144,6 +175,43 @@ const make = Effect.gen(function* () {
             }),
           )
           .pipe(Effect.mapError(queryError)),
+    ),
+    pendingMove: Effect.fn("BotStore.pendingMove")((id) =>
+      sql<{ readonly json: string | null }>`
+        SELECT moving_json AS json FROM bots WHERE id = ${id} AND deleted_at IS NULL
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.flatMap((rows) =>
+          decodePendingMove(rows[0]?.json ?? null).pipe(Effect.mapError(decodeError)),
+        ),
+      ),
+    ),
+    setPendingMove: Effect.fn("BotStore.setPendingMove")((id, move) =>
+      sql`
+        UPDATE bots SET moving_json = ${encodePendingMove(move)} WHERE id = ${id}
+      `.pipe(Effect.asVoid, Effect.mapError(queryError)),
+    ),
+    linkedEnvironmentIds: sql<{ readonly id: string }>`
+      SELECT environment_id AS id FROM peer_environment_links ORDER BY environment_id
+    `.pipe(
+      Effect.map((rows) => rows.map((row) => EnvironmentId.make(row.id))),
+      Effect.mapError(queryError),
+    ),
+    copiedFrom: Effect.fn("BotStore.copiedFrom")((id) =>
+      sql<{ readonly json: string | null }>`
+        SELECT copied_from_json AS json FROM bots WHERE id = ${id} AND deleted_at IS NULL
+      `.pipe(
+        Effect.mapError(queryError),
+        Effect.flatMap((rows) =>
+          decodeCopiedFrom(rows[0]?.json ?? null).pipe(Effect.mapError(decodeError)),
+        ),
+      ),
+    ),
+    purge: Effect.fn("BotStore.purge")((id) =>
+      sql`DELETE FROM bots WHERE id = ${id} AND deleted_at IS NOT NULL`.pipe(
+        Effect.asVoid,
+        Effect.mapError(queryError),
+      ),
     ),
     setPinned: Effect.fn("BotStore.setPinned")((id, pinned) =>
       sql<{ readonly id: string }>`

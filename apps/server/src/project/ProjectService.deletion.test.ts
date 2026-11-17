@@ -478,6 +478,16 @@ it.effect("refuses to delete a project holding a bot's headquarters, wherever it
       yield* forceDelete(repoId, "repo-delete");
       assert.isTrue(Option.isNone(yield* service.getById(repoId)));
       assert.isNotNull((yield* projections.getThreadProjection(repoThreadId)).thread.deletedAt);
+
+      // Removing the bot from this machine, as a move to another one does, takes it along.
+      yield* service.delete({
+        commandId: CommandId.make("command:home-delete-with-bot"),
+        projectId: homeId,
+        force: true,
+        withHeadquarters: true,
+      });
+      assert.isTrue(Option.isNone(yield* service.getById(homeId)));
+      assert.isNotNull((yield* projections.getThreadProjection(hqId)).thread.deletedAt);
     }).pipe(Effect.provide(layerServices));
   }).pipe(Effect.provide(layerDatabase)),
 );

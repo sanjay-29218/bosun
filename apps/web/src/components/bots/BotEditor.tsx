@@ -64,6 +64,7 @@ export function BotEditor({
   usedAvatars,
   projects,
   projectCount,
+  onMove = null,
   onConflict,
   onSaved,
   onCancel,
@@ -75,6 +76,8 @@ export function BotEditor({
   readonly usedAvatars: ReadonlyArray<BotAvatarParts>;
   readonly projects: ReactNode;
   readonly projectCount: number;
+  /** Opens Move to another machine; null when it isn't offered. */
+  readonly onMove?: (() => void) | null;
   readonly onConflict: () => void;
   readonly onSaved: (botId: string) => void;
   readonly onCancel: () => void;
@@ -185,6 +188,14 @@ export function BotEditor({
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <MonitorIcon aria-hidden className="size-3.5" />
                 Lives on {homeLabel}
+                {onMove === null ? null : (
+                  <>
+                    <span aria-hidden>·</span>
+                    <Button type="button" variant="link" size="xs" onClick={onMove}>
+                      Move…
+                    </Button>
+                  </>
+                )}
               </p>
             ) : null}
           </div>

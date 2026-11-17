@@ -60,6 +60,8 @@ export interface ProjectDeleteInput {
   readonly commandId: CommandId;
   readonly projectId: ProjectId;
   readonly force?: boolean;
+  /** Deletes a bot's headquarters with it, as removing that bot from this machine does. */
+  readonly withHeadquarters?: boolean;
 }
 
 export class ProjectNotFoundError extends Schema.TaggedError<ProjectNotFoundError>()(
@@ -671,7 +673,7 @@ export const make = Effect.gen(function* () {
       (a, b) => DateTime.toEpochMillis(b.createdAt) - DateTime.toEpochMillis(a.createdAt),
     );
     const headquarters = projectThreads.find((thread) => headquartersBotId(thread.id) !== null);
-    if (headquarters !== undefined) {
+    if (headquarters !== undefined && input.withHeadquarters !== true) {
       const botId = headquartersBotId(headquarters.id)!;
       const bot = yield* bots.get(botId).pipe(Effect.orElseSucceed(() => null));
       return yield* new ProjectHoldsHeadquartersError({

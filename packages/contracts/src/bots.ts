@@ -96,6 +96,20 @@ export const isBotFreshStartContext = (
 const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
   Schema.Array(item).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])));
 
+/**
+ * A bot's move to another machine that hasn't finished. `pending` until the target confirms it
+ * took the copy: the move can still be undone there. `confirmed` after: the copy runs there, and
+ * only removing the bot here is left.
+ */
+export const BotPendingMove = Schema.Struct({
+  targetEnvironmentId: EnvironmentId,
+  newBotId: Schema.String,
+  state: Schema.Literals(["pending", "confirmed"]).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("pending" as const)),
+  ),
+});
+export type BotPendingMove = typeof BotPendingMove.Type;
+
 export const Bot = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -121,6 +135,8 @@ export const Bot = Schema.Struct({
    * home exists: a bot gets one when it is created, or first opens or schedules work.
    */
   homePath: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** A move to another machine that hasn't finished; null or absent when none. */
+  movingTo: Schema.optionalKey(Schema.NullOr(BotPendingMove)),
 });
 export type Bot = typeof Bot.Type;
 
@@ -170,6 +186,62 @@ export const BotSetPinInput = Schema.Struct({
   pinned: Schema.Boolean,
 });
 export type BotSetPinInput = typeof BotSetPinInput.Type;
+
+export const BotTransferMode = Schema.Literals(["copy", "move"]);
+export type BotTransferMode = typeof BotTransferMode.Type;
+
+/**
+ * Copies a bot to a linked machine, or moves it there. `newBotId` is chosen once per attempt, so
+ * a retry finishes or undoes the same transfer. `dryRun` changes nothing and returns the preview.
+ */
+export const BotTransferInput = Schema.Struct({
+  botId: Schema.String,
+  targetEnvironmentId: EnvironmentId,
+  newBotId: Schema.String,
+  mode: BotTransferMode,
+  dryRun: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Cancels the bot's unfinished move instead, whatever the target says. `undo` needs the target
+   * to undo its copy; `forget` stops waiting for it, leaving the automations here off.
+   */
+  cancelMove: Schema.optionalKey(Schema.Literals(["undo", "forget"])),
+});
+export type BotTransferInput = typeof BotTransferInput.Type;
+
+/**
+ * What becomes of one of the bot's projects: it comes along on a move, stays with the original on
+ * a copy, or is left with no bot when the target has no link to its machine.
+ */
+export const BotTransferProjectOutcome = Schema.Literals([
+  "comes-along",
+  "stays-with-original",
+  "left-without-bot",
+]);
+export type BotTransferProjectOutcome = typeof BotTransferProjectOutcome.Type;
+
+export const BotTransferResult = Schema.Struct({
+  /** The bot on the target machine. */
+  bot: Schema.Struct({ environmentId: EnvironmentId, id: Schema.String, name: Schema.String }),
+  projects: Schema.Array(
+    Schema.Struct({
+      environmentId: EnvironmentId,
+      environmentLabel: Schema.String,
+      projectId: ProjectId,
+      title: Schema.String,
+      outcome: BotTransferProjectOutcome,
+    }),
+  ),
+  /** Linked machines that didn't answer, so their projects may still name the bot. */
+  unchecked: Schema.Array(Schema.Struct({ environmentId: EnvironmentId, label: Schema.String })),
+  automations: Schema.Struct({
+    copied: Schema.Int,
+    /** How many were on; a move keeps them on, a copy brings every one turned off. */
+    enabled: Schema.Int,
+    needAttention: Schema.Array(Schema.Struct({ title: Schema.String, reason: Schema.String })),
+  }),
+  warnings: Schema.Array(Schema.String),
+});
+export type BotTransferResult = typeof BotTransferResult.Type;
 
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",

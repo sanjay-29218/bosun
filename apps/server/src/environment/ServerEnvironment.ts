@@ -284,6 +284,7 @@ export const make = Effect.gen(function* () {
       scheduledTaskThreadModes: true,
       scheduledTaskProjectManagers: true,
       projectManagerHomes: true,
+      botTransfer: true,
       npmReleaseLookup: true,
       voiceTranscription: isSpeechPlatformSupported(hostPlatform, hostArchitecture, hostLibc),
       cloudVoiceTranscription: true,

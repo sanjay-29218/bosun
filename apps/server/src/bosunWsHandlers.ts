@@ -9,6 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 
 import type { BotService } from "./bots/BotService.ts";
+import type { BotTransfer } from "./bots/BotTransfer.ts";
 import type { CrewService } from "./crew/CrewService.ts";
 import type { LibraryCopies } from "./crew/LibraryCopies.ts";
 import type { ProjectRequests } from "./crew/ProjectRequests.ts";
@@ -20,6 +21,7 @@ import { RpcInstrumentation } from "./observability/RpcInstrumentation.ts";
 
 export interface BosunWsServices {
   readonly bots: BotService["Service"];
+  readonly botTransfer: BotTransfer["Service"];
   readonly crew: CrewService["Service"];
   readonly library: LibraryCopies["Service"];
   readonly projectRequests: ProjectRequests["Service"];
@@ -36,6 +38,7 @@ export interface BosunWsServices {
  */
 export const layerBosunWsRpc = ({
   bots,
+  botTransfer,
   crew,
   library,
   projectRequests,
@@ -123,6 +126,10 @@ export const layerBosunWsRpc = ({
         [WS_METHODS.botsSetPin]: (input) =>
           bots
             .setPin(input)
+            .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
+        [WS_METHODS.botsTransfer]: (input) =>
+          botTransfer
+            .transfer(input)
             .pipe(Effect.mapError((error) => new BotOperationError({ reason: error.message }))),
         [WS_METHODS.botsOpenHeadquarters]: (input) =>
           crew.ensureHeadquarters(input.botId).pipe(
