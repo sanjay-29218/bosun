@@ -22,7 +22,6 @@ import {
   DispatchModeLimit,
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
-import * as BotEnvironmentGuard from "../bots/BotEnvironmentGuard.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import { assertNotLinked, assertSameLink, callerLinkOrigin } from "./linkOrigin.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -420,7 +419,6 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
 ) {
   // Optional so toolkits that never leave this environment build without it.
   const forwarding = yield* Effect.serviceOption(PeerForwarding.PeerForwarding);
-  const guard = yield* Effect.serviceOption(BotEnvironmentGuard.BotEnvironmentGuard);
   const handlers: Record<string, unknown> = { ...checked };
   for (const [name, declaration] of Object.entries<Declaration<unknown>>(declarations)) {
     const tool = toolkit.tools[name];
@@ -452,10 +450,6 @@ const routed = Effect.fn("McpToolAccess.routed")(function* <Tools extends Record
         if (target === undefined) return yield* here(params);
         if (scope.linkedEnvironments === false) return yield* PeerForwarding.linkedEnvironmentsOff;
         yield* (remote as RemoteCheck<typeof params>)(params);
-        // A bot's work goes only to the linked environments the bot is permitted on.
-        if (scope.thread !== undefined && Option.isSome(guard)) {
-          yield* guard.value.check(scope.thread.threadId, target);
-        }
         if (Option.isNone(forwarding)) return yield* linksUnavailable;
         const result = yield* forwarding.value.call(scope, tool, target, {
           ...params,

@@ -37,7 +37,6 @@ import * as HttpApiClient from "effect/http-api/HttpApiClient";
 import { isLocalLoopbackHost, isTailnetHost } from "@t3tools/shared/hostClassification";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import * as BotStore from "../bots/BotStore.ts";
 import { crewChangeNotifier } from "../crew/CrewChanges.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -81,6 +80,8 @@ export interface ResolvedPeerLink {
   /** The first address that answered as this peer. */
   readonly url: string;
   readonly token: string;
+  /** What the peer's Bosun says it can do, from the descriptor it just answered with. */
+  readonly capabilities: ExecutionEnvironmentCapabilities;
 }
 
 export const LINKED_ENVIRONMENTS_OFF =
@@ -230,7 +231,6 @@ const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const isOwnLoopback = yield* LoopbackHost;
-  const bots = yield* BotStore.BotStore;
   const { notify } = yield* crewChangeNotifier;
   const enabled = serverSettings.getSettings.pipe(
     Effect.map((settings) => settings.linkedEnvironmentsEnabled),
@@ -548,8 +548,7 @@ const make = Effect.gen(function* () {
       .set(secretName, new TextEncoder().encode(issued.access_token))
       .pipe(Effect.catch(failStorage));
     // A token no row names could never be removed.
-    // One transaction: whether the link is new, the link, and the bots' grant commit together.
-    const { previous, granted } = yield* Effect.gen(function* () {
+    const { previous } = yield* Effect.gen(function* () {
       const urlsJson = yield* encodeUrls(origins).pipe(Effect.catch(failStorage));
       const previous = yield* readRow(peer.environmentId);
       yield* sql`
@@ -572,20 +571,14 @@ const make = Effect.gen(function* () {
           last_reached_at = excluded.last_reached_at,
           last_error = NULL
       `.pipe(Effect.catch(failStorage));
-      // Bots may work on a machine linked for the first time; re-linking keeps their choice.
-      const granted = Option.isNone(previous)
-        ? yield* bots
-            .permitEnvironmentForAll(linked.environmentId, DateTime.formatIso(now))
-            .pipe(Effect.catch(failStorage))
-        : 0;
-      return { previous, granted };
+      return { previous };
     }).pipe(
       sql.withTransaction,
       Effect.catchTags({ SqlError: failStorage }),
       Effect.onError(() => secrets.remove(secretName).pipe(Effect.ignore)),
     );
-    // Open bot editors re-read the bots and see the new machine ticked.
-    if (granted > 0) yield* notify("bots");
+    // Every bot works on every linked machine; open bot lists re-read them to show a new one.
+    if (Option.isNone(previous)) yield* notify("bots");
     // Linking again replaces the old token. A racing link may leave its own
     // behind; it is unused either way.
     if (Option.isSome(previous) && previous.value.secret_name !== secretName) {
@@ -646,6 +639,7 @@ const make = Effect.gen(function* () {
       for (const row of deleted) {
         yield* secrets.remove(row.secret_name).pipe(Effect.catch(failStorage));
       }
+      if (deleted.length > 0) yield* notify("bots");
       return deleted.length > 0;
     },
   );
@@ -707,6 +701,7 @@ const make = Effect.gen(function* () {
         link: yield* withLabel(link, peer.label),
         url,
         token: new TextDecoder().decode(stored.value),
+        capabilities: peer.capabilities,
       };
     },
   );
@@ -740,5 +735,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-// The bots' store needs only the database, which every PeerLinks caller has.
-export const layer = Layer.effect(PeerLinks, make).pipe(Layer.provide(BotStore.layer));
+export const layer = Layer.effect(PeerLinks, make);

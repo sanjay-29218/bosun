@@ -10,8 +10,8 @@ const decodeManager = Schema.decodeUnknownSync(ProjectManagerSettings);
 const modelSelection = { instanceId: "codex", model: "gpt-5-codex" };
 
 // Linked machines update at different times, so a newer client reads what older servers send.
-describe("agents from servers before #108 and #112", () => {
-  it("decodes a bot without withheldTools or permittedEnvironmentIds", () => {
+describe("agents from servers before #108, #112 and #157", () => {
+  it("decodes a bot with old tool, access and Can work on fields", () => {
     const bot = decodeBot({
       id: "bot-1",
       name: "Captain",
@@ -26,6 +26,7 @@ describe("agents from servers before #108 and #112", () => {
       color: "blue",
       instructions: "",
       allowedTools: ["crew.delegate"],
+      permittedEnvironmentIds: ["vps"],
       runtimeMode: "full-access",
       modelSelection: null,
       longConversation: "compact",
@@ -34,11 +35,12 @@ describe("agents from servers before #108 and #112", () => {
       createdAt: "2026-11-01T00:00:00.000Z",
       updatedAt: "2026-11-01T00:00:00.000Z",
     });
-    expect(bot.withheldTools).toEqual([]);
-    expect(bot.permittedEnvironmentIds).toEqual([]);
+    expect(bot).not.toHaveProperty("runtimeMode");
+    expect(bot).not.toHaveProperty("permittedEnvironmentIds");
+    expect(bot.linkedEnvironmentIds).toEqual([]);
   });
 
-  it("decodes a role and project manager settings without withheldTools", () => {
+  it("decodes a role and project manager settings with old tool, access and model fields", () => {
     const role = decodeRole({
       id: "builder",
       name: "Builder",
@@ -53,16 +55,17 @@ describe("agents from servers before #108 and #112", () => {
       projectId: "project-1",
       enabled: true,
       instructions: "",
-      allowedTools: [],
+      withheldTools: ["preview"],
       modelSelection,
-      runtimeMode: "full-access",
+      runtimeMode: "approval-required",
       longConversation: "compact",
       customized: false,
       revision: 0,
       threadId: null,
       icon: null,
     });
-    expect(role.withheldTools).toEqual([]);
-    expect(manager.withheldTools).toEqual([]);
+    expect(role).not.toHaveProperty("runtimeMode");
+    expect(manager).not.toHaveProperty("withheldTools");
+    expect(manager).not.toHaveProperty("modelSelection");
   });
 });

@@ -1,12 +1,10 @@
 import {
-  CREW_TOOL_GRANTS,
   FEATURE_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
   type EnvironmentId,
   type ModelSelection,
   type ProjectId,
-  type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { useState } from "react";
@@ -17,13 +15,6 @@ import { uuidv4 } from "../../lib/uuid";
 import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
-
-const RUNTIME_MODES: ReadonlyArray<RuntimeMode> = [
-  "approval-required",
-  "auto-accept-edits",
-  "auto",
-  "full-access",
-];
 
 export function Action(props: {
   readonly label: string;
@@ -53,9 +44,7 @@ function Editor(props: {
     readonly id: string;
     readonly name: string;
     readonly instructions: string;
-    readonly withheldTools: Array<string>;
     readonly modelSelection: ModelSelection;
-    readonly runtimeMode: RuntimeMode;
     readonly enabled: boolean;
     readonly expectedRevision?: number;
   }) => Promise<boolean>;
@@ -63,25 +52,22 @@ function Editor(props: {
   const initialModel = props.role?.modelSelection ?? props.modelSelection;
   const [name, setName] = useState(props.role?.name ?? "");
   const [instructions, setInstructions] = useState(props.role?.instructions ?? "");
-  const [withheldTools, setWithheldTools] = useState<ReadonlyArray<string>>(
-    props.role?.withheldTools ?? [],
-  );
   const [instanceId, setInstanceId] = useState(initialModel?.instanceId ?? "");
   const [model, setModel] = useState(initialModel?.model ?? "");
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
-    props.role?.runtimeMode ?? "full-access",
-  );
   const [enabled, setEnabled] = useState(props.role?.enabled ?? true);
   // The fields above match this revision. If someone else saves a newer one, this save is
   // refused instead of overwriting it.
   const [baseRevision, setBaseRevision] = useState(props.role?.revision);
   const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
+  const managedFrom = props.role?.managedFrom ?? null;
+
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
         {props.role?.name ?? "New role"}
       </Text>
+      {managedFrom === null ? null : <ManagedFrom noun="role" label={managedFrom.label} />}
       <AppTextInput
         accessibilityLabel="Role name"
         placeholder="Name"
@@ -111,52 +97,12 @@ function Editor(props: {
         value={model}
         onChangeText={setModel}
       />
-      <Text className="text-xs text-foreground-muted">
-        {CREW_TOOL_GRANTS.every(
-          (grant) => grant.id.startsWith("crew.") || withheldTools.includes(grant.id),
-        )
-          ? "Tools. No T3 Code tools: this agent can't use any."
-          : "Tools. Selected ones are on; tap one to turn it off."}
-      </Text>
-      <View className="flex-row flex-wrap gap-1.5">
-        {/* Withheld ids this list doesn't know stay listed, off, so they can be turned back on. */}
-        {[
-          ...CREW_TOOL_GRANTS.filter((grant) => !("botOnly" in grant)),
-          ...withheldTools
-            .filter((id) => !CREW_TOOL_GRANTS.some((grant) => grant.id === id))
-            .map((id) => ({ id, label: id })),
-        ].map((grant) => {
-          const selected = !withheldTools.includes(grant.id);
-          return (
-            <Action
-              key={grant.id}
-              label={grant.label}
-              selected={selected}
-              onPress={() =>
-                setWithheldTools(
-                  selected
-                    ? [...withheldTools, grant.id]
-                    : withheldTools.filter((id) => id !== grant.id),
-                )
-              }
-            />
-          );
-        })}
-      </View>
-      <Action
-        label={`T3 runtime: ${runtimeMode}`}
-        onPress={() =>
-          setRuntimeMode(
-            RUNTIME_MODES[(RUNTIME_MODES.indexOf(runtimeMode) + 1) % RUNTIME_MODES.length]!,
-          )
-        }
-      />
-      {props.role ? (
+      {props.role && managedFrom === null ? (
         <Action label={`Enabled: ${enabled ? "on" : "off"}`} onPress={() => setEnabled(!enabled)} />
       ) : null}
       <Action
         label="Save role"
-        disabled={!canSave || props.busy}
+        disabled={!canSave || props.busy || managedFrom !== null}
         onPress={() => {
           const modelSelection: ModelSelection = {
             instanceId: ProviderInstanceId.make(instanceId.trim()),
@@ -172,9 +118,7 @@ function Editor(props: {
               id: props.role?.id ?? `role:${uuidv4()}`,
               name: name.trim(),
               instructions: instructions.trim(),
-              withheldTools: [...withheldTools],
               modelSelection,
-              runtimeMode,
               enabled,
               ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
             })
@@ -184,6 +128,15 @@ function Editor(props: {
         }}
       />
     </View>
+  );
+}
+
+/** A copy of another machine's workflow or role, edited on that machine. */
+export function ManagedFrom(props: { readonly noun: "workflow" | "role"; readonly label: string }) {
+  return (
+    <Text className="text-xs text-foreground-muted">
+      Managed from {props.label}. This {props.noun} is a copy; edit it on {props.label}.
+    </Text>
   );
 }
 

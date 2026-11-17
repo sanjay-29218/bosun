@@ -115,7 +115,9 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
 import * as BotService from "./bots/BotService.ts";
+import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
+import { LibraryCopies } from "./crew/LibraryCopies.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { CrewChanges } from "./crew/CrewChanges.ts";
 import { FeatureService } from "./features/FeatureService.ts";
@@ -1556,6 +1558,8 @@ export const layerWsRpc = (
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
+      // The server runs it, so unlinking removes this machine's copies there first.
+      const library = yield* Effect.serviceOption(LibraryCopies);
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
@@ -2681,7 +2685,9 @@ export const layerWsRpc = (
           peerLinks.list.pipe(Effect.map((links) => ({ links }))),
         [WS_METHODS.peerLinksLink]: (input) => peerLinks.link(input),
         [WS_METHODS.peerLinksUnlink]: ({ environmentId }) =>
-          peerLinks.unlink(environmentId).pipe(Effect.map((removed) => ({ removed }))),
+          (Option.isSome(library) ? library.value.unlink : peerLinks.unlink)(environmentId).pipe(
+            Effect.map((removed) => ({ removed })),
+          ),
         [WS_METHODS.peerLinksAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(peerLinkRequests.answer(input)),
@@ -3602,7 +3608,9 @@ export const layer = Layer.unwrap(
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const crewServices = {
       bots: yield* BotService.BotService,
+      botTransfer: yield* BotTransfer.BotTransfer,
       crew: yield* CrewService,
+      library: yield* LibraryCopies,
       projectRequests: yield* ProjectRequests,
       features: yield* FeatureService,
       issues: yield* IssueService.IssueService,

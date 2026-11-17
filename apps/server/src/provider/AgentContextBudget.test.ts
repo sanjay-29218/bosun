@@ -2,7 +2,6 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
-  CREW_TOOL_GRANTS,
   EnvironmentId,
   ProjectId,
   projectHeadquartersThreadId,
@@ -20,8 +19,11 @@ import { AssetSigner } from "../assets/AssetSigner.ts";
 import { ServerSecretStore } from "../auth/ServerSecretStore.ts";
 import { BotService } from "../bots/BotService.ts";
 import { BotReach } from "../bots/BotReach.ts";
+import { BotTransfer } from "../bots/BotTransfer.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
+import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../crew/CrewService.ts";
+import { LibraryCopies } from "../crew/LibraryCopies.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
 import { FeatureService } from "../features/FeatureService.ts";
@@ -80,6 +82,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(OrchestratorV2)({}),
   Layer.mock(PeerForwarding)({}),
   Layer.mock(BotReach)({}),
+  Layer.mock(BotTransfer)({}),
   Layer.mock(PeerLinkRequests)({}),
   Layer.mock(PeerLinks)({}),
   Layer.mock(PreviewAutomationBroker)({}),
@@ -108,6 +111,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(BotService)({}),
   Layer.mock(CrewApprovals)({}),
   Layer.mock(CrewService)({}),
+  Layer.mock(LibraryCopies)({}),
   Layer.mock(CrewStore)({}),
   Layer.mock(ProjectRequests)({}),
   Layer.mock(FeatureService)({}),
@@ -142,7 +146,6 @@ const codexAdditionalContext = () =>
     .join("");
 
 const threadScope = (
-  crewGrants?: ReadonlyArray<string>,
   threadId = ThreadId.make("context-budget"),
 ): McpInvocationContext.McpInvocationScope => ({
   environmentId: EnvironmentId.make("context-budget"),
@@ -153,9 +156,11 @@ const threadScope = (
     providerInstanceId: ProviderInstanceId.make(CLAUDE_PROVIDER),
   },
   client: undefined,
-  capabilities: new Set(["orchestration", "worktree", "pull-requests", "preview", "device"]),
+  capabilities: crewMcpCapabilities(
+    threadId,
+    new Set(["orchestration", "worktree", "pull-requests", "preview", "device"]),
+  ),
   issuedAt: 0,
-  ...(crewGrants === undefined ? {} : { crewGrants }),
 });
 
 const clientProfile = {
@@ -212,7 +217,7 @@ it.effect("agent context matches the committed budget", () =>
     const measured = {
       claudeSystemAppendBytes: utf8Bytes(claudeSystemAppend()),
       codexAdditionalContextBytes: utf8Bytes(codexAdditionalContext()),
-      // A plain thread's list: crew threads add the tools their grants allow.
+      // A plain thread's list: crew threads add the crew tools.
       mcpToolListJsonBytes: toolListJsonBytes(yield* listedTo(threadScope())),
     };
 
@@ -223,34 +228,45 @@ it.effect("agent context matches the committed budget", () =>
   }).pipe(Effect.provide(layerAllTools)),
 );
 
-it.effect("a project manager holding every grant is listed every tool but the links' own", () =>
+it.effect("every crew role and a plain thread reach every tool, with no grants", () =>
   Effect.gen(function* () {
     const mcp = yield* McpServer.McpServer;
-    const listed = yield* listedTo(
-      threadScope(
-        CREW_TOOL_GRANTS.map((grant) => grant.id),
-        projectHeadquartersThreadId(ProjectId.make("context-budget")),
-      ),
-    );
-    // Only a feature's crew member asks the person in its own thread.
+    const names = (tools: McpServer.McpServer["Service"]["tools"]) =>
+      tools.map(({ tool }) => tool.name);
+    // Only linked environments use the link tools, and only a feature's crew member asks the
+    // person in its own thread.
     const notListed = new Set([
       "t3_bot_link_projects",
       "t3_bot_link_task",
       "t3_bot_link_notices",
+      "t3_crew_link_library",
+      "t3_bot_link_import",
+      "t3_bot_link_rehome",
       "crew_ask_person",
     ]);
-    const all = mcp.tools.map(({ tool }) => tool.name).filter((name) => !notListed.has(name));
-    expect(listed.map(({ tool }) => tool.name)).toEqual(all);
-    // A feature lead or crew member holding the same grants doesn't see the manager's own tools.
-    const lead = yield* listedTo(
-      threadScope(
-        CREW_TOOL_GRANTS.map((grant) => grant.id),
-        ThreadId.make("bot-run:feature-lead:x"),
-      ),
+    const all = names(mcp.tools).filter((name) => !notListed.has(name));
+    const manager = yield* listedTo(
+      threadScope(projectHeadquartersThreadId(ProjectId.make("context-budget"))),
     );
+    expect(names(manager)).toEqual(all);
+    // A Feature manager, or any crew role's thread, gets the same but the manager's own tools.
     const standingOnly: ReadonlySet<string> = new Set(MANAGER_INSTRUCTIONS_TOOLS);
-    expect(lead.map(({ tool }) => tool.name)).toEqual(
-      all.filter((name) => !standingOnly.has(name)),
+    const withoutStanding = all.filter((name) => !standingOnly.has(name));
+    for (const crew of ["bot-run:feature-lead:x", "bot-run:builder-run"]) {
+      expect(names(yield* listedTo(threadScope(ThreadId.make(crew))))).toEqual(withoutStanding);
+    }
+    // A plain task starts features, delegates, makes worktrees and pull requests on its own;
+    // it lacks only the tools that act for a crew run.
+    const plain = names(yield* listedTo(threadScope()));
+    expect(plain).toEqual(withoutStanding.filter((name) => !name.startsWith("crew_")));
+    expect(plain).toEqual(
+      expect.arrayContaining([
+        "t3_feature_start",
+        "t3_role_create",
+        "t3_bot_create",
+        "t3_project_send",
+        "delegate_task",
+      ]),
     );
   }).pipe(Effect.provide(layerAllTools)),
 );

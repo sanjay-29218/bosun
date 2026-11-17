@@ -47,7 +47,7 @@ export interface EnvironmentBots {
   readonly environmentId: EnvironmentId;
   readonly bots: ReadonlyArray<
     Pick<Bot, "id" | "name" | "avatar" | "color" | "position" | "pinned"> &
-      Partial<Pick<Bot, "permittedEnvironmentIds">>
+      Partial<Pick<Bot, "linkedEnvironmentIds">>
   >;
 }
 
@@ -70,8 +70,8 @@ export interface LogicalBot {
   readonly members: ReadonlyArray<LogicalBotMember>;
   /** Shown in the main rail. */
   readonly pinned: boolean;
-  /** Linked environments besides its home that it may start work on. */
-  readonly permittedEnvironmentIds: ReadonlyArray<EnvironmentId>;
+  /** The environments linked to its home; it works on each of them. */
+  readonly linkedEnvironmentIds: ReadonlyArray<EnvironmentId>;
 }
 
 /**
@@ -111,16 +111,16 @@ export function logicalBotOf(
     color: bot.color,
     members: [{ environmentId, botId: bot.id, pinned: bot.pinned ?? true }],
     pinned: bot.pinned ?? true,
-    permittedEnvironmentIds: bot.permittedEnvironmentIds ?? [],
+    linkedEnvironmentIds: bot.linkedEnvironmentIds ?? [],
   };
 }
 
 /** The environment a rail entry's bot lives on. */
 export const logicalBotHome = (bot: LogicalBot): EnvironmentId => bot.members[0]!.environmentId;
 
-/** Whether the bot may own and start work on projects on `environmentId`. */
+/** Whether the bot may own and start work on projects on `environmentId`: its home or a linked one. */
 export const logicalBotWorksOn = (bot: LogicalBot, environmentId: EnvironmentId): boolean =>
-  logicalBotHome(bot) === environmentId || bot.permittedEnvironmentIds.includes(environmentId);
+  logicalBotHome(bot) === environmentId || bot.linkedEnvironmentIds.includes(environmentId);
 
 /**
  * The environments a bot list reads, primary first: bot environments that are connected, then
@@ -160,7 +160,7 @@ export const logicalBotsSignature = (bots: ReadonlyArray<LogicalBot>) =>
   bots
     .map(
       (bot) =>
-        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.permittedEnvironmentIds.join(",")}|${bot.members
+        `${bot.key}|${bot.name}|${JSON.stringify(bot.avatar)}|${bot.color}|${bot.pinned}|${bot.linkedEnvironmentIds.join(",")}|${bot.members
           .map((member) => `${member.environmentId}/${member.botId}/${member.pinned ?? true}`)
           .join(",")}`,
     )
@@ -286,34 +286,33 @@ export function railProjectKeys(input: {
 }
 
 /**
- * A rail entry's projects on every connected environment: the ones it owns, the ones it can
- * take (on its home and the environments it may work on), the ones on environments it may not
- * work on, and the ones on environments without bots (`botEnvironmentIds` leaves them out),
- * which no bot can take until that environment runs Bosun.
+ * A rail entry's projects: the ones it owns, wherever they are, and the ones it can add, on its
+ * home and the machines linked to it (`reachableEnvironmentIds`). Projects there on environments
+ * without bots (`botEnvironmentIds` leaves them out) are listed apart: no bot can take them until
+ * that environment runs Bosun.
  */
 export function logicalBotProjectLists<Project extends OwnedProject & { readonly id: string }>(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<Project>,
   botEnvironmentIds: ReadonlySet<EnvironmentId>,
+  reachableEnvironmentIds: ReadonlySet<EnvironmentId>,
 ): {
   readonly owned: ReadonlyArray<Project>;
   readonly available: ReadonlyArray<Project>;
-  readonly notAllowed: ReadonlyArray<Project>;
   readonly withoutBots: ReadonlyArray<Project>;
 } {
   const resolve = createProjectOwnerResolver(bots);
   const owned: Project[] = [];
   const available: Project[] = [];
-  const notAllowed: Project[] = [];
   const withoutBots: Project[] = [];
   for (const project of projects) {
     if (resolve(project) === bot.key) owned.push(project);
+    else if (!reachableEnvironmentIds.has(project.environmentId)) continue;
     else if (!botEnvironmentIds.has(project.environmentId)) withoutBots.push(project);
-    else if (logicalBotWorksOn(bot, project.environmentId)) available.push(project);
-    else notAllowed.push(project);
+    else available.push(project);
   }
-  return { owned, available, notAllowed, withoutBots };
+  return { owned, available, withoutBots };
 }
 
 /**

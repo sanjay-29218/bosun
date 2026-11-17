@@ -6,16 +6,18 @@ import {
   type BotMoveProjectInput,
   type BotSetPinInput,
   type BotUpdateInput,
-  LEGACY_TOOLS_MESSAGE,
+  ModelSelection,
   type Project,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Predicate from "effect/Predicate";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
@@ -27,6 +29,12 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as BotStore from "./BotStore.ts";
+import {
+  type BotHomeFile,
+  readHomeFiles,
+  tooLargeMessage,
+  writeHomeFiles,
+} from "./botHomeFiles.ts";
 
 export class BotValidationError extends Schema.TaggedError<BotValidationError>()(
   "BotValidationError",
@@ -73,8 +81,36 @@ export class BotService extends Context.Service<
     readonly setPin: (
       input: BotSetPinInput,
     ) => Effect.Effect<void, BotServiceError | ProjectService.ProjectServiceError>;
+    /** The files in the bot's home folder, refused when too many or too large to send. */
+    readonly homeFiles: (id: string) => Effect.Effect<ReadonlyArray<BotHomeFile>, BotServiceError>;
+    /**
+     * Adds a bot sent from another machine, as it was there, at the end of the rail, with its
+     * home folder's files. Repeating the same copy returns the same bot.
+     */
+    readonly insertCopy: (input: {
+      readonly bot: BotCopy;
+      /** The bot on another environment it's a copy of. */
+      readonly copiedFrom: BotStore.CopiedFrom;
+      readonly homeFiles: ReadonlyArray<BotHomeFile>;
+    }) => Effect.Effect<Bot, BotServiceError>;
+    /**
+     * Removes the bot and everything of it here: its automations, its home with its
+     * headquarters, its home folder, and last the bot. Refused while it owns a project other than
+     * its home; after a failure part-way, repeating it finishes the job.
+     * `forgetId` frees the ID too, for a copy undone before anyone used it.
+     */
+    readonly removeCompletely: (
+      id: string,
+      options?: { readonly forgetId?: boolean },
+    ) => Effect.Effect<void, BotServiceError>;
   }
 >()("t3/bots/BotService") {}
+
+/** A bot's definition as another machine sends it, under the ID it gets here. */
+export type BotCopy = Pick<
+  Bot,
+  "id" | "name" | "avatar" | "color" | "instructions" | "modelSelection"
+>;
 
 const text = (value: string, field: string, max: number) => {
   const trimmed = value.trim();
@@ -82,10 +118,7 @@ const text = (value: string, field: string, max: number) => {
     ? Effect.succeed(trimmed)
     : Effect.fail(new BotValidationError({ reason: `${field} must contain 1-${max} characters` }));
 };
-const tools = (value: ReadonlyArray<string>) =>
-  value.length <= 32 && value.every((tool) => tool.trim().length > 0 && tool.length <= 100)
-    ? Effect.succeed([...new Set(value.map((tool) => tool.trim()))])
-    : Effect.fail(new BotValidationError({ reason: "Invalid tool grants" }));
+const sameModel = Schema.toEquivalence(Schema.NullOr(ModelSelection));
 
 const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.head === right.head &&
@@ -94,12 +127,6 @@ const sameAvatar = (left: BotAvatar, right: BotAvatar) =>
   left.top === right.top &&
   left.cheeks === right.cheeks &&
   left.smile === right.smile;
-
-/** An older client's `allowedTools` meant the opposite, so it is refused rather than read. */
-const refuseLegacyTools = (input: { readonly allowedTools?: unknown }) =>
-  input.allowedTools === undefined
-    ? Effect.void
-    : Effect.fail(new BotValidationError({ reason: LEGACY_TOOLS_MESSAGE }));
 
 const sameCreate = (bot: Bot, input: BotCreateInput) =>
   bot.name === input.name.trim() &&
@@ -112,6 +139,8 @@ const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const scheduledTasks = yield* ScheduledTaskService.ScheduledTaskService;
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   // Optional so bot tests run without the crew; the server always provides it.
   const crew = yield* Effect.serviceOption(CrewService);
 
@@ -144,42 +173,55 @@ const make = Effect.gen(function* () {
       .ensureBotHome(bot)
       .pipe(Effect.mapError((error) => new BotValidationError({ reason: error.message })));
 
-  const createUnlocked = Effect.fn("BotService.insertBot")(function* (input: BotCreateInput) {
-    yield* refuseLegacyTools(input);
-    const id = yield* text(input.id, "Bot ID", 128);
-    const existing = yield* store.get(id);
+  /** Inserts `bot` at the end of the rail, or returns the bot already under its ID if `same`. */
+  const insertUnlocked = Effect.fn("BotService.insertBot")(function* (
+    bot: Pick<Bot, "id" | "name" | "avatar" | "color" | "instructions" | "modelSelection">,
+    same: (existing: Bot) => Effect.Effect<boolean, BotServiceError>,
+    copiedFrom?: BotStore.CopiedFrom,
+  ) {
+    const existing = yield* store.get(bot.id);
     if (existing) {
-      if (sameCreate(existing, input)) return existing;
+      if (yield* same(existing)) return existing;
       return yield* new BotValidationError({ reason: "Bot ID belongs to another bot" });
     }
     const now = DateTime.formatIso(yield* DateTime.now);
     const all = yield* store.list;
-    const bot: Bot = {
-      id,
-      name: yield* text(input.name, "Bot name", 80),
-      avatar: input.avatar,
-      color: input.color,
-      instructions: yield* text(
-        input.instructions ?? BOT_DEFAULT_INSTRUCTIONS,
-        "Bot instructions",
-        16_000,
-      ),
-      withheldTools: yield* tools(input.withheldTools ?? []),
-      runtimeMode: input.runtimeMode ?? "full-access",
-      modelSelection: input.modelSelection ?? null,
-      longConversation: input.longConversation ?? "compact",
-      permittedEnvironmentIds: yield* store.linkedEnvironmentIds,
+    const inserted: Bot = {
+      ...bot,
+      // Read back from the link list once stored.
+      linkedEnvironmentIds: [],
       position: all.reduce((max, other) => Math.max(max, other.position + 1), 0),
       pinned: true,
       revision: 1,
       createdAt: now,
       updatedAt: now,
+      movingTo: null,
     };
-    if (yield* store.insert(bot)) return bot;
+    if (yield* store.insert(inserted, copiedFrom)) {
+      return (yield* store.get(bot.id)) ?? inserted;
+    }
     // A concurrent create with the same ID won, or a crew member already has the ID.
-    const winner = yield* store.get(id);
-    if (winner && sameCreate(winner, input)) return winner;
+    const winner = yield* store.get(bot.id);
+    if (winner && (yield* same(winner))) return winner;
     return yield* new BotValidationError({ reason: "Bot ID is already in use" });
+  });
+
+  const createUnlocked = Effect.fn("BotService.createBot")(function* (input: BotCreateInput) {
+    return yield* insertUnlocked(
+      {
+        id: yield* text(input.id, "Bot ID", 128),
+        name: yield* text(input.name, "Bot name", 80),
+        avatar: input.avatar,
+        color: input.color,
+        instructions: yield* text(
+          input.instructions ?? BOT_DEFAULT_INSTRUCTIONS,
+          "Bot instructions",
+          16_000,
+        ),
+        modelSelection: input.modelSelection ?? null,
+      },
+      (existing) => Effect.succeed(sameCreate(existing, input)),
+    );
   });
 
   // Creates run one at a time, so each reads the rail position the one before it wrote.
@@ -197,7 +239,6 @@ const make = Effect.gen(function* () {
       return { ...bot, homePath: home.workspaceRoot };
     }),
     update: Effect.fn("BotService.update")(function* (input) {
-      yield* refuseLegacyTools(input);
       const previous = yield* requireBot(input.id);
       if (previous.revision !== input.expectedRevision) {
         return yield* new BotValidationError({ reason: "Bot changed; reload and retry" });
@@ -210,17 +251,7 @@ const make = Effect.gen(function* () {
         ...(input.instructions === undefined
           ? {}
           : { instructions: yield* text(input.instructions, "Bot instructions", 16_000) }),
-        ...(input.withheldTools === undefined
-          ? {}
-          : { withheldTools: yield* tools(input.withheldTools) }),
-        ...(input.runtimeMode === undefined ? {} : { runtimeMode: input.runtimeMode }),
         ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
-        ...(input.longConversation === undefined
-          ? {}
-          : { longConversation: input.longConversation }),
-        ...(input.permittedEnvironmentIds === undefined
-          ? {}
-          : { permittedEnvironmentIds: [...new Set(input.permittedEnvironmentIds)] }),
         revision: previous.revision + 1,
         updatedAt: DateTime.formatIso(yield* DateTime.now),
       };
@@ -241,8 +272,9 @@ const make = Effect.gen(function* () {
             ),
           );
       }
-      // An open headquarters takes the new runtime mode and model on its next turn.
-      if (Option.isSome(crew)) {
+      // An open headquarters takes a newly chosen model on its next turn; other edits leave the
+      // model its composer picked.
+      if (Option.isSome(crew) && !sameModel(next.modelSelection, previous.modelSelection)) {
         yield* crew.value
           .syncHeadquarters(next.id)
           .pipe(
@@ -327,6 +359,133 @@ const make = Effect.gen(function* () {
         pinned: input.pinned,
       });
     }),
+    homeFiles: Effect.fn("BotService.homeFiles")(function* (id) {
+      const bot = yield* requireBot(id);
+      const root = yield* folders.botHomePath(id);
+      if (Option.isNone(root)) return [];
+      const read = yield* readHomeFiles(root.value).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.mapError(
+          (error) =>
+            new BotValidationError({
+              reason: `Couldn't read ${bot.name}'s home folder: ${error.message}`,
+            }),
+        ),
+      );
+      if (read._tag === "too-large") {
+        return yield* new BotValidationError({ reason: tooLargeMessage(bot.name, read) });
+      }
+      return read.files;
+    }),
+    insertCopy: Effect.fn("BotService.insertCopy")(function* ({
+      bot: sent,
+      copiedFrom,
+      homeFiles,
+    }) {
+      const bot = yield* creating.withPermits(1)(
+        insertUnlocked(
+          {
+            id: yield* text(sent.id, "Bot ID", 128),
+            name: yield* text(sent.name, "Bot name", 80),
+            avatar: sent.avatar,
+            color: sent.color,
+            instructions: yield* text(sent.instructions, "Bot instructions", 16_000),
+            modelSelection: sent.modelSelection,
+          },
+          // The same copy, even renamed here since: it came from the same bot.
+          (existing) =>
+            store
+              .copiedFrom(existing.id)
+              .pipe(
+                Effect.map(
+                  (origin) =>
+                    origin?.environmentId === copiedFrom.environmentId &&
+                    origin.botId === copiedFrom.botId,
+                ),
+              ),
+          copiedFrom,
+        ),
+      );
+      const home = yield* ensureHome(bot);
+      yield* writeHomeFiles(home.workspaceRoot, homeFiles).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.mapError(
+          (error) =>
+            new BotValidationError({
+              reason: `Couldn't write ${bot.name}'s home folder: ${error.message}`,
+            }),
+        ),
+      );
+      return { ...bot, homePath: home.workspaceRoot };
+    }),
+    removeCompletely: Effect.fn("BotService.removeCompletely")(function* (id, options) {
+      const root = yield* folders.botHomePath(id);
+      const home = yield* homeProject(id);
+      const homeRoot = Option.match(home, {
+        onNone: () => Option.getOrNull(root),
+        onSome: (project) => project.workspaceRoot,
+      });
+      const failed = (what: string) => (error: { readonly message: string }) =>
+        new BotValidationError({ reason: `Couldn't remove its ${what}: ${error.message}` });
+      const ownsProjects = new BotValidationError({
+        reason: "Give this bot's projects to another bot or to none first",
+      });
+      // Checked first, so nothing is removed from a bot that still owns projects.
+      const owns = yield* store.withOwnership(projects.snapshot).pipe(
+        Effect.mapError(failed("projects")),
+        Effect.map((snapshot) =>
+          snapshot.projects.some(
+            (project) =>
+              project.deletedAt === null &&
+              project.botId === id &&
+              project.workspaceRoot !== homeRoot,
+          ),
+        ),
+      );
+      if (owns) return yield* ownsProjects;
+      // Outside the lock, as these can be slow. The row goes last, and re-checks under the lock,
+      // so a project given to the bot meanwhile keeps it, for a retry to finish removing.
+      yield* scheduledTasks.deleteForBot(id).pipe(Effect.mapError(failed("automations")));
+      if (Option.isSome(home)) {
+        yield* projects
+          .delete({
+            commandId: CommandId.make(`bot-remove:${id}:${home.value.id}`),
+            projectId: home.value.id,
+            force: true,
+            withHeadquarters: true,
+          })
+          .pipe(Effect.mapError(failed("home")));
+      }
+      if (Option.isSome(root)) {
+        yield* fileSystem
+          .remove(root.value, { recursive: true, force: true })
+          .pipe(Effect.mapError(failed("home folder")));
+      }
+      const result = yield* store.withOwnership(
+        store.deleteUnlessOwning(id, DateTime.formatIso(yield* DateTime.now), homeRoot),
+      );
+      if (result === "owns-projects") return yield* ownsProjects;
+      // Once more now the bot is gone: an automation saved, or a home made, meanwhile goes too.
+      yield* scheduledTasks
+        .deleteForBot(id)
+        .pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Removed bot's automation stayed", { id, error }),
+          ),
+        );
+      if (Option.isSome(root)) {
+        yield* fileSystem
+          .remove(root.value, { recursive: true, force: true })
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Removed bot's home folder stayed", { id, error }),
+            ),
+          );
+      }
+      if (options?.forgetId === true) yield* store.purge(id);
+    }),
   });
   // Every change tells clients to re-read the bots, whoever asked for it.
   const bots = (yield* crewChangeNotifier).notifying("bots");
@@ -338,6 +497,8 @@ const make = Effect.gen(function* () {
     reorder: bots(service.reorder),
     moveProject: bots(service.moveProject),
     setPin: bots(service.setPin),
+    insertCopy: bots(service.insertCopy),
+    removeCompletely: bots(service.removeCompletely),
   });
 });
 

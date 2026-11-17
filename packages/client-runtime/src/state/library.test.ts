@@ -16,11 +16,11 @@ const role = (id: string, overrides: Partial<RoleConfig> = {}): RoleConfig => ({
   id,
   name: id.replace("role:", ""),
   instructions: "Do the work",
-  withheldTools: [],
   modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
-  runtimeMode: "approval-required",
   enabled: true,
   revision: 1,
+  managedFrom: null,
+  copies: [],
   ...overrides,
 });
 
@@ -31,6 +31,8 @@ const delivery: WorkflowConfig = {
   leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: ["role:builder"],
   revision: 1,
+  managedFrom: null,
+  copies: [],
 };
 
 describe("roleAvailabilityNote", () => {

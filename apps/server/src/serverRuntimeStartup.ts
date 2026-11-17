@@ -20,7 +20,6 @@ import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
-import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -453,7 +452,6 @@ const runOrderedV2StartupPhases = Effect.fn("serverRuntimeStartup.runOrderedV2St
 const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: StartupOptions) {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const keybindings = yield* Keybindings.Keybindings;
-  const crewScope = yield* Effect.scope;
   const crew = yield* CrewService;
   const legacyV1ThreadImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const providerRuntimeRecovery = yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService;
@@ -595,10 +593,6 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
     );
 
     yield* runStartupPhase("crew.reconcile", crew.reconcileRuns());
-    yield* runStartupPhase(
-      "crew.headquarters.watch",
-      crew.watchHeadquarters().pipe(Scope.provide(crewScope)),
-    );
     yield* runStartupPhase("crew.headquarters.rehome", crew.rehomeHeadquarters()).pipe(
       Effect.catch((cause) =>
         Effect.logWarning("Bot headquarters stayed outside homes", { cause }),

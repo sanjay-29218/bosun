@@ -42,8 +42,8 @@ import * as TestClock from "effect/testing/TestClock";
 import type * as SqlClient from "effect/sql/SqlClient";
 import { McpSchema, McpServer } from "effect/ai";
 
-import { notPermitted } from "../bots/BotEnvironmentGuard.ts";
 import * as BotReach from "../bots/BotReach.ts";
+import * as BotTransfer from "../bots/BotTransfer.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
@@ -704,6 +704,7 @@ const makeLaptop = (
           ),
           Layer.provideMerge(PeerForwarding.layer),
           Layer.provide(Layer.mock(BotReach.BotReach)(botReach)),
+          Layer.provide(Layer.mock(BotTransfer.BotTransfer)({})),
           Layer.provide(
             Layer.mock(ProjectService.ProjectService)({
               // A cold enrichment cache: the project itself reports no identity yet.
@@ -1357,9 +1358,17 @@ const headquartersScope: McpInvocationContext.McpInvocationScope = {
  * The box as a bot's headquarters reaches it: asleep or awake, the bot allowed on it or not, and
  * each run it started, once per key as it dedupes them. Its run is the box thread's.
  */
+/** What the laptop says once Box is unlinked. */
+const notLinked = () =>
+  new OrchestratorMcpFailure({
+    code: "invalid_request",
+    message: "Box isn't linked to this machine, so nothing was started there.",
+  });
+
 const makeBotBox = (thread: BoxThread) =>
   Effect.gen(function* () {
     const asleep = yield* Ref.make(false);
+    /** Whether Box is still linked. */
     const permitted = yield* Ref.make(true);
     /** The next launch starts its run there, but its answer never reaches the laptop. */
     const loseAnswer = yield* Ref.make(false);
@@ -1381,9 +1390,7 @@ const makeBotBox = (thread: BoxThread) =>
       checkLaunch: (_environmentId, actor) =>
         Ref.update(actors, (seen) => [...seen, actor]).pipe(
           Effect.andThen(Ref.get(permitted)),
-          Effect.flatMap((allowed) =>
-            allowed ? Effect.void : Effect.fail(notPermitted("Captain", "Box")),
-          ),
+          Effect.flatMap((allowed) => (allowed ? Effect.void : Effect.fail(notLinked()))),
         ),
       launchProjectManager: (scope, _environmentId, actor, input) =>
         Effect.gen(function* () {
@@ -1405,7 +1412,7 @@ const makeBotBox = (thread: BoxThread) =>
             return { threadId, runId: boxRunId, modelSelection: input.modelSelection };
           }
           yield* Effect.flatten(Ref.get(onLaunch));
-          if (!(yield* Ref.get(permitted))) return yield* notPermitted("Captain", "Box");
+          if (!(yield* Ref.get(permitted))) return yield* notLinked();
           if (yield* Ref.get(asleep)) return yield* notReachable;
           yield* Ref.update(started, (keys) => (keys.includes(key) ? keys : [...keys, key]));
           yield* Ref.set(thread.launched, threadId);
@@ -1602,7 +1609,7 @@ it.effect(
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("a request to a machine the bot isn't allowed on, or too long, fails at once", () =>
+it.effect("a request to a machine that isn't linked, or too long, fails at once", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const thread = yield* makeBoxThread;
@@ -1619,9 +1626,7 @@ it.effect("a request to a machine the bot isn't allowed on, or too long, fails a
 
       const refused = yield* requestOnBox(a);
       expect(refused.isError).toBe(true);
-      expect(JSON.stringify(refused.content)).toContain(
-        "Captain isn't allowed to start work on Box",
-      );
+      expect(JSON.stringify(refused.content)).toContain("Box isn't linked to this machine");
       // The box refuses a task this long as invalid, so nothing would ever start it there.
       yield* Ref.set(botBox.permitted, true);
       const tooLong = yield* a.call(
@@ -1660,10 +1665,15 @@ it.effect("a request the box refuses fails with why, and is only asked about aft
               Effect.fail(
                 input.cancelIfStarted === true
                   ? new OrchestratorMcpFailure({ code: "run_not_found", message: "Nothing runs." })
-                  : new OrchestratorMcpFailure({
-                      code: "invalid_request",
-                      message: "Refused there.",
-                    }),
+                  : input.clientRequestId.endsWith(":passing")
+                    ? new OrchestratorMcpFailure({
+                        code: "orchestration_error",
+                        message: "The lead's thread could not start.",
+                      })
+                    : new OrchestratorMcpFailure({
+                        code: "invalid_request",
+                        message: "Refused there.",
+                      }),
               ),
             ),
           ),
@@ -1684,6 +1694,12 @@ it.effect("a request the box refuses fails with why, and is only asked about aft
       expect(yield* Ref.get(asked)).toEqual([false, true]);
       expect(yield* a.projections.getOpenRemoteDelegatedTasks).toEqual([]);
       expect(yield* Ref.get(thread.launched)).toBeNull();
+
+      // A failure the box sends as passing keeps it waiting, and says what the box said.
+      expect(requested(yield* requestOnBox(a, "passing"))).toMatchObject({
+        status: "waiting",
+        summary: "Waiting for Box: The lead's thread could not start.",
+      });
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
@@ -1784,7 +1800,7 @@ it.effect("a request waiting when the laptop restarts still starts once the box 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect.each(["cancelled", "stopped in the app", "no longer allowed"] as const)(
+it.effect.each(["cancelled", "stopped in the app", "unlinked"] as const)(
   "a request %s while it waits never starts there",
   (change) =>
     Effect.scoped(
@@ -1830,18 +1846,18 @@ it.effect.each(["cancelled", "stopped in the app", "no longer allowed"] as const
             subagentId: waiting.taskId,
           });
         } else {
-          // Box is unticked for Captain while the request waits.
+          // Box is unlinked while the request waits.
           yield* Ref.set(botBox.permitted, false);
         }
         yield* Ref.set(botBox.asleep, false);
         yield* Queue.offer(retries.retry, undefined);
 
         expect(yield* taskResult(a, waiting.taskId, headquarters)).toMatchObject(
-          change !== "no longer allowed"
+          change !== "unlinked"
             ? { status: "cancelled", result: "Cancelled while waiting for Box." }
             : {
                 status: "failed",
-                result: expect.stringContaining("Captain isn't allowed to start work on Box"),
+                result: expect.stringContaining("Box isn't linked to this machine"),
               },
         );
         yield* Deferred.await(pastLaunch);

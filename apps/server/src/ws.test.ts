@@ -164,7 +164,9 @@ import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as BotStore from "./bots/BotStore.ts";
 import * as BotService from "./bots/BotService.ts";
+import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
+import { LibraryCopies } from "./crew/LibraryCopies.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as IssueService from "./issues/IssueService.ts";
@@ -967,7 +969,9 @@ it.live.each([
         }),
         // Ws.layer also serves Bosun's RPCs; the handshake never calls them.
         Layer.mock(BotService.BotService)({}),
+        Layer.mock(BotTransfer.BotTransfer)({}),
         Layer.mock(CrewService)({}),
+        Layer.mock(LibraryCopies)({}),
         Layer.mock(FeatureService)({}),
         Layer.mock(IssueService.IssueService)({}),
         Layer.mock(ProjectRequests)({}),
