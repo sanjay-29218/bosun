@@ -16,7 +16,11 @@ export interface EnvironmentQueryView<A> {
   readonly refresh: () => void;
 }
 
+/** What a request cut off by a dropped connection says; it carries no error of its own. */
+export const ENVIRONMENT_REQUEST_INTERRUPTED = "The connection dropped before this finished.";
+
 export function formatEnvironmentQueryError(cause: Cause.Cause<unknown>): string {
+  if (Cause.hasInterruptsOnly(cause)) return ENVIRONMENT_REQUEST_INTERRUPTED;
   const error = Cause.squash(cause);
   return error instanceof Error && error.message.trim().length > 0
     ? error.message

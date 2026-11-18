@@ -17,6 +17,7 @@ import {
 import type {
   ContextMenuItem,
   EnvironmentId,
+  IssueTrackerKind,
   PreviewSessionSnapshot,
   ProjectId,
   PullRequestState,
@@ -37,6 +38,7 @@ import { horizontalListSortingStrategy, SortableContext, useSortable } from "@dn
 import { CSS } from "@dnd-kit/utilities";
 import {
   CircleDot,
+  CircleDotIcon,
   ListChecks,
   NotebookText,
   Smartphone,
@@ -67,6 +69,8 @@ import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
 import type { RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
+import { issueStatePresentation } from "~/components/issue/issuePresentation";
+import { issueEnvironment } from "~/state/issues";
 import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
 import { readLocalApi } from "~/localApi";
 import { useStableCallback } from "~/hooks/useStableCallback";
@@ -629,8 +633,11 @@ function surfaceTitle(
       return "Pull requests";
     case "feature":
       return "Crew";
-    case "issue":
+    case "todo":
       return surface.ref;
+    case "issue":
+      // A git host numbers its issues; a tracker with keys of its own, such as Linear, names them.
+      return /^\d+$/.test(surface.key) ? `#${surface.key}` : surface.key;
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -725,12 +732,14 @@ function SurfaceIcon({
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
     case "feature":
       return <ListChecks className="size-3 shrink-0" />;
-    case "issue":
+    case "todo":
       return surface.ticketId === undefined ? (
         <CircleDot className="size-3 shrink-0" />
       ) : (
         <NotebookText className="size-3 shrink-0" />
       );
+    case "issue":
+      return <IssueSurfaceIcon surface={surface} environmentId={environmentId} />;
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "device":
@@ -801,6 +810,41 @@ export function resolvePullRequestTabLink(
     }
   }
   return newest;
+}
+
+/** The issue's own state mark, from the detail its panel already reads; a plain dot until then. */
+function IssueSurfaceIcon({
+  surface,
+  environmentId,
+}: {
+  surface: Extract<RightPanelSurface, { kind: "issue" }>;
+  environmentId: EnvironmentId | null;
+}) {
+  const resolvedEnvironmentId =
+    (surface.environmentId as EnvironmentId | undefined) ?? environmentId;
+  const detail = useEnvironmentQuery(
+    resolvedEnvironmentId === null
+      ? null
+      : issueEnvironment.detail({
+          environmentId: resolvedEnvironmentId,
+          input: {
+            projectId: surface.projectId as ProjectId,
+            tracker: surface.tracker as IssueTrackerKind,
+            ...(surface.host ? { host: surface.host } : {}),
+            scope: surface.scope,
+            key: surface.key,
+          },
+        }),
+  ).data;
+  if (detail === null) return <CircleDotIcon className="size-3 shrink-0" />;
+  const presentation = issueStatePresentation(detail.state);
+  return (
+    <presentation.Icon
+      role="img"
+      aria-label={presentation.label}
+      className={cn("size-3 shrink-0", presentation.toneClassName)}
+    />
+  );
 }
 
 function PullRequestSurfaceIcon({

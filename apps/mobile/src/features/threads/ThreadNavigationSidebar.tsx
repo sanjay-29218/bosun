@@ -14,7 +14,7 @@ import type {
 } from "@t3tools/client-runtime/state/shell";
 import { threadSearchMatchKey } from "@t3tools/client-runtime/state/thread-search";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
-import { THREAD_SIDEBAR_ROW_LAYOUT } from "./threadListAnimations";
+import { THREAD_LIST_ROW_LAYOUT } from "./threadListAnimations";
 import { useAtomValue } from "@effect/atom-react";
 import { useMemo, useRef, useState } from "react";
 import type { StyleProp, ViewStyle } from "react-native";
@@ -53,6 +53,7 @@ import { useAdaptiveWorkspaceLayout } from "../layout/adaptive-workspace-context
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { useThreadListV2 } from "./useThreadListV2";
 import { useChildFeatureExpansion, useWorkGroupedThreads } from "./useWorkGroupedThreads";
+import { useSidebarRowThreadKey } from "./useSidebarRowThreadKey";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { requestThreadMessageJump } from "./threadMessageJump";
 import { useThreadListSearchMatches } from "./useThreadListSearchMatches";
@@ -174,7 +175,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const { listThreads, workGroups } = useWorkGroupedThreads(threads, {
     nestChildFeatures: props.searchQuery.trim().length === 0,
   });
-  const childFeatures = useChildFeatureExpansion(workGroups, props.selectedThreadKey ?? null);
+  const selectedThreadKey = useSidebarRowThreadKey(props.selectedThreadKey);
+  const childFeatures = useChildFeatureExpansion(workGroups, selectedThreadKey);
   const { selectedRowKey } = childFeatures;
   const openHeadquarters = useOpenBotHeadquarters(props.onSelectThread);
   const openProjectManager = useOpenProjectManager(props.onSelectThread);
@@ -389,9 +391,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
         items: threadListV2RowItems,
         workGroups,
         toggles: childFeatures.toggles,
-        selectedThreadKey: props.selectedThreadKey ?? null,
+        selectedThreadKey,
       }),
-    [threadListV2RowItems, workGroups, childFeatures.toggles, props.selectedThreadKey],
+    [threadListV2RowItems, workGroups, childFeatures.toggles, selectedThreadKey],
   );
   const listItems: readonly SidebarListItem[] =
     settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0
@@ -454,7 +456,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   // Recycle equality needs project/search data for titles and favicons; keep the minute clock on items to limit updates.
   const listExtraData = {
     activeNewTask,
-    selectedThreadKey: props.selectedThreadKey ?? "",
+    selectedThreadKey: selectedThreadKey ?? "",
     projectByKey,
     projectTitleByProjectKey,
     savedConnectionsById,
@@ -488,7 +490,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
                 scopedThreadKey(
                   item.pendingTask.environmentId,
                   item.pendingTask.message.threadId,
-                ) === props.selectedThreadKey)
+                ) === selectedThreadKey)
             }
             project={projectByKey.get(pendingScopeKey) ?? null}
             environmentLabel={
@@ -721,7 +723,9 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             : props.searchQuery.trim().length > 0
               ? threadSearch.isPending
                 ? "Searching thread messages…"
-                : "No matching threads"
+                : threadSearch.failed
+                  ? "Couldn't search thread messages"
+                  : "No matching threads"
               : selectedProjectScope !== null
                 ? `No threads in ${selectedProjectScope.title}`
                 : "No threads yet"}
@@ -755,7 +759,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
               <GestureDetector gesture={sidebarScrollGesture}>
                 <AnimatedLegendList
                   renderScrollComponent={NativeScrollView}
-                  itemLayoutAnimation={THREAD_SIDEBAR_ROW_LAYOUT}
+                  itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                   data={listItems}
                   drawDistance={500}
                   estimatedItemSize={64}
@@ -823,7 +827,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             <GestureDetector gesture={sidebarScrollGesture}>
               {/* oxlint-disable-next-line t3code/require-registered-list-scroll -- The Android sidebar has no native header to register with. */}
               <AnimatedLegendList
-                itemLayoutAnimation={THREAD_SIDEBAR_ROW_LAYOUT}
+                itemLayoutAnimation={THREAD_LIST_ROW_LAYOUT}
                 data={listItems}
                 drawDistance={500}
                 estimatedItemSize={64}

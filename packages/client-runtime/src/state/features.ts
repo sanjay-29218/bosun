@@ -52,7 +52,7 @@ export function createFeatureAtoms<R, ER>(
   /** How many times the server has said each project's issues may have changed. */
   const issueRefreshes = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
     label: "environment-data:issues:refreshes",
-    tag: WS_METHODS.issuesSubscribeRefreshes,
+    tag: WS_METHODS.issueBoardSubscribeRefreshes,
     transform: (stream) =>
       stream.pipe(
         Stream.scan(
@@ -78,7 +78,7 @@ export function createFeatureAtoms<R, ER>(
    */
   const issues = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:issues:list",
-    tag: WS_METHODS.issuesList,
+    tag: WS_METHODS.issueBoardList,
     staleTimeMs: 30_000,
     idleTtlMs: 5 * 60_000,
     refreshTrigger: ({ environmentId, input }) =>
@@ -94,7 +94,7 @@ export function createFeatureAtoms<R, ER>(
   /** One issue with its description and comments, read from the host when a detail view opens. */
   const issueDetail = createEnvironmentRpcQueryAtomFamily(runtime, {
     label: "environment-data:issues:detail",
-    tag: WS_METHODS.issuesGet,
+    tag: WS_METHODS.issueBoardGet,
     staleTimeMs: 15_000,
     idleTtlMs: 60_000,
   });
@@ -152,16 +152,16 @@ export function createFeatureAtoms<R, ER>(
     /** Reads the project's issues from the host again; open boards re-read when it lands. */
     refreshIssues: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:issues:refresh",
-      tag: WS_METHODS.issuesRefresh,
+      tag: WS_METHODS.issueBoardRefresh,
     }),
-    createIssue: todoCommand(WS_METHODS.issuesCreate),
-    setIssueState: todoCommand(WS_METHODS.issuesSetState),
+    createIssue: todoCommand(WS_METHODS.issueBoardCreate),
+    setIssueState: todoCommand(WS_METHODS.issueBoardSetState),
     /** Changes an issue's title or body on its host. */
-    updateIssue: todoCommand(WS_METHODS.issuesUpdate),
+    updateIssue: todoCommand(WS_METHODS.issueBoardUpdate),
     /** Stores a pasted image on the project's host; succeeds with its URL. */
     uploadIssueImage: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:issues:upload-image",
-      tag: WS_METHODS.issuesUploadImage,
+      tag: WS_METHODS.issueBoardUploadImage,
     }),
     createTicket: todoCommand(WS_METHODS.ticketsCreate),
     updateTicket: todoCommand(WS_METHODS.ticketsUpdate),
@@ -194,9 +194,9 @@ export function createFeatureAtoms<R, ER>(
 }
 
 type TodoCommandTag =
-  | typeof WS_METHODS.issuesCreate
-  | typeof WS_METHODS.issuesUpdate
-  | typeof WS_METHODS.issuesSetState
+  | typeof WS_METHODS.issueBoardCreate
+  | typeof WS_METHODS.issueBoardUpdate
+  | typeof WS_METHODS.issueBoardSetState
   | typeof WS_METHODS.ticketsCreate
   | typeof WS_METHODS.ticketsUpdate
   | typeof WS_METHODS.ticketsDelete

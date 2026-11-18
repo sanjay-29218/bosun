@@ -1,15 +1,15 @@
 import {
   IssueChangedError,
-  IssueOperationError,
+  BoardIssueOperationError,
   type IssueClosedReason,
-  type IssueDetail,
+  type BoardIssueDetail,
   type IssueImageUpload,
   type IssueImageUploadInput,
   type IssueList,
   type ProjectId,
   type RepositoryIssue,
   type RepositoryMilestone,
-  type IssueUpdateInput,
+  type BoardIssueUpdateInput,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -37,12 +37,12 @@ export class IssueService extends Context.Service<
      * The project's issues and open milestones from its repository host. A project whose host
      * cannot list issues answers with `unavailable` rather than failing.
      */
-    readonly list: (projectId: ProjectId) => Effect.Effect<IssueList, IssueOperationError>;
+    readonly list: (projectId: ProjectId) => Effect.Effect<IssueList, BoardIssueOperationError>;
     /** One issue with its description and first comments, read from the host each time. */
     readonly get: (
       projectId: ProjectId,
       number: number,
-    ) => Effect.Effect<IssueDetail, IssueOperationError>;
+    ) => Effect.Effect<BoardIssueDetail, BoardIssueOperationError>;
     /**
      * Files an issue, in `milestone` (an open milestone's title, or a milestone's number) and as a
      * sub-issue of `parent` (an issue number) when given.
@@ -53,39 +53,39 @@ export class IssueService extends Context.Service<
       readonly body: string;
       readonly milestone?: string | number | undefined;
       readonly parent?: number | undefined;
-    }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
+    }) => Effect.Effect<RepositoryIssue, BoardIssueOperationError>;
     readonly createMilestone: (input: {
       readonly projectId: ProjectId;
       readonly title: string;
       readonly description?: string | undefined;
-    }) => Effect.Effect<RepositoryMilestone, IssueOperationError>;
+    }) => Effect.Effect<RepositoryMilestone, BoardIssueOperationError>;
     /** Closes or reopens a milestone, named by its title or number. */
     readonly setMilestoneState: (input: {
       readonly projectId: ProjectId;
       readonly milestone: string;
       readonly state: "open" | "closed";
-    }) => Effect.Effect<RepositoryMilestone, IssueOperationError>;
+    }) => Effect.Effect<RepositoryMilestone, BoardIssueOperationError>;
     readonly setState: (input: {
       readonly projectId: ProjectId;
       readonly number: number;
       readonly state: "open" | "closed";
       readonly reason?: IssueClosedReason | undefined;
-    }) => Effect.Effect<RepositoryIssue, IssueOperationError>;
+    }) => Effect.Effect<RepositoryIssue, BoardIssueOperationError>;
     /**
      * Changes the title, body, milestone or parent; null clears a milestone or parent. Given
      * `expectedUpdatedAt`, it first checks the host's copy and refuses when someone edited it
      * since, so a stale editor can't overwrite their change.
      */
     readonly update: (
-      input: Omit<IssueUpdateInput, "milestone"> & {
+      input: Omit<BoardIssueUpdateInput, "milestone"> & {
         /** A milestone's number, or an open one's title; null clears it. */
         readonly milestone?: string | number | null | undefined;
       },
-    ) => Effect.Effect<RepositoryIssue, IssueOperationError | IssueChangedError>;
+    ) => Effect.Effect<RepositoryIssue, BoardIssueOperationError | IssueChangedError>;
     /** Stores a pasted image on the project's host, for an issue's Markdown to link. */
     readonly uploadImage: (
       input: IssueImageUploadInput,
-    ) => Effect.Effect<IssueImageUpload, IssueOperationError>;
+    ) => Effect.Effect<IssueImageUpload, BoardIssueOperationError>;
     /** Drops the project's shared read, so the next one asks the host, and tells open boards. */
     readonly refresh: (projectId: ProjectId) => Effect.Effect<void>;
     /** Each project whose issues may have changed on its host. */
@@ -101,10 +101,12 @@ const make = Effect.gen(function* () {
   const workspaceRoot = Effect.fn("IssueService.workspaceRoot")(function* (projectId: ProjectId) {
     const project = yield* projects.get(projectId).pipe(
       Effect.tapError((error) => Effect.logWarning("Issue project read failed", { error })),
-      Effect.mapError(() => new IssueOperationError({ reason: "The project could not be read." })),
+      Effect.mapError(
+        () => new BoardIssueOperationError({ reason: "The project could not be read." }),
+      ),
     );
     if (Option.isNone(project)) {
-      return yield* new IssueOperationError({ reason: "Project not found." });
+      return yield* new BoardIssueOperationError({ reason: "Project not found." });
     }
     return project.value.workspaceRoot;
   });
@@ -130,13 +132,14 @@ const make = Effect.gen(function* () {
     projectId: ProjectId,
   ) {
     const host = yield* issueHost(projectId);
-    if ("unavailable" in host) return yield* new IssueOperationError({ reason: host.unavailable });
+    if ("unavailable" in host)
+      return yield* new BoardIssueOperationError({ reason: host.unavailable });
     return host;
   });
 
   const hostFailure = (operation: string, projectId: ProjectId) => (error: { detail: string }) =>
     Effect.logWarning(`Issue ${operation} failed`, { projectId, error }).pipe(
-      Effect.andThen(Effect.fail(new IssueOperationError({ reason: error.detail }))),
+      Effect.andThen(Effect.fail(new BoardIssueOperationError({ reason: error.detail }))),
     );
 
   const listUncached = Effect.fn("IssueService.list")(function* (projectId: ProjectId) {
@@ -169,7 +172,7 @@ const make = Effect.gen(function* () {
     timeToLive: (exit) => (Exit.isSuccess(exit) ? LIST_CACHE_TTL : Duration.zero),
   });
 
-  const unsupported = new IssueOperationError({
+  const unsupported = new BoardIssueOperationError({
     reason: "This project's host does not support that for issues.",
   });
 
@@ -197,7 +200,7 @@ const make = Effect.gen(function* () {
     const list = yield* Cache.get(listCache, cacheKey(projectId));
     const match = list.milestones.find((milestone) => milestone.title.toLowerCase() === wanted);
     if (match === undefined) {
-      return yield* new IssueOperationError({
+      return yield* new BoardIssueOperationError({
         reason: `No open milestone is called "${ref.trim()}". Create it first, or name a milestone by its number.`,
       });
     }

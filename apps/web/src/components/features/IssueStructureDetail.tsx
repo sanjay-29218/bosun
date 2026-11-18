@@ -3,7 +3,7 @@ import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-
 import { issueKey, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type {
-  IssueDetail,
+  BoardIssueDetail,
   IssueList,
   IssueStructureRef,
   RepositoryMilestone,
@@ -153,7 +153,7 @@ export function MilestoneChip(props: {
 /** Open issues an issue could go under: not itself, and not one of its own sub-issues. */
 export function parentChoices(
   issues: ReadonlyArray<IssueList["issues"][number]>,
-  issue: Pick<IssueDetail, "number"> & {
+  issue: Pick<BoardIssueDetail, "number"> & {
     readonly subIssueList?: ReadonlyArray<IssueStructureRef> | null | undefined;
   },
 ) {
@@ -307,7 +307,7 @@ export function ParentChip(props: {
  */
 export function SubIssuesSection(props: {
   readonly owner: TodoOwner;
-  readonly issue: IssueDetail;
+  readonly issue: BoardIssueDetail;
   /** A re-read is in flight. */
   readonly refreshing: boolean;
   readonly onRetry: () => void;

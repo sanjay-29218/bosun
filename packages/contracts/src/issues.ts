@@ -32,8 +32,8 @@ export const RepositoryMilestone = Schema.Struct({
 });
 export type RepositoryMilestone = typeof RepositoryMilestone.Type;
 
-export const IssueListInput = Schema.Struct({ projectId: ProjectId });
-export type IssueListInput = typeof IssueListInput.Type;
+export const BoardIssueListInput = Schema.Struct({ projectId: ProjectId });
+export type BoardIssueListInput = typeof BoardIssueListInput.Type;
 
 /**
  * A project's open issues, its recently closed ones, and its open milestones. `unavailable`
@@ -90,17 +90,17 @@ export const RepositoryIssueDetail = Schema.Struct({
 });
 export type RepositoryIssueDetail = typeof RepositoryIssueDetail.Type;
 
-export const IssueDetail = Schema.Struct({
+export const BoardIssueDetail = Schema.Struct({
   ...RepositoryIssueDetail.fields,
   /** When the host was asked. */
   readAt: Schema.String,
 });
-export type IssueDetail = typeof IssueDetail.Type;
+export type BoardIssueDetail = typeof BoardIssueDetail.Type;
 
 export const IssueGetInput = Schema.Struct({ projectId: ProjectId, number: Schema.Int });
 export type IssueGetInput = typeof IssueGetInput.Type;
 
-export const IssueCreateInput = Schema.Struct({
+export const BoardIssueCreateInput = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   /** Markdown. */
@@ -110,14 +110,14 @@ export const IssueCreateInput = Schema.Struct({
   /** The issue it is a sub-issue of. */
   parent: Schema.optionalKey(Schema.Int),
 });
-export type IssueCreateInput = typeof IssueCreateInput.Type;
+export type BoardIssueCreateInput = typeof BoardIssueCreateInput.Type;
 
 /**
  * Changes the title, body, milestone or parent, whichever is given; null clears a milestone or
  * parent. With `expectedUpdatedAt`, the change is refused with `IssueChangedError` when the
  * host's copy was updated since that time.
  */
-export const IssueUpdateInput = Schema.Struct({
+export const BoardIssueUpdateInput = Schema.Struct({
   projectId: ProjectId,
   number: Schema.Int,
   title: Schema.optionalKey(TrimmedNonEmptyString),
@@ -129,7 +129,7 @@ export const IssueUpdateInput = Schema.Struct({
   parent: Schema.optionalKey(Schema.NullOr(Schema.Int)),
   expectedUpdatedAt: Schema.optionalKey(Schema.String),
 });
-export type IssueUpdateInput = typeof IssueUpdateInput.Type;
+export type BoardIssueUpdateInput = typeof BoardIssueUpdateInput.Type;
 
 /** GitHub takes up to 10 MB in an issue; a pasted screenshot is well under that. */
 export const ISSUE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -163,17 +163,17 @@ export class IssueChangedError extends Schema.TaggedError<IssueChangedError>()(
 export const IssueClosedReason = Schema.Literals(["completed", "not_planned"]);
 export type IssueClosedReason = typeof IssueClosedReason.Type;
 
-export const IssueSetStateInput = Schema.Struct({
+export const BoardIssueSetStateInput = Schema.Struct({
   projectId: ProjectId,
   number: Schema.Int,
   state: Schema.Literals(["open", "closed"]),
   /** For a close; completed when absent. */
   reason: Schema.optionalKey(IssueClosedReason),
 });
-export type IssueSetStateInput = typeof IssueSetStateInput.Type;
+export type BoardIssueSetStateInput = typeof BoardIssueSetStateInput.Type;
 
-export class IssueOperationError extends Schema.TaggedError<IssueOperationError>()(
-  "IssueOperationError",
+export class BoardIssueOperationError extends Schema.TaggedError<BoardIssueOperationError>()(
+  "BoardIssueOperationError",
   { reason: Schema.String },
 ) {
   override get message(): string {

@@ -200,6 +200,8 @@ export interface EnvironmentThreadShell {
   readonly crewRequest?: import("@t3tools/contracts").ThreadCrewRequestTag | null;
   /** The issue a delegated task works on, apart from its feature's; null when it has none. */
   readonly issue?: import("@t3tools/contracts").FeatureIssue | null;
+  /** Absent from rows built before issue linking; the server sends an empty list. */
+  readonly issues?: ReadonlyArray<import("@t3tools/contracts").ThreadIssueLink>;
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -312,6 +314,7 @@ export function presentThreadShell(
     feature: thread.feature ?? null,
     crewRequest: thread.crewRequest ?? null,
     issue: thread.issue ?? null,
+    issues: thread.issues ?? [],
     lineage: thread.lineage,
     forkedFrom: thread.forkedFrom,
     linkOrigin: thread.linkOrigin ?? null,

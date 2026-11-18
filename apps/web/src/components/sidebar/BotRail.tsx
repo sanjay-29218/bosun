@@ -45,6 +45,7 @@ import {
   useConnectedEnvironmentIds,
   useEnvironmentIdentities,
   useEnvironments,
+  useIssuesSupported,
   usePullRequestsSupported,
 } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -58,6 +59,8 @@ import {
 } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
 import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
+import { readIssueListPreferences } from "../issue/issueListPreferences";
+import { IssueGlyph } from "../issue/issuePresentation";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
@@ -667,6 +670,7 @@ function RailPlaces({
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
+  const issuesSupported = useIssuesSupported();
   const hiddenNeedsYou = useHiddenNeedsYouCount();
   const places = [
     {
@@ -703,6 +707,22 @@ function RailPlaces({
               if (isMobile) setOpenMobile(false);
               if (destination !== "pull-requests") {
                 void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+              }
+            },
+          },
+        ]
+      : []),
+    ...(issuesSupported
+      ? [
+          {
+            label: "Issues",
+            icon: IssueGlyph.issue,
+            active: destination === "issues",
+            signal: null,
+            onSelect: () => {
+              if (isMobile) setOpenMobile(false);
+              if (destination !== "issues") {
+                void navigate({ to: "/issues", search: readIssueListPreferences() });
               }
             },
           },
