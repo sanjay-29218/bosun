@@ -697,7 +697,7 @@ it.live(
         expect(listed).toContain('\\"projectId\\":\\"project:web\\"');
         expect(listed).not.toContain("project:omni");
 
-        // A request for the box's copy starts there as that project's Feature manager.
+        // A request for the box's copy starts there as a linked request.
         const launched = yield* a.reach.launchProjectManager(
           managerScope,
           box.environmentId,

@@ -14,7 +14,7 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { InstructionsEditor } from "../InstructionsEditor";
-import { EditorField } from "../settings/CrewAgentFields";
+import { EditorField } from "../settings/EditorField";
 import { SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";

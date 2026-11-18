@@ -1396,9 +1396,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "roles",
     title: "Roles",
     to: "/settings/roles",
-    searchTerms: [
-      "library crew roles feature manager planner designer builder reviewer qa starter",
-    ],
+    searchTerms: ["library crew roles planner designer builder reviewer qa starter"],
   },
   {
     id: "secret-providers",

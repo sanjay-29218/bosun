@@ -2254,7 +2254,7 @@ it.effect("lists Bosun's tools to every thread, and the crew's own only to crew 
       });
 
       // On its copy on a linked machine, a manager names the base branch, which resolves
-      // there, and its own request; a headquarters leaves the base to the Feature manager there.
+      // there, and its own request; a headquarters leaves the base to the request's run there.
       const onTheBox = (session: typeof crew, args: object) =>
         session
           .call("t3_feature_start", {

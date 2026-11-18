@@ -18,7 +18,7 @@ import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { BotAvatar } from "../BotAvatar";
 import { RoleModelPicker } from "../library/RoleEditor";
-import { EditorField } from "../settings/CrewAgentFields";
+import { EditorField } from "../settings/EditorField";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
