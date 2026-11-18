@@ -17,6 +17,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   ThreadId,
+  WorkflowSnapshot,
 } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Context from "effect/Context";
@@ -26,6 +27,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import { McpSchema, McpServer } from "effect/ai";
 
 import type { CreateCrewRunInput } from "../crew/CrewService.ts";
@@ -33,6 +35,7 @@ import { LibraryCopies } from "../crew/LibraryCopies.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
+import { FEATURE_LEAD_INSTRUCTIONS } from "../crew/crewPrompts.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { type Notice, NoticeInbox } from "../features/NoticeInbox.ts";
@@ -450,6 +453,17 @@ const linkSleepingCouch = (links: PeerLinks.PeerLinks["Service"]) =>
     Effect.scoped,
   );
 
+/** A workflow as a machine from before workflows lost their lead role reads it. */
+const decodeOlderWorkflowSnapshot = Schema.decodeUnknownSync(
+  Schema.Struct({
+    workflow: Schema.Struct({
+      ...WorkflowSnapshot.fields.workflow.fields,
+      leadRoleId: Schema.String,
+    }),
+    roles: WorkflowSnapshot.fields.roles,
+  }),
+);
+
 const launch = (projectId: string, model = modelSelection.model) => ({
   projectId: ProjectId.make(projectId),
   task: "Start a feature: dark mode.",
@@ -780,6 +794,7 @@ it.live("starts the project manager there, or says before starting anything why 
                 instructions: "Revision 3.",
               },
               roles: [
+                { id: "role:feature-manager" },
                 { id: "role:builder" },
                 { id: "role:security-reviewer", instructions: "You are role:security-reviewer." },
               ],
@@ -787,6 +802,18 @@ it.live("starts the project manager there, or says before starting anything why 
           },
         },
       ]);
+      // A box from before workflows lost their lead role requires one, and leads with its role.
+      const older = decodeOlderWorkflowSnapshot(
+        (yield* Ref.get(boxSeen)).runs[0]?.workflow?.snapshot,
+      );
+      expect(older.roles.find((role) => role.id === older.workflow.leadRoleId)).toEqual({
+        id: "role:feature-manager",
+        name: "Feature manager",
+        instructions: FEATURE_LEAD_INSTRUCTIONS,
+        modelSelection,
+        runtimeMode: "full-access",
+      });
+      expect(older.workflow.crewRoleIds).not.toContain("role:feature-manager");
 
       // The box shows Captain under the name and home it now has.
       expect((yield* Ref.get(boxSeen)).moves).toEqual([

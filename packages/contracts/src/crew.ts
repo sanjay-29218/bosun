@@ -117,7 +117,10 @@ export const WorkflowSnapshot = Schema.Struct({
     id: Schema.String,
     name: Schema.String,
     instructions: Schema.String,
-    /** Sent by older peers, and kept in snapshots stored before; its role's text leads too. */
+    /**
+     * Older peers require it, so every peer sends it. Edited text in the role it names leads too;
+     * the built-in lead text doesn't.
+     */
     leadRoleId: Schema.optionalKey(Schema.String),
     crewRoleIds: Schema.Array(Schema.String),
     revision: Schema.Int,
