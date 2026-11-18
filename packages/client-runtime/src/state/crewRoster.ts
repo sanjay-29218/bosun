@@ -1,3 +1,4 @@
+import { FEATURE_STATUS_LABELS, threadFailed, type CrewStatus } from "./crewBoard.ts";
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 import { workGroupLead, type WorkGroup, type WorkGroupThread } from "./workGroups.ts";
 import type { ThreadId } from "@t3tools/contracts";
@@ -14,8 +15,6 @@ export type CrewRosterThread = WorkGroupThread & {
     | "latestRun"
   >;
 
-export type CrewRosterTone = "done" | "working" | "waiting" | "failed" | "idle";
-
 /** One of a feature's or bot request's crew: its lead, or a member it handed work to. */
 export interface CrewRosterEntry {
   readonly key: string;
@@ -23,29 +22,26 @@ export interface CrewRosterEntry {
   /** "Feature manager", "Planner", "Planner · try 2". */
   readonly name: string;
   readonly threadId: ThreadId;
+  /** Its status word, such as "Needs input". */
   readonly status: string;
-  readonly tone: CrewRosterTone;
+  readonly tone: CrewStatus;
 }
 
-function threadStatus(thread: CrewRosterThread, kind: "lead" | "member") {
-  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
-    return { status: "Approval", tone: "waiting" as const };
+/**
+ * A pending approval or question is Needs input. A member's finished turn reported back to its
+ * lead, so it's Done; a lead that stopped, or a member that hasn't run, is Waiting.
+ */
+export function crewThreadStatus(thread: CrewRosterThread, kind: "lead" | "member"): CrewStatus {
+  if (
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    thread.pendingSubagentRequest != null
+  ) {
+    return "needs-input";
   }
-  if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
-    return { status: "Input", tone: "waiting" as const };
-  }
-  if (threadRuntimeIsActive(thread.runtime)) return { status: "Working", tone: "working" as const };
-  if (thread.runtime?.status === "failed" || thread.latestRun?.status === "failed") {
-    return { status: "Failed", tone: "failed" as const };
-  }
-  // A member's finished turn reported to the lead; a lead that stopped is waiting on the person.
-  if (thread.latestRun?.status === "completed") {
-    return kind === "lead"
-      ? { status: "Your turn", tone: "waiting" as const }
-      : { status: "Done", tone: "done" as const };
-  }
-  if (thread.runtime?.status === "idle") return { status: "Waiting", tone: "idle" as const };
-  return { status: "Idle", tone: "idle" as const };
+  if (threadRuntimeIsActive(thread.runtime)) return "working";
+  if (threadFailed(thread)) return "failed";
+  return kind === "member" && thread.latestRun?.status === "completed" ? "done" : "waiting";
 }
 
 function threadEntry(
@@ -53,7 +49,15 @@ function threadEntry(
   kind: "lead" | "member",
   name: string,
 ): CrewRosterEntry {
-  return { key: thread.id, kind, name, threadId: thread.id, ...threadStatus(thread, kind) };
+  const tone = crewThreadStatus(thread, kind);
+  return {
+    key: thread.id,
+    kind,
+    name,
+    threadId: thread.id,
+    status: FEATURE_STATUS_LABELS[tone],
+    tone,
+  };
 }
 
 /**

@@ -1,22 +1,22 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  chatWorkGroup,
   featureCardKey,
-  groupFeaturesByColumn,
-  nestFeatureChildren,
+  groupFeaturesByWork,
   matchesFeatureSearch,
-  threadBoardColumn,
+  nestFeatureChildren,
   threadsByFeature,
   type EnvironmentFeatureCard,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
   featureForIssue,
   featuresByIssue,
+  groupIssuesByMilestone,
   issueKey,
-  issuePlace,
   matchesIssueSearch,
-  structureIssue,
   type EnvironmentIssue,
+  type EnvironmentMilestone,
 } from "@t3tools/client-runtime/state/issue-board";
 import {
   isAtomCommandInterrupted,
@@ -33,17 +33,36 @@ import {
 } from "@t3tools/client-runtime/state/work-groups";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { PlusIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState, type MouseEvent } from "react";
+import {
+  CheckIcon,
+  Columns3Icon,
+  InboxIcon,
+  ListIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SearchIcon,
+  SearchXIcon,
+} from "lucide-react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { shortcutLabelForCommand } from "../../keybindings";
+import { readLocalApi } from "../../localApi";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useBotRailProjectKeys } from "../../state/botRail";
+import { useEnvironments } from "../../state/environments";
 import {
   olderSettledScopes,
   useOlderSettledShelf,
@@ -59,24 +78,37 @@ import { hasStarterRoles, useAddStarterRoles } from "../library/RoleEditor";
 import { Button } from "../ui/button";
 import { MainViewToggle } from "../MainViewToggle";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../ui/input-group";
+import { Kbd } from "../ui/kbd";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
 import { Skeleton } from "../ui/skeleton";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { BoardDisplayMenu } from "./BoardDisplayMenu";
 import { BoardFilterChips, BoardFilterMenu, type BoardFilterSection } from "./BoardFilters";
 import { BoardTitle } from "./BoardTitle";
 import { chatSince, chatTitle } from "./FeatureCard";
-import { FeatureStatusBoard, type BoardSection, type FeatureBoardHandlers } from "./FeatureBoards";
+import {
+  IssuesColumns,
+  IssuesList,
+  WorkColumns,
+  WorkList,
+  type BoardChats,
+  type FeatureBoardHandlers,
+  type WorkSection,
+} from "./FeatureBoards";
 import {
   readFeaturesPagePreferences,
-  saveFeaturesPagePreferences,
+  updateFeaturesPagePreferences,
+  type BoardTab,
   type FeaturesPagePreferences,
 } from "./featuresPagePreferences";
 import { resolveFeaturesShortcut } from "./featuresShortcuts";
+import { pickWorkflow, useBoardWorkflows, useStartTodo, useStartingTodos } from "./startFromBoard";
+import { closeTodoAsCompleted } from "./todoState";
 import { useFeatureActions } from "./useFeatureActions";
 import { useFeatureBoard, useFeatureEnvironmentIds } from "./useFeatureBoard";
 import { useIssueBoard } from "./useIssueBoard";
@@ -102,9 +134,9 @@ function toggled<Value>(current: ReadonlySet<Value>, value: Value, on: boolean):
 }
 
 /**
- * The board: the main area's Board view, flipped from the sidebar's List / Board toggle. Todo,
- * Working, Needs you and Done, with settled features folded under Done as in the sidebar. Chat
- * threads sit beside features in every column but Todo.
+ * The board: the main area's Board view, flipped from the sidebar's List / Board toggle. Work
+ * holds features and chats by where they stand; Issues holds the backlog by milestone. Both
+ * share the project scope, filters and search.
  */
 export function FeaturesPage(props: {
   readonly search: FeaturesSearch;
@@ -120,6 +152,7 @@ export function FeaturesPage(props: {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [labelFilters, setLabelFilters] = useState<ReadonlySet<string>>(new Set());
+  const phone = useMediaQuery("max-sm");
 
   // Projects on servers that run features; the scope picker lists only these.
   const featureEnvironmentIds = useFeatureEnvironmentIds();
@@ -170,31 +203,58 @@ export function FeaturesPage(props: {
     readonly environmentId: EnvironmentId;
     readonly projectId: ProjectId;
   }) => projectByKey.get(`${item.environmentId}:${item.projectId}`) ?? null;
+  const { environments } = useEnvironments();
+  const machineName = new Map(
+    environments.map((environment) => [environment.environmentId, environment.label]),
+  );
+  // A one-project board shows where each row runs; across projects, which project it is.
+  const showProject = scopedProject === null && projects.length > 1;
+  const placeFor = (item: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }) => ({
+    project: projectFor(item),
+    machine: machineName.get(item.environmentId) ?? null,
+    showProject,
+  });
 
-  const updatePreferences = (patch: Partial<FeaturesPagePreferences>) => {
-    const next = { ...preferences, ...patch };
-    setPreferences(next);
-    saveFeaturesPagePreferences(next);
-  };
-  const layout = preferences.featureLayout ?? "board";
+  const updatePreferences = (
+    patch: (current: FeaturesPagePreferences) => Partial<FeaturesPagePreferences>,
+  ) => setPreferences(updateFeaturesPagePreferences(patch));
+  // Each project remembers its tab, and each tab its layout. A phone always lists.
+  const scopeKey = scopedProject ? projectKey(scopedProject) : "all";
+  const tab: BoardTab = preferences.tabByProject?.[scopeKey] ?? "work";
+  const setTab = (next: BoardTab) =>
+    updatePreferences((current) => ({
+      tabByProject: { ...current.tabByProject, [scopeKey]: next },
+    }));
+  const chosenLayout = preferences.layoutByTab?.[tab] ?? preferences.featureLayout ?? "list";
+  const layout = phone ? "list" : chosenLayout;
+  const setLayout = (next: "list" | "board") =>
+    updatePreferences((current) => ({ layoutByTab: { ...current.layoutByTab, [tab]: next } }));
 
-  // A milestone narrows the board to its issues, and to the features that work on them.
+  // A milestone or label narrows both tabs: Issues to its issues, Work to the features on them.
   const issueFeatures = featuresByIssue(board.cards);
   const featureFor = (issue: EnvironmentIssue) => featureForIssue(issueFeatures, issue);
   const milestoneFilter = props.search.milestone ?? null;
-  const narrowedMilestone =
-    milestoneFilter === null
-      ? null
-      : (issueBoard.milestones.find((milestone) => issueKey(milestone) === milestoneFilter) ??
-        null);
   const inMilestone = (issue: EnvironmentIssue) =>
     milestoneFilter === null ||
     (issue.milestone !== null &&
-      issueKey({ ...issue, number: issue.milestone.number }) === milestoneFilter);
-  const milestoneFeatureKeys = new Set(
+      issueKey({ ...issue, number: issue.milestone.number, ticketId: null }) === milestoneFilter);
+  const hasLabel = (issue: EnvironmentIssue) =>
+    labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name));
+  const issueFiltersOn = milestoneFilter !== null || labelFilters.size > 0;
+  const filteredFeatureKeys = new Set(
     issueBoard.issues.flatMap((issue) => {
-      const feature = inMilestone(issue) ? featureFor(issue) : null;
+      const feature = inMilestone(issue) && hasLabel(issue) ? featureFor(issue) : null;
       return feature ? [featureCardKey(feature)] : [];
+    }),
+  );
+  /** Each feature's issue, for the jump from its `#issue` to its row in Issues. */
+  const issueOfFeature = new Map(
+    issueBoard.issues.flatMap((issue) => {
+      const feature = featureFor(issue);
+      return feature ? [[featureCardKey(feature), issue] as const] : [];
     }),
   );
 
@@ -202,27 +262,27 @@ export function FeaturesPage(props: {
   const visibleCards = board.cards.filter(
     (card) =>
       matchesFeatureSearch(card, query, [projectFor(card)?.title]) &&
-      (milestoneFilter === null || milestoneFeatureKeys.has(featureCardKey(card))),
+      (!issueFiltersOn || filteredFeatureKeys.has(featureCardKey(card))),
   );
-  // Todo holds open issues no feature works on, and Closed the closed ones; a feature keeps its
-  // issue on its own card.
-  const unworkedIssues = issueBoard.issues.filter(
-    (issue) =>
-      featureFor(issue) === null &&
-      inMilestone(issue) &&
-      (labelFilters.size === 0 || issue.labels.some((label) => labelFilters.has(label.name))) &&
-      matchesIssueSearch(issue, searchWords.join(" ")),
-  );
-  const todos = unworkedIssues
-    .filter((issue) => issue.state === "open")
+  const openIssues = issueBoard.issues
+    .filter(
+      (issue) =>
+        issue.state === "open" &&
+        inMilestone(issue) &&
+        hasLabel(issue) &&
+        matchesIssueSearch(issue, searchWords.join(" ")),
+    )
     .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const closedTodos = unworkedIssues
-    .filter((issue) => issue.state === "closed")
-    .toSorted((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
+  const issueGroups = groupIssuesByMilestone(openIssues, issueBoard.milestones);
+  // A feature nobody started that has no issue of its own sits with the backlog.
+  const unstarted = visibleCards.filter(
+    (card) => card.leadThreadId === null && card.status === "open" && card.issue === null,
+  );
+  const starting = useStartingTodos();
 
-  // The board shows what the thread list shows. A feature sits where its row does: settled,
-  // snoozed or neither. A started one with no row (its threads archived, or settled long ago and
-  // not loaded) has no card either; Settled counts those threads until it loads them.
+  // Work shows what the thread list shows. A feature sits where its row does: settled, snoozed or
+  // neither. A started one with no row (its threads archived, or settled long ago and not loaded)
+  // has no row either; Settled counts those threads until it loads them.
   const { settleThread, unsettleThread, snoozeThread, unsnoozeThread } = useThreadActions();
   const shells = useQuietThreadShells();
   const rows = featureRows(shells);
@@ -242,12 +302,10 @@ export function FeaturesPage(props: {
   // shelf: settling or snoozing a parent mustn't hide a child that still needs you.
   const shelfOf = (card: EnvironmentFeatureCard) =>
     isSettled(card) ? "settled" : isSnoozed(card) ? "snoozed" : "open";
-  const startedOrTodo = visibleCards.filter(
-    (card) => (card.leadThreadId === null && card.status === "open") || rowFor(card).length > 0,
-  );
+  const started = visibleCards.filter((card) => rowFor(card).length > 0);
   const shelves = (["open", "snoozed", "settled"] as const).map((shelf) =>
     nestFeatureChildren(
-      startedOrTodo.filter((card) => shelfOf(card) === shelf),
+      started.filter((card) => shelfOf(card) === shelf),
       featureThreads,
     ),
   );
@@ -265,7 +323,7 @@ export function FeaturesPage(props: {
   const snoozedCards = listedCards
     .filter((card) => !isSettled(card) && isSnoozed(card))
     .toSorted((a, b) => snoozedUntil(a).localeCompare(snoozedUntil(b)));
-  const groups = groupFeaturesByColumn(
+  const groups = groupFeaturesByWork(
     listedCards.filter((card) => !isSettled(card) && !isSnoozed(card)),
     nestedThreads,
   );
@@ -280,7 +338,7 @@ export function FeaturesPage(props: {
       scopeKeys,
     ),
     expanded: settledExpanded,
-    // The board pages its own cards, so an open shelf reads every older page.
+    // The board pages its own rows, so an open shelf reads every older page.
     visibleCount: Number.MAX_SAFE_INTEGER,
   });
   const scopeShells = shells.filter(
@@ -293,48 +351,61 @@ export function FeaturesPage(props: {
       (shell) => shell.settledOverride === "settled" && olderSettled.isListed(shell),
     ),
   );
-  const unfiltered = milestoneFilter === null && labelFilters.size === 0 && !query.trim();
+  const unfiltered = !issueFiltersOn && !query.trim();
   const settledShelf = {
     expanded: settledExpanded,
     onExpandedChange: setSettledExpanded,
     unloaded: unfiltered ? olderSettled.unloadedCount(scopeShells) : 0,
   };
 
-  // Chats sit beside features where their sidebar rows' status puts them. They have no
-  // milestone or label, so those filters leave only features and todos.
-  const chatFiltersApply = milestoneFilter === null && labelFilters.size === 0;
-  const chatSections = new Map<BoardSection, EnvironmentThreadShell[]>();
-  for (const shell of chatFiltersApply ? boardChatThreads(shells) : []) {
+  // Chats sit beside features where their PR and sidebar status put them. They have no
+  // milestone or label, so those filters leave only features.
+  const chatSections = new Map<WorkSection, EnvironmentThreadShell[]>();
+  for (const shell of issueFiltersOn ? [] : boardChatThreads(shells)) {
     const project = projectFor(shell);
     if (!project || (scopedProject !== null && project !== scopedProject)) continue;
     const haystack = [chatTitle(shell), shell.branch, project.title].join(" ").toLowerCase();
     if (!searchWords.every((word) => haystack.includes(word))) continue;
-    const section: BoardSection =
+    const section: WorkSection =
       shell.settledOverride === "settled"
         ? "settled"
         : effectiveSnoozed(shell, { now: `${nowMinute}:00.000Z` })
           ? "snoozed"
-          : threadBoardColumn(shell);
+          : chatWorkGroup(shell);
     chatSections.set(section, [...(chatSections.get(section) ?? []), shell]);
   }
   const chatOrder: Record<
-    BoardSection,
+    WorkSection,
     (a: EnvironmentThreadShell, b: EnvironmentThreadShell) => number
   > = {
-    // Chats never sit in Todo or Closed.
-    todo: () => 0,
-    closed: () => 0,
-    working: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     // The longest wait first, as for features.
-    "needs-you": (a, b) =>
+    "needs-input": (a, b) =>
       (a.runtime?.updatedAt ?? a.updatedAt).localeCompare(b.runtime?.updatedAt ?? b.updatedAt),
+    working: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+    review: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
     done: (a, b) => chatSince(b).localeCompare(chatSince(a)),
     snoozed: (a, b) => (a.snoozedUntil ?? "").localeCompare(b.snoozedUntil ?? ""),
     settled: (a, b) => (b.settledAt ?? "").localeCompare(a.settledAt ?? ""),
   };
-  const chats = Object.fromEntries(
+  const chats: BoardChats = Object.fromEntries(
     [...chatSections].map(([section, list]) => [section, list.toSorted(chatOrder[section])]),
   );
+  const workItems = { groups, snoozed: snoozedCards, settled: settledCards, chats };
+  const workCount = groups.reduce(
+    (count, group) => count + group.cards.length + (chats[group.group]?.length ?? 0),
+    0,
+  );
+  const needsInput =
+    (groups.find((group) => group.group === "needs-input")?.cards.length ?? 0) +
+    (chats["needs-input"]?.length ?? 0);
+  const shelvedCount =
+    snoozedCards.length +
+    settledCards.length +
+    (chats.snoozed?.length ?? 0) +
+    (chats.settled?.length ?? 0) +
+    settledShelf.unloaded;
+  const issueCount = openIssues.length + unstarted.length;
+
   const reportParkFailure = (title: string) => (result: AtomCommandResult<unknown, unknown>) => {
     if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
     const error = squashAtomCommandFailure(result);
@@ -358,17 +429,9 @@ export function FeaturesPage(props: {
   const wake = (card: EnvironmentFeatureCard) => {
     for (const thread of rowFor(card)) {
       if (thread.snoozedUntil === null) continue;
-      void unsnoozeThread(scopeThreadRef(thread.environmentId, thread.id)).then((result) => {
-        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to wake feature",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-      });
+      void unsnoozeThread(scopeThreadRef(thread.environmentId, thread.id)).then(
+        reportParkFailure("Failed to wake feature"),
+      );
     }
   };
   const toggleShelf = (card: EnvironmentFeatureCard) => {
@@ -376,24 +439,52 @@ export function FeaturesPage(props: {
     for (const thread of rowFor(card)) {
       if ((thread.settledOverride === "settled") !== settled) continue;
       const ref = scopeThreadRef(thread.environmentId, thread.id);
-      void (settled ? unsettleThread(ref) : settleThread(ref)).then((result) => {
-        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: settled ? "Failed to un-settle feature" : "Failed to settle feature",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-      });
+      void (settled ? unsettleThread(ref) : settleThread(ref)).then(
+        reportParkFailure(settled ? "Failed to un-settle feature" : "Failed to settle feature"),
+      );
     }
+  };
+
+  // A jump between tabs lands on the row it names once that tab has rendered it.
+  const jumpTo = useRef<string | null>(null);
+  const [revealedRow, setRevealedRow] = useState<string | null>(null);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Scrolls to and focuses the row a jump names once the other tab has rendered it.
+  useEffect(() => {
+    const key = jumpTo.current;
+    if (key === null) return;
+    const row = document.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(key)}"]`);
+    if (!row) return;
+    jumpTo.current = null;
+    row.scrollIntoView({ block: "center" });
+    row.querySelector<HTMLElement>("[data-card-open]")?.focus({ preventScroll: true });
+  });
+  const jump = (target: BoardTab, key: string) => {
+    jumpTo.current = key;
+    setRevealedRow(key);
+    updatePreferences((current) => ({
+      layoutByTab: { ...current.layoutByTab, [target]: "list" },
+      tabByProject: { ...current.tabByProject, [scopeKey]: target },
+    }));
   };
 
   const actions = useFeatureActions();
   const startFeatureDraft = useStartFeatureDraft();
+  const startTodo = useStartTodo();
+  // Workflows belong to an environment; the board reads the one New starts in.
+  const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
+  const workflowsByEnvironment = useBoardWorkflows(targets.map((target) => target.environmentId));
+  const workflowsFor = (owner: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }) => ({
+    workflows: workflowsByEnvironment.get(owner.environmentId) ?? [],
+    workflow: pickWorkflow(workflowsByEnvironment.get(owner.environmentId) ?? [], owner),
+  });
+  const description = (issue: EnvironmentIssue) =>
+    issueBoard.tickets.get(issueKey(issue))?.description;
   const handlers: FeatureBoardHandlers = {
     projectFor,
+    placeFor,
     threadsFor,
     childrenFor: (card) => childCards.get(featureCardKey(card)) ?? [],
     onOpen: (card) => {
@@ -407,10 +498,20 @@ export function FeaturesPage(props: {
     canShelf: (card) => rowFor(card).length > 0,
     onWake: wake,
     onSnooze: snooze,
-    onDrop: (card, action) => {
-      if (action === "settle") toggleShelf(card);
-      else void actions.run(card, action);
+    onDrop: (card) => toggleShelf(card),
+    onShowIssue: (card) => {
+      const issue = issueOfFeature.get(featureCardKey(card));
+      if (issue) jump("issues", issueKey(issue));
+      else if (card.issue)
+        openTodo({
+          environmentId: card.environmentId,
+          projectId: card.projectId,
+          ...(card.issue.ticketId
+            ? { ticketId: card.issue.ticketId }
+            : { number: card.issue.number }),
+        });
     },
+    onShowWork: (card) => jump("work", featureCardKey(card)),
     onOpenTodo: (issue) =>
       openTodo(
         issue.ticketId
@@ -425,18 +526,24 @@ export function FeaturesPage(props: {
               number: issue.number,
             },
       ),
-    issueAt: (environmentId, url, parent) =>
-      structureIssue(issueBoard.structure, environmentId, url, parent),
-    partsOf: (environmentId, url) => {
-      const place = issuePlace(environmentId, { url });
-      return (place && issueBoard.structure.partsByKey.get(place.key)) || [];
+    onStartTodo: (issue, workflow) => {
+      const feature = featureFor(issue);
+      void startTodo(
+        issue,
+        workflow ?? workflowsFor(issue).workflow,
+        description(issue),
+        feature?.leadThreadId === null && feature.status === "open" ? feature : undefined,
+      );
     },
-    featureFor,
-    onStartTodo: (issue) =>
+    onEditBrief: (issue) =>
       startFeatureDraft(
         { environmentId: issue.environmentId, projectId: issue.projectId },
-        { issue, description: issueBoard.tickets.get(issueKey(issue))?.description },
+        { issue, description: description(issue) },
       ),
+    onCloseTodo: (issue) => void closeTodoAsCompleted(issue),
+    onOpenExternal: (url) => void readLocalApi()?.shell.openExternal(url),
+    workflowsFor,
+    featureFor,
     onOpenChat: (shell) =>
       void navigate({
         to: "/$environmentId/$threadId",
@@ -458,38 +565,47 @@ export function FeaturesPage(props: {
         "Failed to snooze thread",
         snoozeThread(scopeThreadRef(shell.environmentId, shell.id), until),
       ),
+    onNewTodo: (milestone) => newTodo(milestone ? { milestone } : {}),
   };
 
-  // New feature opens a new thread's composer, whose first message starts the feature.
-  const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
-  const startNewFeature = () => {
-    if (!newFeatureProject) return;
-    startFeatureDraft({
-      environmentId: newFeatureProject.environmentId,
-      projectId: newFeatureProject.id,
+  const newTodo = (
+    options: { readonly milestone?: EnvironmentMilestone; readonly start?: boolean } = {},
+  ) => {
+    const { milestone, start } = options;
+    const narrowed =
+      milestone ?? issueBoard.milestones.find((m) => issueKey(m) === milestoneFilter);
+    const project = milestone ? projectFor(milestone) : newFeatureProject;
+    openNewTodoDialog({
+      ...(project
+        ? { project: { environmentId: project.environmentId, projectId: project.id } }
+        : {}),
+      // A board narrowed to a milestone, or a milestone's +, files new issues in it.
+      ...(narrowed &&
+      project &&
+      narrowed.environmentId === project.environmentId &&
+      narrowed.projectId === project.id
+        ? { milestone: narrowed.number, kind: "issue" as const }
+        : {}),
+      ...(start ? { start: true } : {}),
     });
   };
-  const browseRoles = () => void navigate({ to: "/settings/roles", search: {} });
-  const newTodo = () =>
-    openNewTodoDialog(
-      newFeatureProject
-        ? {
-            project: {
-              environmentId: newFeatureProject.environmentId,
-              projectId: newFeatureProject.id,
-            },
-            // A board narrowed to a milestone files new issues in it.
-            ...(narrowedMilestone &&
-            narrowedMilestone.environmentId === newFeatureProject.environmentId &&
-            narrowedMilestone.projectId === newFeatureProject.id
-              ? { milestone: narrowedMilestone.number }
-              : {}),
-          }
-        : {},
-    );
+  // New feature files a todo and starts it, so its work always has a row in Issues too.
+  const startNewFeature = () => newTodo({ start: true });
   const newTodoShortcut = shortcutLabelForCommand(keybindings, "features.newTodo", {
     context: { featuresPageOpen: true },
   });
+  const tabShortcut = (target: BoardTab) =>
+    shortcutLabelForCommand(
+      keybindings,
+      target === "work" ? "features.workTab" : "features.issuesTab",
+      { context: { featuresPageOpen: true } },
+    );
+
+  /** The open, unstarted todo whose row has focus, for S. */
+  const focusedTodo = () => {
+    const key = document.activeElement?.closest<HTMLElement>("[data-row-key]")?.dataset.rowKey;
+    return key ? openIssues.find((issue) => issueKey(issue) === key) : undefined;
+  };
 
   const onPageKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (
@@ -502,12 +618,22 @@ export function FeaturesPage(props: {
       return;
     const command = resolveFeaturesShortcut(event, keybindings);
     if (!command) return;
+    if (command === "features.startTodo") {
+      const issue = tab === "issues" ? focusedTodo() : undefined;
+      const feature = issue ? featureFor(issue) : null;
+      if (!issue || (feature && feature.leadThreadId !== null)) return;
+      event.preventDefault();
+      handlers.onStartTodo(issue);
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (command === "features.search") {
       setSearchOpen(true);
       searchInputRef.current?.focus();
-    } else newTodo();
+    } else if (command === "features.workTab") setTab("work");
+    else if (command === "features.issuesTab") setTab("issues");
+    else newTodo();
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Subscribes the page's shortcuts to window keydown while it is mounted.
   useEffect(() => {
@@ -538,21 +664,16 @@ export function FeaturesPage(props: {
     return () => window.clearTimeout(handle);
   }, [onSearchChange, query, urlQuery]);
 
-  const firstRun =
-    board.loaded &&
-    board.errors.length === 0 &&
-    board.cards.length === 0 &&
-    chatSections.size === 0 &&
-    !issueBoard.pending &&
-    issueBoard.issues.every((issue) => issue.state !== "open") &&
-    !query;
-
   const clearFilters = () => {
     setLabelFilters(new Set());
     setSidebarScopeKeys([]);
     props.onSearchChange({ project: undefined, milestone: undefined });
   };
-  const showProjectInTitles = scopedProject === null && projects.length > 1;
+  const clearEverything = () => {
+    clearFilters();
+    setQuery("");
+    setSearchOpen(false);
+  };
   const issueLabels = [
     ...new Set(issueBoard.issues.flatMap((issue) => issue.labels.map((label) => label.name))),
   ]
@@ -579,7 +700,7 @@ export function FeaturesPage(props: {
             label: "Milestone",
             options: issueBoard.milestones.map((milestone) => ({
               value: issueKey(milestone),
-              label: showProjectInTitles
+              label: showProject
                 ? `${projectFor(milestone)?.title ?? "Project"} · ${milestone.title}`
                 : milestone.title,
               checked: issueKey(milestone) === milestoneFilter,
@@ -605,75 +726,112 @@ export function FeaturesPage(props: {
       : []),
   ];
 
-  const headerActions = (
-    <div className="ms-auto flex min-w-0 items-center gap-1">
-      <MainViewToggle />
-      {searchOpen || query ? (
-        <InputGroup className="w-44 md:w-60">
-          <InputGroupAddon>
-            <SearchIcon aria-hidden />
-          </InputGroupAddon>
-          <InputGroupInput
-            ref={searchInputRef}
-            type="search"
-            autoFocus
-            aria-label="Search the board"
-            placeholder="Search or #number"
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            onBlur={() => {
-              if (!query) setSearchOpen(false);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              setQuery("");
-              setSearchOpen(false);
-            }}
-          />
-        </InputGroup>
-      ) : (
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Search the board"
-          title="Search (/)"
-          onClick={() => setSearchOpen(true)}
-        >
-          <SearchIcon aria-hidden />
-        </Button>
-      )}
-      <BoardFilterMenu sections={filterSections} onClear={clearFilters} />
-      <BoardDisplayMenu
-        layout={layout}
-        onLayout={(featureLayout) => updatePreferences({ featureLayout })}
-      />
-      <IssueRefreshButton
-        readAt={issueBoard.readAt}
-        refreshing={issueBoard.refreshing}
-        onRefresh={issueBoard.refresh}
-      />
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button size="sm" disabled={!newFeatureProject}>
-              <PlusIcon aria-hidden />
-              <span className="hidden md:inline">New</span>
-            </Button>
-          }
+  const tabToggle = (target: BoardTab, label: string, count: number, dot: boolean) => {
+    const shortcut = tabShortcut(target);
+    return (
+      <Tooltip>
+        <TooltipTrigger render={<Toggle value={target} aria-label={`${label}, ${count}`} />}>
+          {label}
+          <span className="text-muted-foreground tabular-nums">{count}</span>
+          {dot ? (
+            <span aria-label="Needs input" className="size-1.5 rounded-full bg-warning" />
+          ) : null}
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          {label}
+          {shortcut ? <Kbd className="ms-2">{shortcut}</Kbd> : null}
+        </TooltipPopup>
+      </Tooltip>
+    );
+  };
+
+  const tabsRow = (
+    <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border/70 pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)">
+      <ToggleGroup
+        aria-label="Board tab"
+        variant="pill"
+        size="sm"
+        value={[tab]}
+        onValueChange={(value) => {
+          const next = value[0];
+          if (next === "work" || next === "issues") setTab(next);
+        }}
+      >
+        {tabToggle("work", "Work", workCount, tab === "issues" && needsInput > 0)}
+        {tabToggle("issues", "Issues", issueCount, false)}
+      </ToggleGroup>
+      <div className="ms-auto flex min-w-0 items-center gap-1">
+        <IssueRefreshButton
+          readAt={issueBoard.readAt}
+          refreshing={issueBoard.refreshing}
+          onRefresh={issueBoard.refresh}
         />
-        <MenuPopup align="end">
-          <MenuItem onClick={newTodo}>
-            New todo
-            {newTodoShortcut ? <MenuShortcut>{newTodoShortcut}</MenuShortcut> : null}
-          </MenuItem>
-          <MenuItem onClick={startNewFeature}>New feature</MenuItem>
-        </MenuPopup>
-      </Menu>
+        {searchOpen || query ? (
+          <InputGroup className="w-40 md:w-60">
+            <InputGroupAddon>
+              <SearchIcon aria-hidden />
+            </InputGroupAddon>
+            <InputGroupInput
+              ref={searchInputRef}
+              type="search"
+              autoFocus
+              aria-label="Search the board"
+              placeholder="Search or #number"
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              onBlur={() => {
+                if (!query) setSearchOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                setQuery("");
+                setSearchOpen(false);
+              }}
+            />
+          </InputGroup>
+        ) : (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Search the board"
+            title="Search (/)"
+            onClick={() => setSearchOpen(true)}
+          >
+            <SearchIcon aria-hidden />
+          </Button>
+        )}
+        <BoardFilterMenu sections={filterSections} onClear={clearFilters} />
+        <ToggleGroup
+          aria-label="Layout"
+          variant="segmented"
+          className="ms-1 max-sm:hidden"
+          value={[chosenLayout]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next === "list" || next === "board") setLayout(next);
+          }}
+        >
+          <Toggle value="list" aria-label="List">
+            <ListIcon aria-hidden />
+          </Toggle>
+          <Toggle value="board" aria-label="Board">
+            <Columns3Icon aria-hidden />
+          </Toggle>
+        </ToggleGroup>
+      </div>
     </div>
   );
 
-  let body;
-  // The board fills the page and scrolls each column; everything else scrolls the page.
+  const filtered = issueFiltersOn || query.trim() !== "";
+  const loading = tab === "work" ? board.pending && board.cards.length === 0 : issueBoard.pending;
+  const empty =
+    tab === "work"
+      ? workCount === 0 && shelvedCount === 0 && !loading
+      : issueCount === 0 && !issueBoard.pending;
+  const issueItems = { groups: issueGroups, unstarted, pending: issueBoard.pending, starting };
+
+  let body: ReactNode;
+  // The columns fill the page and scroll each column; everything else scrolls the page.
   let lanes = false;
   if (projects.length === 0) {
     body = (
@@ -681,61 +839,83 @@ export function FeaturesPage(props: {
         Connect an environment that runs features to see them.
       </p>
     );
-  } else if (firstRun) {
+  } else if (empty && filtered) {
     body = (
-      <div className="mx-auto flex max-w-xl flex-col items-center gap-5 py-14 text-center">
-        <div className="flex flex-col items-center gap-2">
-          <h2 className="text-lg font-medium">Nothing on the board yet</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Add a todo, then start a feature from it. Its feature manager hands the work to your
-            crew, and anything that needs your answer waits under Needs you.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={newTodo} disabled={!newFeatureProject}>
-            New todo
+      <EmptyState
+        icon={SearchXIcon}
+        title="Nothing matches"
+        description="No rows match the search and filters."
+        actions={
+          <Button variant="outline" size="sm" onClick={clearEverything}>
+            Clear filters
           </Button>
-          {newFeatureProject ? (
-            <StartFirstFeatureButton
-              environmentId={newFeatureProject.environmentId}
-              onReady={startNewFeature}
-            />
-          ) : (
-            <Button variant="outline" disabled>
-              Start a feature
-            </Button>
-          )}
-          <Button variant="ghost" onClick={browseRoles}>
-            Browse roles
-          </Button>
-        </div>
-      </div>
+        }
+      />
     );
-  } else if (board.pending && board.cards.length === 0) {
+  } else if (empty && tab === "work") {
     body = (
-      <div className="flex gap-2">
+      <EmptyState
+        icon={InboxIcon}
+        title="No work in progress"
+        description="Start an issue from Issues, or begin a new feature."
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={() => setTab("issues")}>
+              Go to Issues
+              {tabShortcut("issues") ? <Kbd>{tabShortcut("issues")}</Kbd> : null}
+            </Button>
+            {newFeatureProject ? (
+              <StartFirstFeatureButton
+                environmentId={newFeatureProject.environmentId}
+                onReady={startNewFeature}
+              />
+            ) : null}
+          </>
+        }
+      />
+    );
+  } else if (empty) {
+    body = (
+      <EmptyState
+        icon={CheckIcon}
+        title="No open issues"
+        description="GitHub issues and todos you add show here."
+        actions={
+          <Button size="sm" onClick={() => newTodo()} disabled={!newFeatureProject}>
+            <PlusIcon aria-hidden />
+            New todo
+            {newTodoShortcut ? <Kbd>{newTodoShortcut}</Kbd> : null}
+          </Button>
+        }
+      />
+    );
+  } else if (loading && tab === "work") {
+    body = (
+      <div className="flex flex-col gap-2 py-2">
         {Array.from({ length: 4 }, (_, index) => (
-          <Skeleton key={index} className="h-40 w-64" />
+          <Skeleton key={index} className="h-6 w-2/3" />
         ))}
       </div>
     );
   } else {
     lanes = layout === "board";
-    body = (
-      <FeatureStatusBoard
-        layout={layout}
-        groups={groups}
-        todos={todos}
-        closed={closedTodos}
-        todosPending={issueBoard.pending}
-        snoozed={snoozedCards}
-        settled={settledCards}
-        chats={chats}
-        settledShelf={settledShelf}
-        handlers={handlers}
-        milestone={narrowedMilestone}
-      />
-    );
+    body =
+      tab === "work" ? (
+        layout === "board" ? (
+          <WorkColumns items={workItems} settledShelf={settledShelf} handlers={handlers} />
+        ) : (
+          <WorkList
+            revealedRow={revealedRow}
+            items={workItems}
+            settledShelf={settledShelf}
+            handlers={handlers}
+          />
+        )
+      ) : layout === "board" ? (
+        <IssuesColumns items={issueItems} handlers={handlers} />
+      ) : (
+        <IssuesList revealedRow={revealedRow} items={issueItems} handlers={handlers} />
+      );
   }
 
   const errors = [...board.errors, ...issueBoard.errors];
@@ -747,9 +927,9 @@ export function FeaturesPage(props: {
           {errors[0]}
         </p>
       ) : null}
-      {issueBoard.truncated ? (
+      {tab === "issues" && issueBoard.truncated ? (
         <p className="text-xs text-muted-foreground">
-          Todo shows the 100 most recently updated open issues per project. Search narrows them.
+          Issues shows the 100 most recently updated open issues per project. Search narrows them.
         </p>
       ) : null}
       {body}
@@ -759,29 +939,59 @@ export function FeaturesPage(props: {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <WorkspacePageHeader electron={isElectron}>
+        <WorkspacePageHeader electron={isElectron} className="border-b border-border/70">
           <BoardTitle />
-          {firstRun ? (
-            <div className="ms-auto flex items-center">
-              <MainViewToggle />
-            </div>
-          ) : (
-            headerActions
-          )}
+          <div className="ms-auto flex min-w-0 items-center gap-1">
+            <MainViewToggle />
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button size="sm" disabled={!newFeatureProject}>
+                    <PlusIcon aria-hidden />
+                    New
+                  </Button>
+                }
+              />
+              <MenuPopup align="end">
+                <MenuItem onClick={() => newTodo()}>
+                  New todo
+                  {newTodoShortcut ? <MenuShortcut>{newTodoShortcut}</MenuShortcut> : null}
+                </MenuItem>
+                <MenuItem onClick={startNewFeature}>New feature</MenuItem>
+              </MenuPopup>
+            </Menu>
+          </div>
         </WorkspacePageHeader>
+        {tabsRow}
         {lanes ? (
-          <WorkspacePageContainer width="full" className="min-h-0 flex-1 gap-3 pb-3">
+          <WorkspacePageContainer width="full" className="min-h-0 flex-1 gap-3 pt-3 pb-3">
             {content}
           </WorkspacePageContainer>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
-            <WorkspacePageContainer width="full" className="gap-3">
+            <WorkspacePageContainer width="full" className="gap-3 pt-0">
               {content}
             </WorkspacePageContainer>
           </ScrollArea>
         )}
       </div>
     </SidebarInset>
+  );
+}
+
+function EmptyState(props: {
+  readonly icon: typeof InboxIcon;
+  readonly title: string;
+  readonly description: string;
+  readonly actions: ReactNode;
+}) {
+  return (
+    <div className="mx-auto flex max-w-sm flex-col items-center gap-1.5 py-16 text-center">
+      <props.icon aria-hidden className="size-5 text-muted-foreground/70" />
+      <h2 className="text-sm font-medium">{props.title}</h2>
+      <p className="text-xs text-muted-foreground">{props.description}</p>
+      <div className="mt-3 flex gap-2">{props.actions}</div>
+    </div>
   );
 }
 
@@ -811,8 +1021,9 @@ function StartFirstFeatureButton(props: {
     if (added) props.onReady();
   };
   return (
-    <Button variant="outline" onClick={() => void start()} disabled={busy}>
-      Start a feature
+    <Button size="sm" onClick={() => void start()} disabled={busy}>
+      <PlusIcon aria-hidden />
+      New feature
     </Button>
   );
 }

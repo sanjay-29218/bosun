@@ -15,9 +15,12 @@ import {
   featureCardActions,
   featureCardKey,
   featureColumn,
-  featureDropAction,
   featureFinished,
+  chatWorkGroup,
   featureOpenThreadId,
+  featureProgress,
+  featureWorkGroup,
+  groupFeaturesByWork,
   featureRef,
   groupFeaturesByColumn,
   matchesFeatureSearch,
@@ -30,6 +33,7 @@ import {
   type NeedsYouShell,
 } from "./crewBoard.ts";
 import type { EnvironmentThreadShell } from "./models.ts";
+import type { ThreadPullRequestLink } from "@t3tools/contracts";
 
 const environmentId = EnvironmentId.make("env-1");
 const projectId = ProjectId.make("project-1");
@@ -190,6 +194,31 @@ describe("status columns", () => {
     expect(featureColumn(card("f", { report }), [lead("run-2")])).toBe("needs-you");
   });
 
+  it("names a feature's status: Needs input, Working, Waiting, Done or Failed", () => {
+    const report = { outcome: "finished" as const, runId: "run-2" };
+    const lead = (fields: Partial<BoardThreadShell>) => featureThread("lead-f", "f", fields);
+    const statusOf = (
+      threads: ReadonlyArray<BoardThreadShell>,
+      overrides: Partial<EnvironmentFeatureCard> = {},
+    ) => featureProgress(card("f", overrides), threads).status;
+    const stopped = {
+      runtime: runtime("idle"),
+      latestRun: { runId: "run-2", status: "completed" },
+    };
+
+    expect(statusOf([], { leadThreadId: null })).toBe("not-started");
+    expect(statusOf([lead({ runtime: runtime("running") })])).toBe("working");
+    expect(statusOf([lead({ hasPendingApprovals: true })])).toBe("needs-input");
+    expect(statusOf([lead({ pendingSubagentRequest: "user_input" })])).toBe("needs-input");
+    // A lead that stopped with the feature unfinished is Waiting, not the person's turn.
+    expect(statusOf([lead(stopped as never)])).toBe("waiting");
+    expect(statusOf([lead(stopped as never)], { report })).toBe("done");
+    expect(statusOf([lead({ latestRun: { runId: "run-2", status: "failed" } } as never)])).toBe(
+      "failed",
+    );
+    expect(statusOf([lead(stopped as never)], { status: "closed" })).toBe("done");
+  });
+
   it("opens the thread asking you something, longest wait first, else the lead", () => {
     const at = (minute: number) => ({
       ...runtime("idle"),
@@ -241,6 +270,103 @@ describe("status columns", () => {
     expect(threadBoardColumn(chat({}, { runtime: runtime("failed") }))).toBe("done");
     expect(threadBoardColumn(chat({}, { runtime: runtime("idle") }))).toBe("done");
     expect(threadBoardColumn(chat())).toBe("done");
+  });
+});
+
+describe("work groups", () => {
+  const pr = (state: "open" | "closed" | "merged"): ThreadPullRequestLink =>
+    ({
+      host: "github.com",
+      repository: "o/r",
+      number: 7,
+      url: "https://github.com/o/r/pull/7",
+      source: "agent",
+      linkedAt: "2026-10-01T00:00:00.000Z",
+      snapshot: {
+        state,
+        title: "PR",
+        headBranch: "feature",
+        baseBranch: "main",
+        isDraft: false,
+        updatedAt: null,
+        syncedAt: "2026-10-01T00:00:00.000Z",
+      },
+      stack: null,
+    }) as ThreadPullRequestLink;
+  const stopped = { runtime: runtime("idle"), latestRun: { runId: "run-1", status: "completed" } };
+  const lead = (fields: object) =>
+    featureThread("lead-f", "f", { ...stopped, ...fields } as Partial<BoardThreadShell>);
+
+  it.each([
+    ["a merged PR", { pullRequests: [pr("merged")] }, {}, "done"],
+    ["an open PR", { pullRequests: [pr("open")] }, {}, "review"],
+    [
+      "an open PR on a running turn",
+      { pullRequests: [pr("open")], runtime: runtime("running") },
+      {},
+      "working",
+    ],
+    [
+      "a merged PR on a running turn",
+      { pullRequests: [pr("merged")], runtime: runtime("running") },
+      {},
+      "working",
+    ],
+    [
+      "a question, even with a PR open",
+      { pullRequests: [pr("open")], hasPendingUserInput: true },
+      {},
+      "needs-input",
+    ],
+    ["a PR closed without merging", { pullRequests: [pr("closed")] }, {}, "working"],
+    [
+      "a PR whose state isn't known yet",
+      { linkedPullRequest: { number: 7, url: "u" } },
+      {},
+      "review",
+    ],
+    ["a lead that stopped short", {}, {}, "working"],
+    [
+      "a lead that reported it finished",
+      {},
+      { report: { outcome: "finished", runId: "run-1" } },
+      "review",
+    ],
+    ["a feature the person closed without a PR", {}, { status: "closed" }, "review"],
+    [
+      "a closed feature with an open PR",
+      { pullRequests: [pr("open")] },
+      { status: "closed" },
+      "review",
+    ],
+    [
+      "a closed feature with a merged PR",
+      { pullRequests: [pr("merged")] },
+      { status: "closed" },
+      "done",
+    ],
+    ["a running closed feature", { runtime: runtime("running") }, { status: "closed" }, "working"],
+  ] as const)("files %s under %s", (_, fields, overrides, group) => {
+    expect(featureWorkGroup(card("f", overrides as never), [lead(fields)])).toBe(group);
+  });
+
+  it("files chats by their PR, and leaves features not started out of Work", () => {
+    const chat = (fields: object) => featureThread("c", "c", fields as Partial<BoardThreadShell>);
+    expect(chatWorkGroup(chat({ pullRequests: [pr("open")] }))).toBe("review");
+    expect(chatWorkGroup(chat({ pullRequests: [pr("merged")] }))).toBe("done");
+    expect(chatWorkGroup(chat({ pullRequests: [pr("closed")] }))).toBe("working");
+    expect(chatWorkGroup(chat({}))).toBe("working");
+    expect(chatWorkGroup(chat({ hasPendingApprovals: true }))).toBe("needs-input");
+    const groups = groupFeaturesByWork(
+      [card("f"), card("todo", { leadThreadId: null })],
+      new Map([[featureCardKey(card("f")), [lead({ pullRequests: [pr("open")] })]]]),
+    );
+    expect(groups.map((group) => [group.group, group.cards.map((c) => c.featureId)])).toEqual([
+      ["needs-input", []],
+      ["working", []],
+      ["review", ["f"]],
+      ["done", []],
+    ]);
   });
 });
 
@@ -297,13 +423,6 @@ describe("search", () => {
 });
 
 describe("drag and actions", () => {
-  it("only closes into Done and reopens out of it", () => {
-    expect(featureDropAction(card("a"), "done")).toBe("close");
-    expect(featureDropAction(card("a"), "open")).toBeNull();
-    expect(featureDropAction(card("a", { status: "closed" }), "open")).toBe("reopen");
-    expect(featureDropAction(card("a", { status: "closed" }), "done")).toBeNull();
-  });
-
   it("offers Start until the lead has its thread, and Reopen once closed", () => {
     expect(featureCardActions(card("a", { leadThreadId: null }))).toEqual(["start", "close"]);
     expect(featureCardActions(card("a"))).toEqual(["close"]);

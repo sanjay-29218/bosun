@@ -1,5 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  FEATURE_STATUS_LABELS,
   featureCardKey,
   featureFinished,
   featureRef,
@@ -71,10 +72,7 @@ function CrewSection(props: {
   // A member's question also shows on its lead, so the lead counts only for its own.
   const lead = workGroupLead(props.group);
   const asking =
-    roster.filter(
-      (entry) =>
-        entry.kind === "member" && (entry.status === "Approval" || entry.status === "Input"),
-    ).length +
+    roster.filter((entry) => entry.kind === "member" && entry.tone === "needs-input").length +
     (lead && threadNeedsYouKind(lead) !== null ? 1 : 0) +
     children.filter((child) => child.column === "needs-you" && child.thread !== null).length;
   const running =
@@ -82,7 +80,7 @@ function CrewSection(props: {
     children.filter((child) => child.column === "working").length;
   const title =
     asking > 0
-      ? `Crew · ${asking} need${asking === 1 ? "s" : ""} you`
+      ? `Crew · ${asking} need${asking === 1 ? "s" : ""} input`
       : running > 0
         ? `Crew · ${running} running`
         : "Crew";
@@ -102,13 +100,9 @@ function CrewSection(props: {
           <CrewRow
             key={entry.key}
             entry={
-              // A lead that reported its feature finished isn't waiting on the person.
-              entry.kind === "lead" && entry.status === "Your turn" && finished
-                ? {
-                    ...entry,
-                    status: own?.parentFeatureId ? "Done" : "Ready for review",
-                    tone: "done",
-                  }
+              // A lead that reported its feature finished isn't waiting.
+              entry.kind === "lead" && entry.tone === "waiting" && finished
+                ? { ...entry, status: FEATURE_STATUS_LABELS.done, tone: "done" }
                 : entry
             }
             environmentId={thread.environmentId}

@@ -1,37 +1,34 @@
+import type { FeatureStatus } from "@t3tools/client-runtime/state/crew-board";
+import type { CrewRosterEntry } from "@t3tools/client-runtime/state/crew-roster";
 import {
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
   CircleDotIcon,
   CircleIcon,
+  MessageCircleQuestionIcon,
+  type LucideIcon,
 } from "lucide-react";
 
 import { cn } from "../../lib/utils";
-import type { CrewRosterEntry, CrewRosterTone } from "@t3tools/client-runtime/state/crew-roster";
 
-const TONE_TEXT: Record<CrewRosterTone, string> = {
-  done: "text-success-foreground",
-  working: "text-info-foreground",
-  waiting: "text-warning-foreground",
-  failed: "text-error-foreground",
-  idle: "text-muted-foreground",
+/** How each status word looks, the same on crew rows, feature cards and board rows. */
+export const STATUS_LOOK: Record<
+  FeatureStatus,
+  { readonly className: string; readonly icon: LucideIcon }
+> = {
+  working: { className: "text-info-foreground", icon: CircleDashedIcon },
+  "needs-input": { className: "text-warning-foreground", icon: MessageCircleQuestionIcon },
+  waiting: { className: "text-muted-foreground", icon: CircleDotIcon },
+  done: { className: "text-success-foreground", icon: CircleCheckIcon },
+  failed: { className: "text-error-foreground", icon: CircleAlertIcon },
+  "not-started": { className: "text-muted-foreground", icon: CircleIcon },
 };
 
 /** Where one of the crew stands, as an icon. */
-export function CrewRosterIcon({ tone }: { readonly tone: CrewRosterTone }) {
-  const className = cn("size-3.5 shrink-0", TONE_TEXT[tone]);
-  switch (tone) {
-    case "done":
-      return <CircleCheckIcon aria-hidden className={className} />;
-    case "working":
-      return <CircleDashedIcon aria-hidden className={className} />;
-    case "waiting":
-      return <CircleDotIcon aria-hidden className={className} />;
-    case "failed":
-      return <CircleAlertIcon aria-hidden className={className} />;
-    case "idle":
-      return <CircleIcon aria-hidden className={cn(className, "opacity-60")} />;
-  }
+export function CrewRosterIcon({ tone }: { readonly tone: FeatureStatus }) {
+  const { icon: Icon, className } = STATUS_LOOK[tone];
+  return <Icon aria-hidden className={cn("size-3.5 shrink-0", className)} />;
 }
 
 /** Marks the crew row for the thread you're in, without hiding its status. Needs a `relative` row. */
@@ -43,5 +40,9 @@ export function CrewRosterHereMark() {
 
 /** Where one of the crew stands, in words. */
 export function CrewRosterStatus({ entry }: { readonly entry: CrewRosterEntry }) {
-  return <span className={cn("shrink-0 text-xs", TONE_TEXT[entry.tone])}>{entry.status}</span>;
+  return (
+    <span className={cn("shrink-0 text-xs", STATUS_LOOK[entry.tone].className)}>
+      {entry.status}
+    </span>
+  );
 }

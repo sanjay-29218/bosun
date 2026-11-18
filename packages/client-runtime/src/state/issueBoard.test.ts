@@ -5,6 +5,7 @@ import {
   featureForIssue,
   featuresByIssue,
   groupIssueParts,
+  groupIssuesByMilestone,
   indexIssueStructure,
   issueKey,
   issuePlace,
@@ -165,5 +166,48 @@ describe("issue structure", () => {
     expect(numbers(grouped.parts.get(placeOf(issue(1))!.key))).toEqual([2]);
     expect(grouped.parts.has(placeOf(issue(2))!.key)).toBe(false);
     expect(grouped.nested.has(placeOf(issue(3))!.key)).toBe(false);
+  });
+});
+
+describe("groupIssuesByMilestone", () => {
+  const beta = { number: 1, title: "Beta" };
+  const milestone = (number: number, title: string) => ({
+    environmentId,
+    projectId,
+    number,
+    title,
+    url: "",
+    dueOn: null,
+    openIssues: 1,
+    closedIssues: 0,
+  });
+
+  it("nests sub-issues under their top parent, in the parent's milestone", () => {
+    const groups = groupIssuesByMilestone(
+      [
+        issue(1, { milestone: beta, subIssues: { completed: 2, total: 4 } }),
+        // No milestone of its own, and a grandchild: both go with #1, never to No milestone.
+        issue(2, { parent: 1 }),
+        issue(3, { parent: 2, milestone: { number: 9, title: "Other" } }),
+        issue(4),
+        // A sub-issue of a parent that isn't open stands on its own.
+        issue(5, { parent: 50 }),
+        issue(6, { state: "closed" }),
+        // Still open in a milestone that has closed.
+        issue(7, { milestone: { number: 2, title: "Alpha" } }),
+      ],
+      [milestone(1, "Beta"), milestone(3, "Empty")],
+    );
+    expect(
+      groups.milestones.map((group) => [
+        group.milestone.title,
+        group.items.map((item) => [item.issue.number, item.parts.map((part) => part.number)]),
+      ]),
+    ).toEqual([["Beta", [[1, [2, 3]]]]]);
+    expect(groups.milestones[0]!.items[0]!.closedParts).toBe(2);
+    expect(groups.none.map((item) => item.issue.number)).toEqual([4, 5]);
+    expect(
+      groups.closedMilestones.map((group) => [group.title, group.items.map((i) => i.issue.number)]),
+    ).toEqual([["Alpha", [7]]]);
   });
 });

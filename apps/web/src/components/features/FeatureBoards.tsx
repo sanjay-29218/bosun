@@ -1,57 +1,55 @@
 import {
-  FEATURE_COLUMN_LABELS,
+  WORK_GROUPS,
   featureCardKey,
-  featureDropAction,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
-  type FeatureColumn,
-  type FeatureColumnGroup,
+  type WorkGroupCards,
+  type WorkGroupId,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
   issueKey,
   type EnvironmentIssue,
   type EnvironmentMilestone,
+  type IssueGroups,
+  type IssueTreeItem,
 } from "@t3tools/client-runtime/state/issue-board";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
-import {
-  AlarmClockIcon,
-  ArchiveIcon,
-  CircleCheckIcon,
-  CircleDashedIcon,
-  CircleIcon,
-  CircleSlashIcon,
-  UserRoundIcon,
-  type LucideIcon,
-} from "lucide-react";
+import { CircleIcon, MilestoneIcon, type LucideIcon } from "lucide-react";
 import { Fragment, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react";
-import { ChevronRightIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
 import { CollapsibleSectionHeader } from "../ui/collapsible-section-header";
 import { ScrollArea } from "../ui/scroll-area";
 import { Skeleton } from "../ui/skeleton";
+import {
+  BoardBand,
+  ClosedPartsLine,
+  GROUP_LOOK,
+  IssueRow,
+  MilestonePie,
+  PagedRows,
+  UnstartedFeatureRow,
+  WorkChatRow,
+  WorkFeatureRow,
+  featureWork,
+  onRowListKeyDown,
+  type RowPlace,
+} from "./BoardRows";
 import { ChatCard, FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
 import { FeatureChildList } from "./FeatureChildList";
 import { FeatureNow } from "./FeatureNow";
-import { ChatRow, FeatureRow, Paged, TodoRow, onRowListKeyDown } from "./FeatureRows";
-import {
-  featureIssueStructure,
-  listItemKey,
-  nestListParts,
-  type ListItem,
-} from "./boardNesting.logic";
-import { IssuePartList, MilestoneHeader, PartsGroup, type PartsFold } from "./IssueStructure";
+import type { BoardWorkflow } from "./startFromBoard";
 
 const PAGE = 10;
+/** No milestone pages so a long backlog doesn't bury what follows. */
+const ISSUE_PAGE = 25;
 
-/**
- * The status columns, the two shelves under Done for features set aside, and Closed: issues and
- * tickets closed without a feature on them.
- */
 type Shelf = "snoozed" | "settled";
-export type BoardSection = FeatureColumn | Shelf | "closed";
+/** Work's groups, and the two shelves folded under them for work set aside. */
+export type WorkSection = WorkGroupId | Shelf;
+
 /**
  * Settled's open state and its older settled threads not loaded yet, counted as the sidebar
  * counts them. Opening it loads them.
@@ -62,93 +60,10 @@ export interface SettledShelf {
   readonly unloaded: number;
 }
 
-/** Chat threads by the section they sit in; chats are never in Todo. */
-export type BoardChats = Partial<Record<BoardSection, ReadonlyArray<EnvironmentThreadShell>>>;
+/** Chat threads by the Work section they sit in. */
+export type BoardChats = Partial<Record<WorkSection, ReadonlyArray<EnvironmentThreadShell>>>;
 
-const SECTION_META: Record<
-  BoardSection,
-  {
-    readonly label: string;
-    readonly icon: LucideIcon;
-    readonly className: string;
-    readonly empty: string;
-  }
-> = {
-  todo: {
-    label: FEATURE_COLUMN_LABELS.todo,
-    icon: CircleIcon,
-    className: "text-muted-foreground",
-    empty: "No todos",
-  },
-  working: {
-    label: FEATURE_COLUMN_LABELS.working,
-    icon: CircleDashedIcon,
-    className: "text-info-foreground",
-    empty: "Nothing running",
-  },
-  "needs-you": {
-    label: FEATURE_COLUMN_LABELS["needs-you"],
-    icon: UserRoundIcon,
-    className: "text-warning-foreground",
-    empty: "Nothing needs you",
-  },
-  done: {
-    label: FEATURE_COLUMN_LABELS.done,
-    icon: CircleCheckIcon,
-    className: "text-success-foreground",
-    empty: "Nothing finished yet",
-  },
-  snoozed: {
-    label: "Snoozed",
-    icon: AlarmClockIcon,
-    className: "text-muted-foreground",
-    empty: "Nothing snoozed",
-  },
-  settled: {
-    label: "Settled",
-    icon: ArchiveIcon,
-    className: "text-muted-foreground",
-    empty: "Nothing settled",
-  },
-  closed: {
-    label: "Closed",
-    icon: CircleSlashIcon,
-    className: "text-muted-foreground",
-    empty: "Nothing closed lately",
-  },
-};
-
-const BOARD_ORDER: ReadonlyArray<BoardSection> = ["todo", "working", "needs-you", "done", "closed"];
-/** The list puts what waits on you first. */
-const LIST_ORDER: ReadonlyArray<BoardSection> = [
-  "needs-you",
-  "working",
-  "todo",
-  "done",
-  "snoozed",
-  "settled",
-  "closed",
-];
-/** Sections that grow without bound show their newest few until asked for more. */
-const PAGED = new Set<BoardSection>(["done", "snoozed", "settled", "closed"]);
-const isShelf = (section: BoardSection): section is Shelf =>
-  section === "snoozed" || section === "settled";
-/** Todo pages in the list so a long backlog doesn't bury what follows. */
-const TODO_PAGE = 25;
-
-interface SectionItems {
-  readonly section: BoardSection;
-  readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
-  readonly chats: ReadonlyArray<EnvironmentThreadShell>;
-  readonly todos: ReadonlyArray<EnvironmentIssue>;
-  /** Some project's issues haven't arrived yet; Todo waits for all of them at once. */
-  readonly todosPending: boolean;
-}
-
-/** Stand-ins for todos still loading, so slow projects don't trickle into the sorted list. */
-const PENDING_TODOS = [0, 1, 2];
-
-type DropAction = "close" | "reopen" | "settle";
+type DropAction = "settle";
 type DropTarget = "open" | "done" | "settled";
 
 export interface FeatureBoardHandlers {
@@ -156,6 +71,11 @@ export interface FeatureBoardHandlers {
     readonly environmentId: EnvironmentId;
     readonly projectId: ProjectId;
   }) => EnvironmentProject | null;
+  /** The machine or project column of a row. */
+  readonly placeFor: (owner: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }) => RowPlace;
   /** The feature's lead's and crew's threads, and a parent's open children's. */
   readonly threadsFor: (card: EnvironmentFeatureCard) => ReadonlyArray<EnvironmentThreadShell>;
   /** The child features the board shows under a parent. */
@@ -167,36 +87,40 @@ export interface FeatureBoardHandlers {
     action: FeatureCardActionId,
     event: MouseEvent,
   ) => void;
-  /** Settles a finished feature, or un-settles a settled one. */
+  /** Settles a feature, or un-settles a settled one. */
   readonly onShelf: (card: EnvironmentFeatureCard) => void;
   /** Whether the feature has threads to settle. */
   readonly canShelf: (card: EnvironmentFeatureCard) => boolean;
-  /** Wakes a snoozed feature's threads. */
   readonly onWake: (card: EnvironmentFeatureCard) => void;
-  /** Snoozes a feature's threads until `snoozedUntil`. */
   readonly onSnooze: (card: EnvironmentFeatureCard, snoozedUntil: string) => void;
-  /** Called only for an allowed move: into Done closes, out of it reopens, onto Settled settles. */
+  /** Dragging onto Settled settles the feature; progress groups come from its PR and activity. */
   readonly onDrop: (
     card: EnvironmentFeatureCard,
     action: DropAction,
     position: { readonly x: number; readonly y: number },
   ) => void;
+  /** Jumps from a feature's `#issue` to its row in Issues, and back. */
+  readonly onShowIssue: (card: EnvironmentFeatureCard) => void;
+  readonly onShowWork: (card: EnvironmentFeatureCard) => void;
   readonly onOpenTodo: (issue: EnvironmentIssue) => void;
-  readonly onStartTodo: (issue: EnvironmentIssue) => void;
-  /** The loaded issue at `url`, or its parent's when `parent` is given. */
-  readonly issueAt: (
-    environmentId: EnvironmentId,
-    url: string,
-    parent?: number,
-  ) => EnvironmentIssue | null;
-  /** A parent's loaded sub-issues. */
-  readonly partsOf: (environmentId: EnvironmentId, url: string) => ReadonlyArray<EnvironmentIssue>;
+  /** Starts a feature on a todo right here, on `workflow` or the project's last one. */
+  readonly onStartTodo: (issue: EnvironmentIssue, workflow?: BoardWorkflow) => void;
+  /** Opens the composer with the todo's brief, to edit before starting. */
+  readonly onEditBrief: (issue: EnvironmentIssue) => void;
+  readonly onCloseTodo: (issue: EnvironmentIssue) => void;
+  readonly onOpenExternal: (url: string) => void;
+  readonly workflowsFor: (owner: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }) => { readonly workflow: BoardWorkflow; readonly workflows: ReadonlyArray<BoardWorkflow> };
   /** The feature working on an issue. */
   readonly featureFor: (issue: EnvironmentIssue) => EnvironmentFeatureCard | null;
   readonly onOpenChat: (shell: EnvironmentThreadShell) => void;
   readonly onChatShelf: (shell: EnvironmentThreadShell) => void;
   readonly onChatWake: (shell: EnvironmentThreadShell) => void;
   readonly onChatSnooze: (shell: EnvironmentThreadShell, snoozedUntil: string) => void;
+  /** New todo, filed in `milestone` when given. */
+  readonly onNewTodo: (milestone?: EnvironmentMilestone) => void;
 }
 
 const dropAction = (
@@ -204,12 +128,12 @@ const dropAction = (
   target: DropTarget,
   handlers: FeatureBoardHandlers,
 ): DropAction | null => {
-  if (target !== "settled") return featureDropAction(card, target);
+  if (target !== "settled") return null;
   // Any feature settles, the way any thread does.
   return handlers.canShelf(card) ? "settle" : null;
 };
 
-/** Drag state shared by the board's columns. Nothing moves until the server answers. */
+/** Drag state shared by Work's columns. Nothing moves until the server answers. */
 function useCardDrag(handlers: FeatureBoardHandlers) {
   const dragged = useRef<EnvironmentFeatureCard | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -254,85 +178,220 @@ function useCardDrag(handlers: FeatureBoardHandlers) {
 
 type Drag = ReturnType<typeof useCardDrag>;
 
-function SectionHeader(props: {
-  readonly section: BoardSection;
-  /** Null while the count isn't known yet. */
-  readonly count: number | null;
-  readonly list: boolean;
-  /** Given for a list shelf, which folds. */
-  readonly expanded?: boolean;
-  readonly onToggle?: () => void;
+export interface WorkItems {
+  readonly groups: ReadonlyArray<WorkGroupCards>;
+  readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly chats: BoardChats;
+}
+
+const cardsIn = (items: WorkItems, section: WorkSection) =>
+  section === "snoozed"
+    ? items.snoozed
+    : section === "settled"
+      ? items.settled
+      : (items.groups.find((group) => group.group === section)?.cards ?? []);
+
+const isShelf = (section: WorkSection): section is Shelf =>
+  section === "snoozed" || section === "settled";
+const shelfOf = (section: WorkSection) => (isShelf(section) ? section : null);
+
+/** A feature's row, with its child features nested under it. */
+function WorkCardRows(props: {
+  readonly card: EnvironmentFeatureCard;
+  readonly section: WorkSection;
+  readonly handlers: FeatureBoardHandlers;
 }) {
-  const { label, icon: Icon, className } = SECTION_META[props.section];
-  const content = (
+  const children = props.handlers.childrenFor(props.card);
+  return (
     <>
-      <Icon aria-hidden className={cn("size-4 shrink-0", className)} />
-      {label}
+      <WorkFeatureRow card={props.card} handlers={props.handlers} shelf={shelfOf(props.section)} />
+      {children.map((child, index) => (
+        <WorkFeatureRow
+          key={featureCardKey(child)}
+          card={child}
+          handlers={props.handlers}
+          shelf={shelfOf(props.section)}
+          nested={index === children.length - 1 ? "last" : "mid"}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Work as a list: a band per group, then Snoozed and Settled folded at the bottom. */
+export function WorkList(props: {
+  readonly revealedRow?: string | null;
+  readonly items: WorkItems;
+  readonly settledShelf: SettledShelf;
+  readonly handlers: FeatureBoardHandlers;
+}) {
+  const { items, handlers } = props;
+  const [snoozedOpen, setSnoozedOpen] = useState(false);
+  const sections: ReadonlyArray<WorkSection> = [...WORK_GROUPS, "snoozed", "settled"];
+  return (
+    <div className="-mx-5 flex flex-col sm:-mx-6" onKeyDown={onRowListKeyDown}>
+      {sections.map((section) => {
+        const cards = cardsIn(items, section);
+        const chats = items.chats[section] ?? [];
+        const settled = section === "settled";
+        const total = cards.length + chats.length + (settled ? props.settledShelf.unloaded : 0);
+        if (total === 0) return null;
+        const shelf = isShelf(section);
+        const containsTarget = (card: EnvironmentFeatureCard): boolean =>
+          featureCardKey(card) === props.revealedRow ||
+          handlers.childrenFor(card).some(containsTarget);
+        const revealIndex = cards.findIndex(containsTarget);
+        const expanded =
+          revealIndex >= 0 || !shelf || (settled ? props.settledShelf.expanded : snoozedOpen);
+        const look = shelf ? null : GROUP_LOOK[section];
+        return (
+          <section key={section} className="flex flex-col">
+            <BoardBand
+              icon={look?.icon ?? CircleIcon}
+              iconClassName={look?.className ?? "text-muted-foreground"}
+              label={look?.label ?? (section === "snoozed" ? "Snoozed" : "Settled")}
+              count={total}
+              right={section === "done" ? "Merged" : null}
+              {...(shelf
+                ? {
+                    expanded,
+                    onToggle: () =>
+                      settled
+                        ? props.settledShelf.onExpandedChange(!expanded)
+                        : setSnoozedOpen(!expanded),
+                  }
+                : {})}
+            />
+            {expanded ? (
+              <>
+                <PagedRows
+                  items={cards}
+                  revealIndex={revealIndex}
+                  pageSize={section === "done" || shelf ? PAGE : null}
+                  render={(card) => (
+                    <WorkCardRows
+                      key={featureCardKey(card)}
+                      card={card}
+                      section={section}
+                      handlers={handlers}
+                    />
+                  )}
+                />
+                <PagedRows
+                  items={chats}
+                  pageSize={section === "done" || shelf ? PAGE : null}
+                  render={(shell) => (
+                    <WorkChatRow
+                      key={`${shell.environmentId}:${shell.id}`}
+                      shell={shell}
+                      handlers={handlers}
+                      shelf={shelfOf(section)}
+                    />
+                  )}
+                />
+              </>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function ColumnHeader(props: {
+  readonly icon: LucideIcon;
+  readonly className: string;
+  readonly label: ReactNode;
+  readonly count: number | null;
+  readonly right?: ReactNode;
+}) {
+  return (
+    <header className="flex h-7 shrink-0 items-center gap-2 px-1.5 text-sm font-medium">
+      <props.icon aria-hidden className={cn("size-4 shrink-0", props.className)} />
+      <span className="min-w-0 truncate">{props.label}</span>
       {props.count === null ? null : (
         <span className="font-normal text-muted-foreground tabular-nums">{props.count}</span>
       )}
-    </>
+      {props.right ? (
+        <span className="ms-auto flex shrink-0 items-center gap-1.5 text-xs font-normal text-muted-foreground">
+          {props.right}
+        </span>
+      ) : null}
+    </header>
   );
-  const headerClassName = cn(
-    "flex shrink-0 items-center gap-2 text-sm font-medium",
-    props.list ? "h-9 border-b border-border/70 bg-muted/40 px-3" : "h-7 px-1.5",
-  );
-  if (props.onToggle) {
-    return (
-      <header className={headerClassName}>
-        <button
-          type="button"
-          aria-expanded={props.expanded}
-          onClick={props.onToggle}
-          className="flex flex-1 items-center gap-2 text-left outline-none focus-visible:underline"
-        >
-          {content}
-          <ChevronRightIcon
-            aria-hidden
-            className={cn("ms-auto size-4 text-muted-foreground", props.expanded && "rotate-90")}
-          />
-        </button>
-      </header>
-    );
-  }
-  return <header className={headerClassName}>{content}</header>;
 }
 
-function ColumnCards(props: {
-  readonly items: SectionItems;
+function Columns(props: { readonly children: ReactNode; readonly onDragEnd?: () => void }) {
+  return (
+    // Columns share the width, and scroll sideways only once they can't fit.
+    <div
+      className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto overscroll-x-contain pb-2"
+      onDragEnd={props.onDragEnd}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function Column(props: {
+  readonly header: ReactNode;
+  readonly empty: string | null;
+  readonly children: ReactNode;
+  readonly className?: string;
+  readonly dropProps?: object;
+}) {
+  return (
+    <section
+      {...props.dropProps}
+      className={cn(
+        "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
+        props.className,
+      )}
+    >
+      {props.header}
+      <ScrollArea className="min-h-0 flex-1" chainHorizontalScroll>
+        <div className="flex flex-col gap-1.5">
+          {props.empty ? (
+            <p className="py-6 text-center text-xs text-muted-foreground/70">{props.empty}</p>
+          ) : (
+            props.children
+          )}
+        </div>
+      </ScrollArea>
+    </section>
+  );
+}
+
+function WorkCards(props: {
+  readonly cards: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly chats: ReadonlyArray<EnvironmentThreadShell>;
+  readonly section: WorkSection;
   readonly handlers: FeatureBoardHandlers;
   readonly drag: Drag;
 }) {
-  const { items, handlers, drag } = props;
-  const shelved = isShelf(items.section);
+  const { handlers } = props;
+  const shelf = shelfOf(props.section);
   return (
     <>
-      <Paged
-        items={items.cards}
-        pageSize={PAGED.has(items.section) ? PAGE : null}
+      <PagedRows
+        items={props.cards}
+        pageSize={props.section === "done" || shelf ? PAGE : null}
         render={(card) => (
           <FeatureCard
             key={featureCardKey(card)}
             card={card}
             threads={handlers.threadsFor(card)}
             project={handlers.projectFor(card)}
-            settled={shelved}
-            draggable={!shelved}
+            pullRequest={featureWork(card, handlers).pullRequest}
+            settled={shelf !== null}
+            draggable={shelf === null}
             onOpen={handlers.onOpen}
             onMenu={handlers.onMenu}
             onAction={handlers.onAction}
-            parkControls={
-              <FeatureParkControls
-                card={card}
-                shelf={isShelf(items.section) ? items.section : null}
-                handlers={handlers}
-              />
-            }
+            parkControls={<FeatureParkControls card={card} shelf={shelf} handlers={handlers} />}
             subfeatures={
-              <>
-                <FeatureChildList cards={handlers.childrenFor(card)} handlers={handlers} />
-                <CardParts card={card} handlers={handlers} />
-              </>
+              <FeatureChildList cards={handlers.childrenFor(card)} handlers={handlers} />
             }
             now={
               <FeatureNow
@@ -341,77 +400,31 @@ function ColumnCards(props: {
                 childCards={handlers.childrenFor(card)}
               />
             }
-            structure={featureIssueStructure(card, handlers)}
-            onDragStart={drag.onDragStart}
+            onDragStart={props.drag.onDragStart}
           />
         )}
       />
-      <Paged
-        items={items.chats}
-        pageSize={PAGED.has(items.section) ? PAGE : null}
+      <PagedRows
+        items={props.chats}
+        pageSize={props.section === "done" || shelf ? PAGE : null}
         render={(shell) => (
           <ChatCard
             key={`${shell.environmentId}:${shell.id}`}
             shell={shell}
             project={handlers.projectFor(shell)}
-            shelf={isShelf(items.section) ? items.section : null}
+            shelf={shelf}
             handlers={handlers}
           />
         )}
       />
-      {items.todosPending ? (
-        PENDING_TODOS.map((index) => <Skeleton key={index} shape="card" className="h-24" />)
-      ) : (
-        <Paged
-          items={items.todos}
-          pageSize={PAGED.has(items.section) ? PAGE : null}
-          render={(issue) => (
-            <TodoCard
-              key={issueKey(issue)}
-              issue={issue}
-              project={handlers.projectFor(issue)}
-              parentTitle={
-                issue.parent === null
-                  ? null
-                  : (handlers.issueAt(issue.environmentId, issue.url, issue.parent)?.title ?? null)
-              }
-              parts={
-                issue.subIssues ? (
-                  <IssuePartList
-                    parts={handlers.partsOf(issue.environmentId, issue.url)}
-                    handlers={handlers}
-                  />
-                ) : null
-              }
-              onOpen={handlers.onOpenTodo}
-              onStart={handlers.onStartTodo}
-            />
-          )}
-        />
-      )}
     </>
-  );
-}
-
-/** A parent feature's issue's loaded sub-issues, less those listed as its child features. */
-function CardParts(props: {
-  readonly card: EnvironmentFeatureCard;
-  readonly handlers: FeatureBoardHandlers;
-}) {
-  const facts = featureIssueStructure(props.card, props.handlers);
-  if (!facts?.subIssues) return null;
-  return (
-    <IssuePartList
-      parts={props.handlers.partsOf(props.card.environmentId, facts.url)}
-      handlers={props.handlers}
-      skip={props.handlers.childrenFor(props.card)}
-    />
   );
 }
 
 /** Snoozed or Settled, folded under Done like the sidebar's Settled shelf. */
 function BoardShelf(props: {
-  readonly items: SectionItems;
+  readonly section: Shelf;
+  readonly items: WorkItems;
   readonly handlers: FeatureBoardHandlers;
   readonly drag: Drag;
   /** Given for Settled, whose older threads load only while it is open. */
@@ -420,300 +433,346 @@ function BoardShelf(props: {
   const [localExpanded, setLocalExpanded] = useState(false);
   const expanded = props.open?.expanded ?? localExpanded;
   const setExpanded = props.open?.onExpandedChange ?? setLocalExpanded;
-  const { items, drag } = props;
+  const cards = cardsIn(props.items, props.section);
+  const chats = props.items.chats[props.section] ?? [];
   // Settled stays as a drop target even when empty; an empty Snoozed shows nothing.
-  const dropTarget = items.section === "settled";
-  const count = items.cards.length + items.chats.length + (props.open?.unloaded ?? 0);
+  const dropTarget = props.section === "settled";
+  const count = cards.length + chats.length + (props.open?.unloaded ?? 0);
   if (count === 0 && !dropTarget) return null;
   return (
     <div
-      {...(dropTarget ? drag.dropProps("settled", "settled") : {})}
+      {...(dropTarget ? props.drag.dropProps("settled", "settled") : {})}
       className="flex flex-col gap-1.5"
     >
       <CollapsibleSectionHeader
         expanded={expanded}
         onClick={() => setExpanded(!expanded)}
-        tone={drag.over === items.section ? "accent" : "muted"}
+        tone={props.drag.over === props.section ? "accent" : "muted"}
         accessory={<span className="font-normal tabular-nums">{count}</span>}
       >
-        {SECTION_META[items.section].label}
+        {props.section === "snoozed" ? "Snoozed" : "Settled"}
       </CollapsibleSectionHeader>
-      {expanded ? <ColumnCards items={items} handlers={props.handlers} drag={drag} /> : null}
+      {expanded ? (
+        <WorkCards
+          cards={cards}
+          chats={chats}
+          section={props.section}
+          handlers={props.handlers}
+          drag={props.drag}
+        />
+      ) : null}
     </div>
   );
 }
 
-/**
- * Todo, Working, Needs you, Done and Closed, as columns or as stacked sections, with Snoozed and
- * Settled folded under Done. Todo holds open issues and tickets beside features not started yet,
- * and Closed the ones closed without a feature; chat threads sit beside features.
- */
-export function FeatureStatusBoard(props: {
-  readonly layout: "board" | "list";
-  readonly groups: ReadonlyArray<FeatureColumnGroup>;
-  readonly todos: ReadonlyArray<EnvironmentIssue>;
-  /** Closed issues and tickets no feature works on, newest first. */
-  readonly closed: ReadonlyArray<EnvironmentIssue>;
-  readonly todosPending: boolean;
-  readonly snoozed: ReadonlyArray<EnvironmentFeatureCard>;
-  readonly settled: ReadonlyArray<EnvironmentFeatureCard>;
-  readonly chats: BoardChats;
+/** Work as columns, one per group, with Snoozed and Settled folded under Done. */
+export function WorkColumns(props: {
+  readonly items: WorkItems;
   readonly settledShelf: SettledShelf;
   readonly handlers: FeatureBoardHandlers;
-  /** The milestone the board is narrowed to; its parents and their parts come first. */
-  readonly milestone: EnvironmentMilestone | null;
 }) {
-  const drag = useCardDrag(props.handlers);
-  const itemsFor = (section: BoardSection): SectionItems => ({
-    section,
-    cards:
-      section === "snoozed"
-        ? props.snoozed
-        : section === "settled"
-          ? props.settled
-          : (props.groups.find((group) => group.column === section)?.cards ?? []),
-    chats: props.chats[section] ?? [],
-    todos: props.todosPending
-      ? []
-      : section === "todo"
-        ? props.todos
-        : section === "closed"
-          ? props.closed
-          : [],
-    todosPending: (section === "todo" || section === "closed") && props.todosPending,
-  });
-  const header = props.milestone ? <MilestoneHeader milestone={props.milestone} /> : null;
-  if (props.layout === "list") {
-    return (
-      <>
-        {header}
-        <FeatureStatusList
-          sections={LIST_ORDER.map(itemsFor)}
-          settledShelf={props.settledShelf}
-          handlers={props.handlers}
-          liftParents={props.milestone !== null}
-        />
-      </>
-    );
-  }
+  const { items, handlers } = props;
+  const drag = useCardDrag(handlers);
+  return (
+    <Columns onDragEnd={drag.onDragEnd}>
+      {WORK_GROUPS.map((group) => {
+        const cards = cardsIn(items, group);
+        const chats = items.chats[group] ?? [];
+        const look = GROUP_LOOK[group];
+        const isDone = group === "done";
+        return (
+          <Column
+            key={group}
+            dropProps={drag.dropProps(group, isDone ? "done" : "open")}
+            className={cn(drag.over === group && "border-dashed border-border bg-accent/40")}
+            header={
+              <ColumnHeader
+                icon={look.icon}
+                className={look.className}
+                label={look.label}
+                count={cards.length + chats.length}
+              />
+            }
+            empty={null}
+          >
+            <WorkCards
+              cards={cards}
+              chats={chats}
+              section={group}
+              handlers={handlers}
+              drag={drag}
+            />
+            {isDone ? (
+              <>
+                <BoardShelf section="snoozed" items={items} handlers={handlers} drag={drag} />
+                <BoardShelf
+                  section="settled"
+                  items={items}
+                  handlers={handlers}
+                  drag={drag}
+                  open={props.settledShelf}
+                />
+              </>
+            ) : null}
+          </Column>
+        );
+      })}
+    </Columns>
+  );
+}
+
+/** How far a milestone has come: closed issues, and open ones whose work waits for review. */
+function milestoneProgress(
+  milestone: EnvironmentMilestone,
+  items: ReadonlyArray<IssueTreeItem>,
+  handlers: FeatureBoardHandlers,
+) {
+  const review = items
+    .flatMap((item) => [item.issue, ...item.parts])
+    .filter((issue) => {
+      const feature = handlers.featureFor(issue);
+      return (
+        feature !== null &&
+        feature.leadThreadId !== null &&
+        featureWork(feature, handlers).group === "review"
+      );
+    }).length;
+  const total = milestone.openIssues + milestone.closedIssues;
+  return { done: milestone.closedIssues, review, total };
+}
+
+function MilestoneProgress(props: {
+  readonly milestone: EnvironmentMilestone;
+  readonly items: ReadonlyArray<IssueTreeItem>;
+  readonly handlers: FeatureBoardHandlers;
+}) {
+  const progress = milestoneProgress(props.milestone, props.items, props.handlers);
   return (
     <>
-      {header}
-      {/* Columns share the width, and scroll sideways only once they can't fit. */}
-      <div
-        className="grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col grid-rows-[minmax(0,1fr)] gap-2 overflow-x-auto overscroll-x-contain pb-2"
-        onDragEnd={drag.onDragEnd}
-      >
-        {BOARD_ORDER.map(itemsFor).map((items) => {
-          const isDone = items.section === "done";
-          const total = items.cards.length + items.chats.length + items.todos.length;
-          return (
-            <section
-              key={items.section}
-              {...(items.section === "closed"
-                ? {}
-                : drag.dropProps(items.section, isDone ? "done" : "open"))}
-              className={cn(
-                "flex h-full min-h-0 min-w-0 flex-col gap-1.5 rounded-xl border border-transparent bg-muted/25 p-1.5",
-                drag.over === items.section && "border-dashed border-border bg-accent/40",
-              )}
-            >
-              <SectionHeader
-                section={items.section}
-                count={items.todosPending ? null : total}
-                list={false}
-              />
-              <ScrollArea className="min-h-0 flex-1" chainHorizontalScroll>
-                <div className="flex flex-col gap-1.5">
-                  {total === 0 && !items.todosPending ? (
-                    <p className="py-6 text-center text-xs text-muted-foreground/70">
-                      {SECTION_META[items.section].empty}
-                    </p>
-                  ) : (
-                    <ColumnCards items={items} handlers={props.handlers} drag={drag} />
-                  )}
-                  {isDone ? (
-                    <>
-                      <BoardShelf
-                        items={itemsFor("snoozed")}
-                        handlers={props.handlers}
-                        drag={drag}
-                      />
-                      <BoardShelf
-                        items={itemsFor("settled")}
-                        handlers={props.handlers}
-                        drag={drag}
-                        open={props.settledShelf}
-                      />
-                    </>
-                  ) : null}
-                </div>
-              </ScrollArea>
-            </section>
-          );
-        })}
-      </div>
+      <MilestonePie {...progress} />
+      <span className="tabular-nums max-sm:hidden">
+        {progress.done} of {progress.total} done
+        {progress.review > 0 ? ` · ${progress.review} in review` : ""}
+      </span>
     </>
   );
 }
 
-function MoreRow(props: { readonly children: ReactNode }) {
+const itemCount = (items: ReadonlyArray<IssueTreeItem>) =>
+  items.reduce((count, item) => count + 1 + item.parts.length, 0);
+
+/** An open issue with its open sub-issues under it, then its closed ones folded into one line. */
+function IssueItemRows(props: {
+  readonly item: IssueTreeItem;
+  readonly handlers: FeatureBoardHandlers;
+  readonly starting: ReadonlySet<string>;
+}) {
+  const { item, handlers } = props;
+  const closed = item.closedParts > 0 && item.parts.length > 0;
   return (
-    <div className="flex h-9 items-center border-b border-border/50 ps-24">{props.children}</div>
+    <>
+      <IssueRow
+        item={item}
+        handlers={handlers}
+        starting={props.starting.has(issueKey(item.issue))}
+      />
+      {item.parts.map((part, index) => (
+        <IssueRow
+          key={issueKey(part)}
+          item={{ issue: part, parts: [], closedParts: 0 }}
+          handlers={handlers}
+          starting={props.starting.has(issueKey(part))}
+          nested={index === item.parts.length - 1 && !closed ? "last" : "mid"}
+        />
+      ))}
+      {closed ? <ClosedPartsLine count={item.closedParts} /> : null}
+    </>
   );
 }
 
-const shelfOf = (section: BoardSection) => (isShelf(section) ? section : null);
+export interface IssueItems {
+  readonly groups: IssueGroups;
+  /** Features not started that have no issue of their own; they sit with the backlog. */
+  readonly unstarted: ReadonlyArray<EnvironmentFeatureCard>;
+  readonly pending: boolean;
+  readonly starting: ReadonlySet<string>;
+}
 
-/** One row per feature or todo, in full-width sections, like an issue tracker's list. */
-function FeatureStatusList(props: {
-  readonly sections: ReadonlyArray<SectionItems>;
-  readonly settledShelf: SettledShelf;
+/** Issues as a list: each open milestone, then No milestone, then closed milestones folded. */
+export function IssuesList(props: {
+  readonly revealedRow?: string | null;
+  readonly items: IssueItems;
   readonly handlers: FeatureBoardHandlers;
-  readonly liftParents: boolean;
 }) {
   const { handlers } = props;
-  const [openShelves, setOpenShelves] = useState<ReadonlySet<BoardSection>>(new Set());
-  const more = (button: ReactNode) => <MoreRow>{button}</MoreRow>;
-  const nesting = nestListParts(props.sections, handlers, props.liftParents);
-
-  const itemRow = (item: ListItem, options: { nested?: boolean; fold?: PartsFold } = {}) =>
-    item.kind === "card" ? (
-      <Fragment key={featureCardKey(item.card)}>
-        <FeatureRow
-          card={item.card}
+  const { groups, starting } = props.items;
+  const [closedOpen, setClosedOpen] = useState(false);
+  const revealClosed = groups.closedMilestones.some((group) =>
+    group.items.some((item) =>
+      [item.issue, ...item.parts].some((issue) => issueKey(issue) === props.revealedRow),
+    ),
+  );
+  const rows = (items: ReadonlyArray<IssueTreeItem>, pageSize: number | null) => (
+    <PagedRows
+      items={items}
+      revealIndex={items.findIndex((item) =>
+        [item.issue, ...item.parts].some((issue) => issueKey(issue) === props.revealedRow),
+      )}
+      pageSize={pageSize}
+      render={(item) => (
+        <IssueItemRows
+          key={issueKey(item.issue)}
+          item={item}
           handlers={handlers}
-          shelf={shelfOf(item.section)}
-          nested={options.nested}
-          fold={options.fold}
+          starting={starting}
         />
-        {nesting.childrenFor(item.card).map((child) => (
-          <FeatureRow
-            key={featureCardKey(child)}
-            card={child}
-            handlers={handlers}
-            shelf={shelfOf(item.section)}
-            nested
-          />
-        ))}
-      </Fragment>
-    ) : (
-      <TodoRow
-        key={issueKey(item.issue)}
-        issue={item.issue}
-        handlers={handlers}
-        nested={options.nested}
-        fold={options.fold}
-      />
-    );
-  /** A row, with its parts under it when it has any in view. */
-  const groupRow = (item: ListItem) => {
-    const parts = nesting.partsFor(item);
-    if (parts.length === 0) return itemRow(item);
+      )}
+    />
+  );
+  const closedCount = groups.closedMilestones.reduce(
+    (count, group) => count + itemCount(group.items),
+    0,
+  );
+  if (props.items.pending) {
     return (
-      <PartsGroup key={listItemKey(item)} head={(fold) => itemRow(item, { fold })}>
-        {parts.map((part) => itemRow(part, { nested: true }))}
-      </PartsGroup>
+      <div className="flex flex-col gap-2 py-2">
+        {[0, 1, 2].map((index) => (
+          <Skeleton key={index} className="h-6 w-1/2" />
+        ))}
+      </div>
     );
-  };
-
+  }
   return (
-    <div
-      className="flex flex-col overflow-hidden rounded-lg border border-border/70"
-      onKeyDown={onRowListKeyDown}
-    >
-      {nesting.lifted.length > 0 ? (
-        <div className="flex flex-col border-b border-border/70">
-          {nesting.lifted.map(groupRow)}
-        </div>
+    <div className="-mx-5 flex flex-col sm:-mx-6" onKeyDown={onRowListKeyDown}>
+      {groups.milestones.map((group) => (
+        <section key={issueKey(group.milestone)} className="flex flex-col">
+          <BoardBand
+            icon={MilestoneIcon}
+            iconClassName="text-muted-foreground"
+            label={group.milestone.title}
+            count={itemCount(group.items)}
+            right={
+              <MilestoneProgress
+                milestone={group.milestone}
+                items={group.items}
+                handlers={handlers}
+              />
+            }
+            onAdd={() => handlers.onNewTodo(group.milestone)}
+          />
+          {rows(group.items, null)}
+        </section>
+      ))}
+      {groups.none.length + props.items.unstarted.length > 0 ? (
+        <section className="flex flex-col">
+          <BoardBand
+            icon={CircleIcon}
+            iconClassName="text-muted-foreground/70"
+            label="No milestone"
+            count={itemCount(groups.none) + props.items.unstarted.length}
+            onAdd={() => handlers.onNewTodo()}
+          />
+          {props.items.unstarted.map((card) => (
+            <UnstartedFeatureRow key={featureCardKey(card)} card={card} handlers={handlers} />
+          ))}
+          {rows(groups.none, ISSUE_PAGE)}
+        </section>
       ) : null}
-      {props.sections.map((items) => {
-        const settled = items.section === "settled";
-        const cards = items.cards.filter((card) =>
-          nesting.shows({ kind: "card", card, section: items.section }),
-        );
-        const todos = items.todos.filter((issue) =>
-          nesting.shows({ kind: "todo", issue, section: items.section }),
-        );
-        // Parts nested in their own section still count there; lifted ones count in their group.
-        const total =
-          (props.liftParents
-            ? cards.length + todos.length
-            : items.cards.length + items.todos.length) +
-          items.chats.length +
-          (settled ? props.settledShelf.unloaded : 0);
-        const shelved = isShelf(items.section);
-        // Empty shelves add nothing to the list; full ones stay folded until opened.
-        if (shelved && total === 0) return null;
-        const folded =
-          shelved && !(settled ? props.settledShelf.expanded : openShelves.has(items.section));
-        return (
-          <section key={items.section} className="flex flex-col">
-            <SectionHeader
-              section={items.section}
-              count={items.todosPending ? null : total}
-              list
-              {...(shelved
-                ? {
-                    expanded: !folded,
-                    onToggle: () =>
-                      settled
-                        ? props.settledShelf.onExpandedChange(folded)
-                        : setOpenShelves((current) => {
-                            const next = new Set(current);
-                            if (!next.delete(items.section)) next.add(items.section);
-                            return next;
-                          }),
-                  }
-                : {})}
-            />
-            {folded ? null : (
-              <>
-                {total === 0 && items.section !== "done" && !items.todosPending ? (
-                  <p className="border-b border-border/50 px-3 py-2 ps-24 text-xs text-muted-foreground/70">
-                    {SECTION_META[items.section].empty}
-                  </p>
-                ) : null}
-                <Paged
-                  items={cards}
-                  pageSize={PAGED.has(items.section) ? PAGE : null}
-                  more={more}
-                  render={(card) => groupRow({ kind: "card", card, section: items.section })}
-                />
-                <Paged
-                  items={items.chats}
-                  pageSize={PAGED.has(items.section) ? PAGE : null}
-                  more={more}
-                  render={(shell) => (
-                    <ChatRow
-                      key={`${shell.environmentId}:${shell.id}`}
-                      shell={shell}
-                      handlers={handlers}
-                      shelf={shelfOf(items.section)}
-                    />
-                  )}
-                />
-                {items.todosPending
-                  ? PENDING_TODOS.map((index) => (
-                      <div
-                        key={index}
-                        className="flex h-9 items-center border-b border-border/50 px-3"
-                      >
-                        <Skeleton className="h-3 w-1/2" />
-                      </div>
-                    ))
-                  : null}
-                <Paged
-                  items={todos}
-                  pageSize={TODO_PAGE}
-                  more={more}
-                  render={(issue) => groupRow({ kind: "todo", issue, section: items.section })}
-                />
-              </>
-            )}
-          </section>
-        );
-      })}
+      {closedCount > 0 ? (
+        <section className="flex flex-col">
+          <BoardBand
+            icon={MilestoneIcon}
+            iconClassName="text-muted-foreground"
+            label="Closed milestones"
+            count={closedCount}
+            expanded={closedOpen || revealClosed}
+            onToggle={() => setClosedOpen(!closedOpen)}
+          />
+          {closedOpen || revealClosed
+            ? groups.closedMilestones.map((group) => (
+                <Fragment key={group.key}>
+                  <div className="flex h-8 items-center gap-2 ps-18 text-xs text-muted-foreground">
+                    <MilestoneIcon aria-hidden className="size-3.5" />
+                    {group.title}
+                  </div>
+                  {rows(group.items, null)}
+                </Fragment>
+              ))
+            : null}
+        </section>
+      ) : null}
     </div>
+  );
+}
+
+function IssueCards(props: {
+  readonly items: ReadonlyArray<IssueTreeItem>;
+  readonly handlers: FeatureBoardHandlers;
+  readonly starting: ReadonlySet<string>;
+}) {
+  const { handlers } = props;
+  return (
+    <PagedRows
+      items={props.items.flatMap((item) => [item.issue, ...item.parts])}
+      pageSize={ISSUE_PAGE}
+      render={(issue) => (
+        <TodoCard
+          key={issueKey(issue)}
+          issue={issue}
+          project={handlers.projectFor(issue)}
+          handlers={handlers}
+          starting={props.starting.has(issueKey(issue))}
+        />
+      )}
+    />
+  );
+}
+
+/** Issues as columns: one per open milestone, then No milestone. */
+export function IssuesColumns(props: {
+  readonly items: IssueItems;
+  readonly handlers: FeatureBoardHandlers;
+}) {
+  const { handlers } = props;
+  const { groups, starting } = props.items;
+  return (
+    <Columns>
+      {groups.milestones.map((group) => (
+        <Column
+          key={issueKey(group.milestone)}
+          header={
+            <ColumnHeader
+              icon={MilestoneIcon}
+              className="text-muted-foreground"
+              label={group.milestone.title}
+              count={itemCount(group.items)}
+              right={
+                <MilestonePie {...milestoneProgress(group.milestone, group.items, handlers)} />
+              }
+            />
+          }
+          empty={null}
+        >
+          <IssueCards items={group.items} handlers={handlers} starting={starting} />
+        </Column>
+      ))}
+      <Column
+        header={
+          <ColumnHeader
+            icon={CircleIcon}
+            className="text-muted-foreground/70"
+            label="No milestone"
+            count={props.items.pending ? null : itemCount(groups.none)}
+          />
+        }
+        empty={!props.items.pending && groups.none.length === 0 ? "Nothing here" : null}
+      >
+        {props.items.pending ? (
+          [0, 1, 2].map((index) => <Skeleton key={index} shape="card" className="h-24" />)
+        ) : (
+          <IssueCards items={groups.none} handlers={handlers} starting={starting} />
+        )}
+      </Column>
+    </Columns>
   );
 }

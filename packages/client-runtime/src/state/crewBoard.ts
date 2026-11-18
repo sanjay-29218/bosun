@@ -8,6 +8,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 
+import { resolveThreadCurrentPullRequestLink } from "../threadPullRequests.ts";
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
 
 /**
@@ -68,18 +69,14 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
 const FEATURE_COLUMNS = ["todo", "working", "needs-you", "done"] as const;
 export type FeatureColumn = (typeof FEATURE_COLUMNS)[number];
 
-export const FEATURE_COLUMN_LABELS: Record<FeatureColumn, string> = {
-  todo: "Todo",
-  working: "Working",
-  "needs-you": "Needs you",
-  done: "Done",
-};
-
 /** The shell fields a column reads from a feature's threads, or from a chat. */
 export type BoardThreadShell = NeedsYouShell &
   Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime"> & {
-    readonly latestRun?: Pick<NonNullable<EnvironmentThreadShell["latestRun"]>, "runId"> | null;
+    readonly latestRun?:
+      | (Pick<LatestRun, "runId"> & { readonly status?: LatestRun["status"] })
+      | null;
   };
+type LatestRun = NonNullable<EnvironmentThreadShell["latestRun"]>;
 
 /**
  * Whether the feature's lead reported it finished (t3_feature_finish) during its latest run, so
@@ -122,6 +119,171 @@ export function featureColumn(
   if (live.some((thread) => threadRuntimeIsActive(thread.runtime))) return "working";
   // A child that reported finished handed its work to its parent's lead, not to the person.
   return card.parentFeatureId !== undefined && featureFinished(card, live) ? "done" : "needs-you";
+}
+
+// ── Status words ─────────────────────────────────────────────────────
+
+/** The only words a crew member, lead or feature shows for where it stands. */
+export type CrewStatus = "working" | "needs-input" | "waiting" | "done" | "failed";
+/** A feature can also be one nobody has started. */
+export type FeatureStatus = CrewStatus | "not-started";
+
+export const FEATURE_STATUS_LABELS: Record<FeatureStatus, string> = {
+  working: "Working",
+  "needs-input": "Needs input",
+  waiting: "Waiting",
+  done: "Done",
+  failed: "Failed",
+  "not-started": "Not started",
+};
+
+export const threadFailed = (shell: Pick<BoardThreadShell, "runtime" | "latestRun">): boolean =>
+  shell.runtime?.status === "failed" || shell.latestRun?.status === "failed";
+
+/**
+ * Where a feature stands, from its lead's and crew's threads, and the thread that puts it there:
+ * the one asking the person something, else the one running. A lead that stopped short of
+ * finishing is Waiting; one that reported the feature finished is Done.
+ */
+export function featureProgress<Shell extends BoardThreadShell>(
+  card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
+  threads: ReadonlyArray<Shell>,
+): {
+  readonly column: FeatureColumn;
+  readonly status: FeatureStatus;
+  readonly thread: Shell | null;
+} {
+  const live = threads.filter((thread) => thread.archivedAt === null);
+  const column = featureColumn(card, live);
+  switch (column) {
+    case "todo":
+      return { column, status: "not-started", thread: null };
+    case "working":
+      return {
+        column,
+        status: "working",
+        thread: live.find((thread) => threadRuntimeIsActive(thread.runtime)) ?? null,
+      };
+    case "done":
+      return { column, status: "done", thread: null };
+    case "needs-you": {
+      const asking = live.find(threadWaitsOnYou);
+      if (asking) return { column, status: "needs-input", thread: asking };
+      if (featureFinished(card, live)) return { column, status: "done", thread: null };
+      const lead = live.find((thread) => thread.id === card.leadThreadId);
+      return { column, status: lead && threadFailed(lead) ? "failed" : "waiting", thread: null };
+    }
+  }
+}
+
+// ── Work tab: Needs input, Working, Ready for review, Done ──────────
+
+export const WORK_GROUPS = ["needs-input", "working", "review", "done"] as const;
+export type WorkGroupId = (typeof WORK_GROUPS)[number];
+
+export const WORK_GROUP_LABELS: Record<WorkGroupId, string> = {
+  "needs-input": "Needs input",
+  working: "Working",
+  review: "Ready for review",
+  done: "Done",
+};
+
+/** A thread's pull request; `state` is null when only its number is known. */
+export interface WorkPullRequest {
+  readonly number: number;
+  readonly url: string;
+  readonly state: "open" | "closed" | "merged" | null;
+}
+
+export type PullRequestShell = Pick<
+  EnvironmentThreadShell,
+  "pullRequests" | "linkedPullRequest" | "branchPullRequest"
+>;
+
+/** The pull request a thread shows: its current link with its last known state, else its number. */
+export function threadPullRequest(shell: Partial<PullRequestShell>): WorkPullRequest | null {
+  const link = resolveThreadCurrentPullRequestLink(shell.pullRequests ?? []);
+  if (link) return { number: link.number, url: link.url, state: link.snapshot?.state ?? null };
+  const fallback = shell.linkedPullRequest ?? shell.branchPullRequest ?? null;
+  return fallback ? { number: fallback.number, url: fallback.url, state: null } : null;
+}
+
+/** A feature's pull request: its lead's, else the first of its crew's. */
+export function featurePullRequest(
+  card: Pick<FeatureBoardCard, "leadThreadId">,
+  threads: ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>,
+): WorkPullRequest | null {
+  const lead = threads.find((thread) => thread.id === card.leadThreadId);
+  const own = lead ? threadPullRequest(lead) : null;
+  if (own) return own;
+  for (const thread of threads) {
+    const pullRequest = threadPullRequest(thread);
+    if (pullRequest) return pullRequest;
+  }
+  return null;
+}
+
+/**
+ * A started feature's Work group. Anything asking the person comes first, then a running turn,
+ * even with a PR open. Done means merged; an open PR, or a lead that
+ * reported the work finished, is Ready for review. A lead that stopped short stays in Working.
+ */
+export function featureWorkGroup(
+  card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
+  threads: ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>,
+): WorkGroupId {
+  const live = threads.filter((thread) => thread.archivedAt === null);
+  if (live.some(threadWaitsOnYou)) return "needs-input";
+  if (live.some((thread) => threadRuntimeIsActive(thread.runtime))) return "working";
+  const pullRequest = featurePullRequest(card, threads);
+  if (pullRequest?.state === "merged") return "done";
+  if (
+    (pullRequest && pullRequest.state !== "closed") ||
+    card.status === "closed" ||
+    featureFinished(card, live)
+  )
+    return "review";
+  return "working";
+}
+
+/** Chats follow the same PR groups; completed work without a merged PR can be settled. */
+export function chatWorkGroup(shell: BoardThreadShell & Partial<PullRequestShell>): WorkGroupId {
+  const column = threadBoardColumn(shell);
+  if (column === "needs-you") return "needs-input";
+  if (column === "working") return "working";
+  const pullRequest = threadPullRequest(shell);
+  if (pullRequest?.state === "merged") return "done";
+  return pullRequest && pullRequest.state !== "closed" ? "review" : "working";
+}
+
+export interface WorkGroupCards<Card extends EnvironmentFeatureCard = EnvironmentFeatureCard> {
+  readonly group: WorkGroupId;
+  readonly cards: ReadonlyArray<Card>;
+}
+
+/** Started features by Work group. Needs input puts the longest wait first; the others the newest. */
+export function groupFeaturesByWork<Card extends EnvironmentFeatureCard>(
+  cards: ReadonlyArray<Card>,
+  threads: ReadonlyMap<string, ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>>,
+): ReadonlyArray<WorkGroupCards<Card>> {
+  const groups = new Map<WorkGroupId, { card: Card; movedAt: string }[]>(
+    WORK_GROUPS.map((group) => [group, []]),
+  );
+  for (const card of cards) {
+    if (card.leadThreadId === null) continue;
+    const own = threads.get(featureCardKey(card)) ?? [];
+    groups.get(featureWorkGroup(card, own))!.push({ card, movedAt: featureMovedAt(card, own) });
+  }
+  return WORK_GROUPS.map((group) => ({
+    group,
+    cards: [...groups.get(group)!]
+      .sort((a, b) =>
+        group === "needs-input"
+          ? a.movedAt.localeCompare(b.movedAt)
+          : b.movedAt.localeCompare(a.movedAt),
+      )
+      .map((entry) => entry.card),
+  }));
 }
 
 /**
@@ -396,15 +558,6 @@ export function matchesFeatureSearch(
 }
 
 // ── Drag and actions ─────────────────────────────────────────────────
-
-/** The only board moves: into Done closes, out of Done reopens. */
-export function featureDropAction(
-  card: Pick<FeatureBoardCard, "status">,
-  target: "done" | "open",
-): "close" | "reopen" | null {
-  if (target === "done") return card.status === "open" ? "close" : null;
-  return card.status === "closed" ? "reopen" : null;
-}
 
 export type FeatureCardActionId = "start" | "close" | "reopen";
 

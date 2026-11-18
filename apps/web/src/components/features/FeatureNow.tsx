@@ -1,10 +1,12 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  FEATURE_STATUS_LABELS,
   featureCardKey,
   featureFinished,
+  featureProgress,
   featureRef,
-  threadNeedsYouKind,
   type EnvironmentFeatureCard,
+  type FeatureStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
 import {
@@ -31,13 +33,14 @@ const TONE_SURFACE = {
 /** Who a thread runs as: its crew member, else the feature's lead. */
 const crewName = (thread: EnvironmentThreadShell | null) => thread?.feature?.member ?? "Lead";
 
-/** What a thread waiting on the person wants; with none asking, the lead stopped. */
-const askLabel = (thread: EnvironmentThreadShell | null, who: string) =>
-  thread?.hasPendingApprovals || thread?.pendingSubagentRequest === "approval"
-    ? `${who} needs your approval`
-    : (thread && threadNeedsYouKind(thread) === "question") || thread?.pendingSubagentRequest
-      ? `${who} needs your answer`
-      : "Your turn: the lead stopped";
+/** What a thread waiting on the person wants: an approval, else an answer. */
+const askLabel = (thread: EnvironmentThreadShell, who: string) =>
+  thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval"
+    ? `Needs input: ${who} asks for your approval`
+    : `Needs input: ${who} asks a question`;
+
+/** A lead that stopped short of finishing the feature. */
+const STOPPED = "Waiting: the lead stopped before finishing";
 
 const waitedSince = (thread: EnvironmentThreadShell | null) =>
   thread ? <RelativeTime timestamp={thread.runtime?.updatedAt ?? thread.updatedAt} /> : null;
@@ -62,7 +65,7 @@ export function FeatureNow(props: {
 
 function NowLine(props: {
   readonly tone: keyof typeof TONE_SURFACE;
-  readonly icon: "working" | "waiting" | "done" | "idle";
+  readonly icon: FeatureStatus;
   readonly label: string;
   readonly since?: ReactNode;
   readonly children?: ReactNode;
@@ -90,11 +93,12 @@ function FeatureCrewNow(props: {
     card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
   const roster = group ? buildCrewRoster(group).filter((entry) => entry.kind === "member") : [];
-  const { column, status, thread } = featureStatus(card, props.threads);
+  const { column, status, thread } = featureProgress(card, props.threads);
+  const label = FEATURE_STATUS_LABELS[status];
   // A lead waiting because one of its crew asks names that member.
   const asker =
     thread && thread.feature?.member === undefined && thread.pendingSubagentRequest
-      ? roster.find((entry) => entry.tone === "waiting")?.name
+      ? roster.find((entry) => entry.tone === "needs-input")?.name
       : undefined;
   const who = asker ?? crewName(thread);
   const chain =
@@ -133,28 +137,38 @@ function FeatureCrewNow(props: {
       );
     }
     case "needs-you":
-      return thread === null && featureFinished(card, props.threads) ? (
-        <NowLine tone="quiet" icon="done" label="Ready for review: the lead reported it done">
+      return thread !== null ? (
+        <NowLine
+          tone="waiting"
+          icon="needs-input"
+          label={askLabel(thread, who)}
+          since={waitedSince(thread)}
+        >
           {chain}
         </NowLine>
       ) : (
         <NowLine
-          tone="waiting"
-          icon="waiting"
-          label={askLabel(thread, who)}
-          since={waitedSince(thread)}
+          tone="quiet"
+          icon={status}
+          label={
+            status === "done"
+              ? "Done: the lead reported it finished"
+              : status === "failed"
+                ? "Failed: the lead's turn failed"
+                : STOPPED
+          }
         >
           {chain}
         </NowLine>
       );
     case "done":
       return (
-        <NowLine tone="quiet" icon="done" label={status.label}>
+        <NowLine tone="quiet" icon="done" label={label}>
           {chain}
         </NowLine>
       );
     case "todo":
-      return <NowLine tone="quiet" icon="idle" label={status.label} />;
+      return <NowLine tone="quiet" icon="not-started" label={label} />;
   }
 }
 
@@ -177,7 +191,7 @@ function ParentNow(props: {
     rows.map((row) => row.column),
   );
   const summary = [
-    now.needYou > 0 ? `${now.needYou} need${now.needYou === 1 ? "s" : ""} you` : null,
+    now.needYou > 0 ? `${now.needYou} need${now.needYou === 1 ? "s" : ""} input` : null,
     now.working > 0 ? `${now.working} working` : null,
     `${now.done} of ${now.total} done`,
   ]
@@ -189,11 +203,11 @@ function ParentNow(props: {
   const head = {
     "own-asks": {
       tone: "waiting",
-      icon: "waiting",
-      label: askLabel(own.thread, ownWho),
+      icon: "needs-input",
+      label: own.thread ? askLabel(own.thread, ownWho) : FEATURE_STATUS_LABELS["needs-input"],
       since: waitedSince(own.thread),
     },
-    "children-need-you": { tone: "waiting", icon: "waiting", label: summary, since: null },
+    "children-need-you": { tone: "waiting", icon: "needs-input", label: summary, since: null },
     "own-working": {
       tone: "working",
       icon: "working",
@@ -205,11 +219,11 @@ function ParentNow(props: {
       props.card,
       props.threadsFor(props.card).filter((thread) => thread.feature?.id === props.card.featureId),
     )
-      ? { tone: "quiet", icon: "done", label: "Ready for review", since: null }
-      : { tone: "waiting", icon: "waiting", label: askLabel(null, ownWho), since: null },
+      ? { tone: "quiet", icon: "done", label: "Done: the lead reported it finished", since: null }
+      : { tone: "quiet", icon: "waiting", label: STOPPED, since: null },
     settled: {
       tone: "quiet",
-      icon: now.done === now.total ? "done" : "idle",
+      icon: now.done === now.total ? "done" : "waiting",
       label: summary,
       since: null,
     },
