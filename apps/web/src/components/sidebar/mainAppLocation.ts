@@ -39,6 +39,7 @@ export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname.startsWith("/projects/") ||
     pathname === "/pull-requests" ||
+    pathname === "/issues" ||
     pathname === AUTOMATIONS_PATH ||
     pathname === BOTS_LIST_PATH
   );
@@ -48,7 +49,7 @@ export function isSidebarUtilityPage(pathname: string) {
  * What the rail points at: the bots (the picked bot's threads) or one of its places. The sidebar
  * column shows the destination's list.
  */
-export type RailDestination = "bots" | "bots-list" | "automations" | "pull-requests";
+export type RailDestination = "bots" | "bots-list" | "automations" | "pull-requests" | "issues";
 
 const railDestinationForPathname = (pathname: string): RailDestination =>
   pathname === AUTOMATIONS_PATH
@@ -57,7 +58,9 @@ const railDestinationForPathname = (pathname: string): RailDestination =>
       ? "bots-list"
       : pathname === "/pull-requests"
         ? "pull-requests"
-        : "bots";
+        : pathname === "/issues"
+          ? "issues"
+          : "bots";
 
 /** The route's destination. Settings and Usage open over it, so they keep the one underneath. */
 export function useRailDestination(): RailDestination {

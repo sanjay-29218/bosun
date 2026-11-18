@@ -183,28 +183,39 @@ const legacyNames = new Set([
 /** Bosun's migrations share the folder with T3 Code's, under their own history table. */
 export const bosunMigrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
 
+const tableExists = Effect.fn("BosunMigrations.tableExists")(function* (name: string) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ${name}`;
+  return rows.length > 0;
+});
+
+const legacyRows = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  if (!(yield* tableExists("effect_sql_migrations"))) return [];
+  const rows = yield* sql<{
+    readonly migrationId: number;
+    readonly name: string;
+    readonly createdAt: string;
+  }>`
+    SELECT migration_id AS migrationId, name, created_at AS createdAt
+    FROM effect_sql_migrations WHERE migration_id >= 55
+  `;
+  return rows.filter((row) => legacyNames.has(row.name));
+});
+
+// Reads first: a current database must take no write lock, so CLI startup never contends
+// with the running server (upstream's runMigrations makes the same promise).
 export const reconcileLegacyHistory = Effect.fn("BosunMigrations.reconcileLegacyHistory")(
   function* () {
     const sql = yield* SqlClient.SqlClient;
+    if ((yield* tableExists("bosun_sql_migrations")) && (yield* legacyRows).length === 0) return;
     yield* sql.withTransaction(
       Effect.gen(function* () {
         yield* sql`CREATE TABLE IF NOT EXISTS bosun_sql_migrations (
       migration_id INTEGER PRIMARY KEY, name TEXT NOT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`;
-        const tables =
-          yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
-        if (tables.length === 0) return;
-        const rows = yield* sql<{
-          readonly migrationId: number;
-          readonly name: string;
-          readonly createdAt: string;
-        }>`
-      SELECT migration_id AS migrationId, name, created_at AS createdAt
-      FROM effect_sql_migrations WHERE migration_id >= 55
-    `;
-        for (const row of rows) {
-          if (!legacyNames.has(row.name)) continue;
+        for (const row of yield* legacyRows) {
           yield* sql`INSERT INTO bosun_sql_migrations (migration_id, name, created_at)
         VALUES (${row.migrationId}, ${row.name}, ${row.createdAt})
         ON CONFLICT (migration_id) DO UPDATE SET name = excluded.name, created_at = excluded.created_at`;
@@ -216,14 +227,23 @@ export const reconcileLegacyHistory = Effect.fn("BosunMigrations.reconcileLegacy
 );
 
 const run = Migrator.make({});
-export const runMigrations = (throughId?: number) =>
-  run({
+export const runMigrations = Effect.fn("BosunMigrations.runMigrations")(function* (
+  throughId?: number,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  const entries = migrationEntries.filter(([id]) => throughId === undefined || id <= throughId);
+  if (yield* tableExists("bosun_sql_migrations")) {
+    const [latest] = yield* sql<{
+      readonly id: number | null;
+    }>`SELECT MAX(migration_id) AS id FROM bosun_sql_migrations`;
+    const latestId = latest?.id ?? 0;
+    // The Migrator runs ids above the latest recorded one; with none, it would only write.
+    if (!entries.some(([id]) => id > latestId)) return [];
+  }
+  return yield* run({
     table: "bosun_sql_migrations",
     loader: Migrator.fromRecord(
-      Object.fromEntries(
-        migrationEntries
-          .filter(([id]) => throughId === undefined || id <= throughId)
-          .map(([id, name, migration]) => [`${id}_${name}`, migration]),
-      ),
+      Object.fromEntries(entries.map(([id, name, migration]) => [`${id}_${name}`, migration])),
     ),
   });
+});

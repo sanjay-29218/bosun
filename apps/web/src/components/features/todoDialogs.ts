@@ -8,7 +8,7 @@ import {
 import { Atom } from "effect/reactivity";
 
 import { readLocalApi } from "../../localApi";
-import { type IssueSurface, useRightPanelStore } from "../../rightPanelStore";
+import { type TodoSurface, useRightPanelStore } from "../../rightPanelStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 
 /*
@@ -96,7 +96,7 @@ export function openFeatureIssue(
 
 /** Opens a todo as a tab in a thread's right panel. */
 export function openTodoInPanel(threadRef: ScopedThreadRef, todo: TodoTarget, ref: string): void {
-  useRightPanelStore.getState().openIssue(threadRef, {
+  useRightPanelStore.getState().openTodo(threadRef, {
     environmentId: todo.environmentId,
     projectId: todo.projectId,
     ref,
@@ -107,7 +107,7 @@ export function openTodoInPanel(threadRef: ScopedThreadRef, todo: TodoTarget, re
 }
 
 /** The todo an issue tab shows. */
-export function issueSurfaceTodo(surface: IssueSurface): TodoTarget {
+export function todoSurfaceTarget(surface: TodoSurface): TodoTarget {
   const owner = {
     environmentId: surface.environmentId as EnvironmentId,
     projectId: surface.projectId as ProjectId,

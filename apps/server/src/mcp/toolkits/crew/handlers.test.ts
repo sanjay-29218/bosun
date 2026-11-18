@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
-  IssueOperationError,
+  BoardIssueOperationError,
   ProjectId,
   ProviderInstanceId,
   RuntimeRequestId,
@@ -148,7 +148,7 @@ const layerAs = (
           list: (project) =>
             project === projectId
               ? Effect.succeed(issueList)
-              : Effect.fail(new IssueOperationError({ reason: "Project not found." })),
+              : Effect.fail(new BoardIssueOperationError({ reason: "Project not found." })),
           ...issues,
         }),
         Layer.mock(TicketService)({
