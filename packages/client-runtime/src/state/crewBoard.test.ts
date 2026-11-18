@@ -355,7 +355,7 @@ describe("work groups", () => {
     expect(chatWorkGroup(chat({ pullRequests: [pr("open")] }))).toBe("review");
     expect(chatWorkGroup(chat({ pullRequests: [pr("merged")] }))).toBe("done");
     expect(chatWorkGroup(chat({ pullRequests: [pr("closed")] }))).toBe("working");
-    expect(chatWorkGroup(chat({}))).toBe("done");
+    expect(chatWorkGroup(chat({}))).toBe("working");
     expect(chatWorkGroup(chat({ hasPendingApprovals: true }))).toBe("needs-input");
     const groups = groupFeaturesByWork(
       [card("f"), card("todo", { leadThreadId: null })],

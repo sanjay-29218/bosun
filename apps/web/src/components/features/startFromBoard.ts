@@ -184,6 +184,13 @@ export function useStartTodo() {
         },
       });
       return true;
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not start the feature",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+      return false;
     } finally {
       setStarting(key, false);
     }
