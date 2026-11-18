@@ -283,7 +283,7 @@ function NewWorkflow({
   readonly onCancel: () => void;
 }) {
   if (!roles.some((role) => role.enabled)) {
-    return <LibraryStatus status="Add a role first. A workflow's lead and crew are roles." />;
+    return <LibraryStatus status="Add a role first. A workflow's crew are roles." />;
   }
   return (
     <WorkflowEditorForm
