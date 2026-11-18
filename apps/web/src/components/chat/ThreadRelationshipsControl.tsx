@@ -8,6 +8,7 @@ import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import {
   deriveWorkflowGroups,
   projectedSubagentsToRuntime,
@@ -223,6 +224,9 @@ const FINISHED_STATUSES = ["completed", "failed", "error", "cancelled", "interru
 /** A feature lead's status as its sidebar row reads it: a lead whose crew is working waits. */
 function featureLeadStatus(lead: EnvironmentThreadShell): string {
   switch (resolveSidebarThreadStatus(lead)) {
+    case "approval":
+    case "input":
+      return "needs_input";
     case "working":
       return "running";
     case "failed":
@@ -856,15 +860,15 @@ export function ThreadRelationshipsPanel(props: {
     const isMergeTarget = threadId === mergeTargetThreadId;
     const isParent = isParentThreadRelationship(edge, props.threadId);
     const finished = finishedRowIds.has(threadId);
-    const featureLead =
-      edge.kind === "feature" && !isParent && node?.thread
-        ? presentThreadShell(props.environmentId, node.thread)
-        : undefined;
+    const shell = node?.thread ? presentThreadShell(props.environmentId, node.thread) : undefined;
+    const featureLead = edge.kind === "feature" && !isParent ? shell : undefined;
     const rowStatus = featureLead
       ? featureLeadStatus(featureLead)
-      : ((isParent && threadId === parentRef?.threadId
-          ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
-          : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }));
+      : shell && threadNeedsYouKind(shell) !== null
+        ? "needs_input"
+        : ((isParent && threadId === parentRef?.threadId
+            ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
+            : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }));
     const RelationshipIcon = isParent
       ? CornerLeftUpIcon
       : isSubagent
