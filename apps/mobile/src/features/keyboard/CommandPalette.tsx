@@ -342,6 +342,17 @@ export function CommandPalette(props: {
               };
             })
         : []),
+      ...(activeBot.bots.length > 0 && activeBot.active !== null
+        ? [
+            {
+              key: "projects",
+              kind: "action" as const,
+              title: "Show all projects",
+              searchTerms: ["projects", "all projects", "switch"],
+              run: activeBot.showProjects,
+            },
+          ]
+        : []),
       {
         key: "settings",
         kind: "action",

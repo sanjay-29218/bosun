@@ -58,6 +58,7 @@ export interface PersistedUiState {
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
   activeBotIdByEnvironmentId?: Record<string, string>;
+  botRailShowsProjects?: boolean;
   sidebarEnvironmentIds?: string[] | null;
   botRailWidth?: number;
   botRailCollapsed?: boolean;
@@ -74,6 +75,8 @@ export interface UiProjectState {
   // The bot rail's selection, remembered per environment because bots are
   // environment-local.
   activeBotIdByEnvironmentId: Record<string, string>;
+  // The rail's Projects entry is picked instead of a bot: every project shows.
+  botRailShowsProjects: boolean;
   // Environments the rail and sidebar show, or null for all of them.
   sidebarEnvironmentIds: string[] | null;
 }
@@ -116,6 +119,7 @@ const initialState: UiState = {
   projectOrder: [],
   sidebarProjectScopeKeys: [],
   activeBotIdByEnvironmentId: {},
+  botRailShowsProjects: false,
   sidebarEnvironmentIds: null,
   botRailWidth: BOT_RAIL_DEFAULT_WIDTH,
   botRailCollapsed: false,
@@ -225,6 +229,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
     ),
     activeBotIdByEnvironmentId: sanitizeStringRecord(parsed.activeBotIdByEnvironmentId),
+    botRailShowsProjects: parsed.botRailShowsProjects === true,
     sidebarEnvironmentIds: Array.isArray(parsed.sidebarEnvironmentIds)
       ? sanitizeStringArray(parsed.sidebarEnvironmentIds)
       : null,
@@ -309,6 +314,7 @@ export function persistState(state: UiState): void {
             ? (state.sidebarProjectScopeKeys[0] ?? null)
             : null,
         activeBotIdByEnvironmentId: state.activeBotIdByEnvironmentId,
+        botRailShowsProjects: state.botRailShowsProjects,
         sidebarEnvironmentIds: state.sidebarEnvironmentIds,
         botRailWidth: state.botRailWidth,
         botRailCollapsed: state.botRailCollapsed,
@@ -432,11 +438,24 @@ export function setActiveBotIdByEnvironmentId(
 ): UiState {
   const current = state.activeBotIdByEnvironmentId;
   const unchanged =
+    !state.botRailShowsProjects &&
     Object.keys(next).length === Object.keys(current).length &&
     Object.entries(next).every(([environmentId, botId]) => current[environmentId] === botId);
   return unchanged
     ? state
-    : { ...state, activeBotIdByEnvironmentId: next, sidebarProjectScopeKeys: [] };
+    : {
+        ...state,
+        activeBotIdByEnvironmentId: next,
+        botRailShowsProjects: false,
+        sidebarProjectScopeKeys: [],
+      };
+}
+
+/** Picks the rail's Projects entry, which shows every project; each bot stays remembered. */
+export function showBotRailProjects(state: UiState): UiState {
+  return state.botRailShowsProjects && state.sidebarProjectScopeKeys.length === 0
+    ? state
+    : { ...state, botRailShowsProjects: true, sidebarProjectScopeKeys: [] };
 }
 
 function setSidebarEnvironmentIds(state: UiState, environmentIds: string[] | null): UiState {
@@ -559,6 +578,7 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setActiveBotIdByEnvironmentId: (next: Record<string, string>) => void;
+  showBotRailProjects: () => void;
   setSidebarEnvironmentIds: (environmentIds: string[] | null) => void;
   setBotRailLayout: (layout: Partial<UiBotRailState>) => void;
   toggleBotRailCollapsed: () => void;
@@ -589,6 +609,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setActiveBotIdByEnvironmentId(state, next));
     useThreadSelectionStore.getState().clearSelection();
   },
+  showBotRailProjects: () => set(showBotRailProjects),
   setSidebarEnvironmentIds: (environmentIds) => {
     set((state) => setSidebarEnvironmentIds(state, environmentIds));
     useThreadSelectionStore.getState().clearSelection();

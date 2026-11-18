@@ -7,16 +7,20 @@ import { GUEST_PAGE_PATH } from "../../guestPage";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 import { withoutAssistantCitationHash } from "../../lib/assistantCitationNavigation";
 import {
+  PROJECTS_RAIL_KEY,
   readActiveLogicalBotKey,
+  readRailSelectionKey,
   requestBotFirstThread,
   selectBotOfHeadquarters,
 } from "../../state/botRail";
 import { readActiveEnvironmentId } from "../../state/entities";
+import { useUiStateStore } from "../../uiStateStore";
 import {
   resolveThreadRouteRef,
   resolveThreadRouteTarget,
   type ThreadRouteTarget,
 } from "../../threadRoutes";
+import { supersedeStandingOpen } from "./standingOpen";
 
 /** Settings and Usage open as modals over the last main-app view. */
 export function isAppModalPage(pathname: string) {
@@ -137,12 +141,29 @@ function rememberMainView(environmentId: EnvironmentId | null, view: MainView) {
   }
 }
 
-// Where each bot was left: its board, a thread, or its headquarters. Lost on reload, when a
-// bot's first click opens its headquarters again.
+// Where each bot, and Projects, was left: a board or a thread. Lost on reload, when a bot's
+// first click opens its headquarters again.
 const botHrefs = new Map<string, string>();
 
 /** The page the bot showed last in this session, if any. */
 export const readBotHref = (botKey: string) => botHrefs.get(botKey);
+
+/**
+ * Picks the rail's Projects entry, which shows every project. It opens where Projects was left,
+ * else the page on screen, unless that is a bot's or manager's own thread: then a new thread.
+ */
+export function useSelectRailProjects() {
+  const navigate = useNavigate();
+  return () => {
+    const botKey = readActiveLogicalBotKey();
+    if (botKey !== null) rememberBotHref(botKey);
+    useUiStateStore.getState().showBotRailProjects();
+    supersedeStandingOpen();
+    return navigate({
+      href: botHrefs.get(PROJECTS_RAIL_KEY) ?? (mainAppHrefIsStanding ? null : mainAppHref) ?? "/",
+    });
+  };
+}
 
 /** Saves the main page on screen for `botKey`, which the app may have opened on before bots loaded. */
 export function rememberBotHref(botKey: string) {
@@ -184,8 +205,7 @@ export function startMainAppLocationTracking(router: AnyRouter): () => void {
     const view = mainViewForPathname(pathname);
     mainViewHrefs[view] = href;
     rememberMainView(readActiveEnvironmentId(), view);
-    const botKey = readActiveLogicalBotKey();
-    if (botKey !== null && !mainAppHrefIsStanding) botHrefs.set(botKey, href);
+    if (!mainAppHrefIsStanding) botHrefs.set(readRailSelectionKey(), href);
   };
   record();
   return router.subscribe("onResolved", record);

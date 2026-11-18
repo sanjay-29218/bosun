@@ -215,7 +215,9 @@ const visibleLogicalBots = (
 ) => onShownEnvironment(bots, environmentFilter).filter((bot) => bot.pinned);
 
 function readActiveLogicalBot(): LogicalBot | null {
-  const { activeBotIdByEnvironmentId, sidebarEnvironmentIds } = useUiStateStore.getState();
+  const { activeBotIdByEnvironmentId, botRailShowsProjects, sidebarEnvironmentIds } =
+    useUiStateStore.getState();
+  if (botRailShowsProjects) return null;
   const environmentFilter = resolveEnvironmentFilter(
     sidebarEnvironmentIds,
     appAtomRegistry.get(environmentSummaries.connectedEnvironmentIdsAtom),
@@ -246,6 +248,12 @@ export function selectBotOfHeadquarters(environmentId: EnvironmentId, botId: str
 /** The active rail entry's key, read outside React (the main view is remembered per bot). */
 export function readActiveLogicalBotKey(): string | null {
   return readActiveLogicalBot()?.key ?? null;
+}
+
+/** Where the rail remembers its pages: the active bot, else the Projects entry. */
+export const PROJECTS_RAIL_KEY = "projects";
+export function readRailSelectionKey(): string {
+  return readActiveLogicalBotKey() ?? PROJECTS_RAIL_KEY;
 }
 
 /**
@@ -325,7 +333,14 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   const bots = useVisibleLogicalBots();
   const environmentIds = useBotEnvironmentIds();
   const remembered = useUiStateStore((store) => store.activeBotIdByEnvironmentId);
-  return resolveActiveLogicalBot(bots, remembered, environmentIds);
+  const showsProjects = useUiStateStore((store) => store.botRailShowsProjects);
+  return showsProjects ? null : resolveActiveLogicalBot(bots, remembered, environmentIds);
+}
+
+/** Whether the rail's Projects entry is what the thread list shows: picked, or no bot to pick. */
+export function useBotRailShowsProjects(): boolean {
+  const active = useVisibleActiveLogicalBot();
+  return useShowBotRail() && active === null;
 }
 
 /**

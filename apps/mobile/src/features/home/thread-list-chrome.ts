@@ -5,16 +5,16 @@ import type { LogicalBot } from "@t3tools/client-runtime/state/bot-rail";
  * iPad native headers, the iPad sidebar, and Android's toolbar.
  */
 export interface BotSwitcherMenu {
-  /** The active bot's look; null with no bot to show, when the header reads Bots. */
+  /** The active bot's look; null while every project shows, when the header reads Projects. */
   readonly bot: Pick<LogicalBot, "avatar" | "color"> | null;
   readonly name: string;
   readonly accessibilityLabel: string;
   /** Threads waiting on you under the other bots, which this list doesn't show. */
   readonly elsewhereNeedsYou: number;
   /**
-   * The pinned bots to switch to (with `state`), the pinned project managers, Bots (every bot
-   * and manager), the active bot's headquarters, then Automations and Library, the web rail's
-   * places for scheduled tasks and roles.
+   * Projects and the pinned bots to switch to (with `state`), the pinned project managers, Bots
+   * (every bot and manager), the active bot's headquarters, then Automations and Library, the
+   * web rail's places for scheduled tasks and roles.
    */
   readonly items: ReadonlyArray<{
     readonly key: string;
@@ -34,9 +34,9 @@ export interface SwitcherManager {
 }
 
 /**
- * The pinned bots to switch between, the pinned project managers, Bots, the active bot's
- * headquarters, Automations and Library. A single bot still gets the button, and so does no bot:
- * the header then reads Bots. An unpinned bot picked from the Bots screen stays active.
+ * Projects (every project, whatever bot owns it) and the pinned bots to switch between, the
+ * pinned project managers, Bots, the active bot's headquarters, Automations and Library. With no
+ * bot active the header reads Projects. An unpinned bot picked from the Bots screen stays active.
  */
 export function buildBotSwitcherMenu<Manager extends SwitcherManager>(input: {
   readonly bots: ReadonlyArray<LogicalBot>;
@@ -45,6 +45,7 @@ export function buildBotSwitcherMenu<Manager extends SwitcherManager>(input: {
   readonly needsYou: ReadonlyMap<string, number>;
   readonly managers: ReadonlyArray<Manager>;
   readonly select: (bot: LogicalBot) => void;
+  readonly showProjects: () => void;
   readonly openHeadquarters: (bot: LogicalBot) => void;
   readonly openManager: (manager: Manager) => void;
   readonly openBotsList: () => void;
@@ -53,14 +54,15 @@ export function buildBotSwitcherMenu<Manager extends SwitcherManager>(input: {
 }): BotSwitcherMenu {
   const { active } = input;
   const pinned = input.bots.filter((bot) => bot.pinned);
-  // A lone pinned bot that is already active has nothing to switch to.
-  const switching = pinned.length > 1 || (pinned.length === 1 && pinned[0]!.key !== active?.key);
+  // Projects lists every bot's threads, so nothing waits elsewhere.
   let elsewhereNeedsYou = 0;
   for (const bot of input.bots) {
-    if (bot.key !== active?.key) elsewhereNeedsYou += input.needsYou.get(bot.key) ?? 0;
+    if (active !== null && bot.key !== active.key) {
+      elsewhereNeedsYou += input.needsYou.get(bot.key) ?? 0;
+    }
   }
-  const name = active?.name ?? "Bots";
-  const label = active === null ? "Bots" : `Bot: ${name}`;
+  const name = active?.name ?? "Projects";
+  const label = active === null ? "Projects" : `Bot: ${name}`;
   return {
     bot: active,
     name,
@@ -68,7 +70,19 @@ export function buildBotSwitcherMenu<Manager extends SwitcherManager>(input: {
       elsewhereNeedsYou > 0 ? `${label}. ${needsYouLabel(elsewhereNeedsYou)} in other bots` : label,
     elsewhereNeedsYou,
     items: [
-      ...(switching
+      // With no bot there is nothing to switch from: the list already shows every project.
+      ...(input.bots.length === 0
+        ? []
+        : [
+            {
+              key: "projects",
+              title: "Projects",
+              subtitle: "Every project and its threads",
+              state: active === null ? ("on" as const) : ("off" as const),
+              onPress: input.showProjects,
+            },
+          ]),
+      ...(pinned.length > 0
         ? pinned.map((bot) => {
             const count = input.needsYou.get(bot.key) ?? 0;
             return {

@@ -133,6 +133,7 @@ import {
   botFirstThreadRequestAtom,
   clearBotFirstThreadRequest,
   useBotRailProjectKeys,
+  useBotRailShowsProjects,
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../state/botRail";
@@ -994,7 +995,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
-  const boringSidebarEnabled = useClientSettings((settings) => settings.boringSidebarEnabled);
+  // Projects lists every project, so it folds threads into project folders whatever the setting.
+  const railShowsProjects = useBotRailShowsProjects();
+  const boringSidebarEnabled =
+    useClientSettings((settings) => settings.boringSidebarEnabled) || railShowsProjects;
   const folderRowsMultiline = useClientSettings((settings) => settings.boringSidebarMultilineRows);
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
@@ -1438,7 +1442,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         : scopedProjectGroups
       : null,
     keepEmptyFolders: (group) =>
-      scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
+      scopedProjectGroups.length > 0 || ((group.pinned || railShowsProjects) && !group.archived),
   });
 
   // Ranked across environments as the palette ranks them, so one

@@ -14,6 +14,7 @@ import {
   resolveProjectExpanded,
   setActiveBotIdByEnvironmentId,
   setProjectExpanded,
+  showBotRailProjects,
   type UiState,
 } from "./uiStateStore";
 
@@ -23,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     sidebarProjectScopeKeys: [],
     activeBotIdByEnvironmentId: {},
+    botRailShowsProjects: false,
     sidebarEnvironmentIds: null,
     botRailWidth: 256,
     botRailCollapsed: false,
@@ -98,6 +100,18 @@ describe("uiStateStore pure functions", () => {
       sidebarProjectScopeKeys: [],
     });
     expect(setActiveBotIdByEnvironmentId(scoped, { local: "bot-ops" })).toBe(scoped);
+
+    // Projects drops the scope and keeps the bot; picking that same bot again leaves Projects.
+    const projects = showBotRailProjects(scoped);
+    expect(projects).toMatchObject({
+      botRailShowsProjects: true,
+      activeBotIdByEnvironmentId: { local: "bot-ops" },
+      sidebarProjectScopeKeys: [],
+    });
+    expect(showBotRailProjects(projects)).toBe(projects);
+    expect(setActiveBotIdByEnvironmentId(projects, { local: "bot-ops" })).toMatchObject({
+      botRailShowsProjects: false,
+    });
   });
 
   it("moves grouped project members together", () => {
@@ -146,6 +160,7 @@ describe("parsePersistedState", () => {
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKeys: [],
       activeBotIdByEnvironmentId: {},
+      botRailShowsProjects: false,
       sidebarEnvironmentIds: null,
       botRailWidth: 256,
       botRailCollapsed: false,
@@ -263,6 +278,7 @@ describe("uiStateStore persistence", () => {
       sidebarProjectScopeKeys: [],
       sidebarProjectScopeKey: null,
       activeBotIdByEnvironmentId: {},
+      botRailShowsProjects: false,
       sidebarEnvironmentIds: null,
       botRailWidth: 256,
       botRailCollapsed: false,
