@@ -650,9 +650,6 @@ const make = Effect.gen(function* () {
       commandId: CommandId.make(`project-manager-placement:${NodeCrypto.randomUUID()}`),
       projectId,
       ...(next === undefined ? {} : { remoteManager: next }),
-      ...(input.permittedEnvironmentIds === undefined
-        ? {}
-        : { permittedEnvironmentIds: input.permittedEnvironmentIds }),
     });
     if (next != null) return { retiredThreadId };
     const { retired } = input;

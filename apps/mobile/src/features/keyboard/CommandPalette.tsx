@@ -342,6 +342,17 @@ export function CommandPalette(props: {
               };
             })
         : []),
+      ...(activeBot.bots.length > 0 && activeBot.active !== null
+        ? [
+            {
+              key: "projects",
+              kind: "action" as const,
+              title: "Show all projects",
+              searchTerms: ["projects", "all projects", "switch"],
+              run: activeBot.showProjects,
+            },
+          ]
+        : []),
       {
         key: "settings",
         kind: "action",
@@ -731,7 +742,11 @@ export function CommandPalette(props: {
                 contentContainerStyle={{ paddingBottom: 8 }}
                 ListEmptyComponent={
                   <Text className="p-5 text-center text-foreground-muted">
-                    {search.isPending ? "Searching…" : "No results"}
+                    {search.isPending
+                      ? "Searching…"
+                      : search.failed
+                        ? "Couldn't search messages"
+                        : "No results"}
                   </Text>
                 }
                 // Message results from slower environments may still arrive below.

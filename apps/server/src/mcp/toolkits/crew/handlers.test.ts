@@ -1,7 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
-  IssueOperationError,
+  BoardIssueOperationError,
   ProjectId,
   ProviderInstanceId,
   RuntimeRequestId,
@@ -14,10 +14,7 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 
-import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
-import * as SqlClient from "effect/sql/SqlClient";
-
-import { CREW_MEMBER_GRANT, crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
+import { crewMcpCapabilities } from "../../../crew/crewMcpCapabilities.ts";
 import { CrewApprovals } from "../../../crew/CrewApprovals.ts";
 import { CrewService } from "../../../crew/CrewService.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
@@ -110,7 +107,7 @@ const layerAs = (
   features: Partial<FeatureService["Service"]> = {},
   capabilities: ReadonlySet<McpInvocationContext.McpCapability> = new Set(["crew"]),
   issues: Partial<IssueService.IssueService["Service"]> = {},
-  crewGrants?: ReadonlyArray<string>,
+  featureCrewMember?: boolean,
 ) =>
   McpToolAccess.HandlersLayer.layer(CrewHandlers.layer).pipe(
     Layer.provideMerge(
@@ -126,7 +123,7 @@ const layerAs = (
           client: undefined,
           capabilities,
           issuedAt: 0,
-          ...(crewGrants === undefined ? {} : { crewGrants }),
+          ...(featureCrewMember === undefined ? {} : { featureCrewMember }),
         }),
         Layer.mock(ThreadManagement.ThreadManagementService)({
           getThreadShell: (id) =>
@@ -151,7 +148,7 @@ const layerAs = (
           list: (project) =>
             project === projectId
               ? Effect.succeed(issueList)
-              : Effect.fail(new IssueOperationError({ reason: "Project not found." })),
+              : Effect.fail(new BoardIssueOperationError({ reason: "Project not found." })),
           ...issues,
         }),
         Layer.mock(TicketService)({
@@ -214,52 +211,30 @@ it.effect("lists the issues of the calling thread's project as compact rows", ()
   }).pipe(Effect.provide(layerAs(stageThread))),
 );
 
-it.effect("lets every crew thread list issues without a crew grant, but not its subagents", () =>
+it.effect("lets every crew thread list issues, but not its subagents", () =>
   Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`
-      CREATE TABLE crew_runs (id TEXT, member_id TEXT, thread_id TEXT, withheld_tools_json TEXT)
-    `;
-    yield* sql`CREATE TABLE bots (id TEXT, withheld_tools_json TEXT)`;
-    yield* sql`
-      CREATE TABLE crew_members (id TEXT, withheld_tools_json TEXT)
-    `;
-    yield* sql`
-      CREATE TABLE orchestration_v2_projection_threads (thread_id TEXT, payload_json TEXT)
-    `;
-    // Default roles grant no crew.* tools.
-    yield* sql`INSERT INTO crew_runs VALUES
-      ('feature-lead:x', 'bot-manager:p', 'bot-run:feature-lead:x', '[]'),
-      ('project-hq:p', 'project-manager:p', 'bot-run:project-hq:p', '[]')`;
-    yield* sql`INSERT INTO crew_members VALUES ('project-manager:p', '[]')`;
-    const lineage = (parent: string) =>
-      JSON.stringify({ lineage: { parentThreadId: parent, relationshipToParent: "subagent" } });
-    yield* sql`INSERT INTO orchestration_v2_projection_threads VALUES
-      ('helper', ${lineage("bot-run:feature-lead:x")}),
-      ('helper-of-helper', ${lineage("helper")})`;
     const listIssues = (thread: string) =>
       Effect.gen(function* () {
-        const capabilities = yield* crewMcpCapabilities(
-          ThreadId.make(thread),
-          new Set(["orchestration"]),
-        );
-        return yield* Effect.gen(function* () {
-          const toolkit = yield* CrewToolkit;
-          return yield* toolkit
-            .handle("crew_list_issues", {})
-            .pipe(Stream.unwrap, Stream.runCollect);
-        }).pipe(Effect.provide(layerAs(ThreadId.make(thread), {}, capabilities)), Effect.result);
-      });
+        const toolkit = yield* CrewToolkit;
+        return yield* toolkit.handle("crew_list_issues", {}).pipe(Stream.unwrap, Stream.runCollect);
+      }).pipe(
+        Effect.provide(
+          layerAs(
+            ThreadId.make(thread),
+            {},
+            crewMcpCapabilities(ThreadId.make(thread), new Set(["orchestration"])),
+          ),
+        ),
+        Effect.result,
+      );
 
     for (const lead of ["bot-run:feature-lead:x", "bot-run:project-hq:p"]) {
       const listed = yield* listIssues(lead);
       expect(listed._tag).toBe("Success");
     }
-    for (const helper of ["helper", "helper-of-helper"]) {
-      const refused = yield* listIssues(helper);
-      expect(refused._tag).toBe("Failure");
-    }
-  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+    const refused = yield* listIssues("helper");
+    expect(refused._tag).toBe("Failure");
+  }),
 );
 
 it.effect("files an issue in a milestone and under a parent, and opens and closes milestones", () =>
@@ -413,7 +388,7 @@ it.effect("links an issue to the caller's feature, its own task, or a task it de
 
 it.effect("lets only a feature's crew member ask the person, as itself", () =>
   Effect.gen(function* () {
-    const ask = (grants: ReadonlyArray<string> | undefined) =>
+    const ask = (featureCrewMember: boolean) =>
       Effect.gen(function* () {
         const toolkit = yield* CrewToolkit;
         return yield* toolkit.handle("crew_ask_person", { question: "Approve the design?" }).pipe(
@@ -421,12 +396,12 @@ it.effect("lets only a feature's crew member ask the person, as itself", () =>
           Stream.runCollect,
           Effect.map((chunks) => chunks.at(-1)?.result),
         );
-      }).pipe(Effect.provide(layerAs(taskThread, {}, new Set(), {}, grants)));
-    expect(yield* ask([CREW_MEMBER_GRANT])).toMatchObject({
+      }).pipe(Effect.provide(layerAs(taskThread, {}, new Set(), {}, featureCrewMember)));
+    expect(yield* ask(true)).toMatchObject({
       requestId: `crew-ask:${taskThread}:Approve the design?`,
     });
-    // A crew thread's other subagents, and the lead itself, hold no crew.member grant.
-    expect(yield* ask(["orchestration"]).pipe(Effect.flip)).toMatchObject({
+    // A crew thread's other subagents, and the lead itself, aren't crew members.
+    expect(yield* ask(false).pipe(Effect.flip)).toMatchObject({
       _tag: "CrewToolFailedError",
     });
   }),

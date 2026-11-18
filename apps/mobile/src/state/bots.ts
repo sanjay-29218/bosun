@@ -211,7 +211,8 @@ export interface ActiveBot {
   /** Every logical bot, pinned or not; the switcher lists the pinned ones. */
   readonly bots: ReadonlyArray<LogicalBot>;
   /**
-   * The remembered bot, pinned or not, else the first pinned one; null with no bot to show.
+   * The remembered bot, pinned or not, else the first pinned one; null while Projects is picked
+   * or there is no bot to show.
    */
   readonly active: LogicalBot | null;
   /** Pinned project managers, by title; opening one makes its thread. */
@@ -227,6 +228,8 @@ export interface ActiveBot {
   /** Where List / Board is remembered: the active bot, or "all" with one bot or none. */
   readonly viewKey: string;
   readonly select: (bot: LogicalBot) => void;
+  /** Picks Projects: every project, whatever bot owns it. */
+  readonly showProjects: () => void;
 }
 
 /** The active bot's id on `environmentId`, which new projects there go to; none means no bot. */
@@ -249,10 +252,13 @@ export function useActiveBot(): ActiveBot {
   const remembered = AsyncResult.isSuccess(preferences)
     ? (preferences.value.activeBotIdByEnvironmentId ?? EMPTY_ACTIVE_BOTS)
     : EMPTY_ACTIVE_BOTS;
+  const showsProjects =
+    AsyncResult.isSuccess(preferences) && preferences.value.threadListShowsAllProjects === true;
 
   // Pinned first, so nothing remembered falls back to the first pinned bot, while a remembered
   // unpinned bot (picked from the Bots screen) stays active.
   const active = useMemo(() => {
+    if (showsProjects) return null;
     const byPin = [...bots.filter((bot) => bot.pinned), ...bots.filter((bot) => !bot.pinned)];
     const resolved = resolveActiveLogicalBot(byPin, remembered, botEnvironmentIds(environmentKey));
     const chosen =
@@ -263,7 +269,7 @@ export function useActiveBot(): ActiveBot {
         ),
       );
     return resolved !== null && (resolved.pinned || chosen) ? resolved : null;
-  }, [bots, environmentKey, remembered]);
+  }, [bots, environmentKey, remembered, showsProjects]);
   const managers = useMemo(
     () =>
       (JSON.parse(managersKey) as Array<[string, string, string]>).map(
@@ -299,7 +305,16 @@ export function useActiveBot(): ActiveBot {
   );
   const select = useCallback(
     (bot: LogicalBot) =>
-      savePreferences({ transform: () => ({ activeBotIdByEnvironmentId: selectLogicalBot(bot) }) }),
+      savePreferences({
+        transform: () => ({
+          activeBotIdByEnvironmentId: selectLogicalBot(bot),
+          threadListShowsAllProjects: false,
+        }),
+      }),
+    [savePreferences],
+  );
+  const showProjects = useCallback(
+    () => savePreferences({ transform: () => ({ threadListShowsAllProjects: true }) }),
     [savePreferences],
   );
 
@@ -313,7 +328,18 @@ export function useActiveBot(): ActiveBot {
       botEnvironmentIds: botEnvironments,
       viewKey: switching ? active.key : "all",
       select,
+      showProjects,
     }),
-    [active, botEnvironments, bots, managers, needsYou, projectKeys, select, switching],
+    [
+      active,
+      botEnvironments,
+      bots,
+      managers,
+      needsYou,
+      projectKeys,
+      select,
+      showProjects,
+      switching,
+    ],
   );
 }

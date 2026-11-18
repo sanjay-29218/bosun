@@ -31,7 +31,6 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { NoticeInbox } from "../features/NoticeInbox.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
-import { narrowerRuntimeMode } from "../mcp/delegatedTaskModes.ts";
 import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import {
   type BotHome,
@@ -41,6 +40,8 @@ import {
   LinkBotNotices,
   LinkBotProjects,
   LinkBotTask,
+  type LibraryCopyRefusal,
+  type LibraryCopySet,
   type LinkedNotice,
   type ListedBot,
   type ManagerHome,
@@ -52,7 +53,6 @@ import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
-import { managerNotPermitted, notPermitted } from "./BotEnvironmentGuard.ts";
 import * as BotService from "./BotService.ts";
 
 type Scope = McpInvocationContext.McpInvocationScope;
@@ -135,6 +135,17 @@ export class BotReach extends Context.Service<
       actor: LaunchActor,
       input: ProjectManagerLaunch,
     ) => Effect.Effect<LaunchedProjectManager, OrchestratorMcpFailure>;
+    /**
+     * For a linked environment: makes the workflows and roles here it manages match `copy`,
+     * returning those this environment kept as its own. Needs a full-access link, as work does.
+     */
+    readonly libraryForLink: (
+      scope: McpInvocationContext.McpInvocationScope,
+      copy: LibraryCopySet,
+    ) => Effect.Effect<
+      { readonly refused: ReadonlyArray<LibraryCopyRefusal> },
+      OrchestratorMcpFailure
+    >;
     /**
      * For a linked environment's project manager: what the requests it started here heard since
      * `since`, oldest first.
@@ -474,9 +485,9 @@ const make = Effect.gen(function* () {
                 id: role.id,
                 name: role.name,
                 instructions: role.instructions,
-                withheldTools: role.withheldTools,
                 modelSelection: role.modelSelection,
-                runtimeMode: role.runtimeMode,
+                // Older peers require it.
+                runtimeMode: "full-access" as const,
               },
             ]
           : [],
@@ -492,18 +503,9 @@ const make = Effect.gen(function* () {
     );
 
   /**
-   * Where a project's manager may work: its own Can work on list, else its bot's when the bot
-   * lives here, else nowhere.
+   * Who asks, as the linked environment knows it, and the link's label. Every bot and manager may
+   * work on every linked environment; `check` refuses one that isn't linked.
    */
-  const managerPermitted = Effect.fn("BotReach.managerPermitted")(function* (project: Project) {
-    if (project.managerPermittedEnvironmentIds != null)
-      return project.managerPermittedEnvironmentIds;
-    if (project.botId == null) return [];
-    const bot = yield* bots.get(project.botId).pipe(Effect.mapError(unavailable));
-    return bot?.permittedEnvironmentIds ?? [];
-  });
-
-  /** Who asks, as the linked environment knows it, and the link's label; `check` refuses work it may not start there. */
   const asker = Effect.fn("BotReach.asker")(function* (
     environmentId: EnvironmentId,
     actor: LaunchActor,
@@ -512,15 +514,18 @@ const make = Effect.gen(function* () {
     const self = yield* here;
     const link = yield* linkTo(environmentId);
     const label = link?.label ?? environmentId;
+    if (check && link === undefined) {
+      return yield* failure(
+        "invalid_request",
+        `${label} isn't linked to this machine, so nothing was started there. The person can link it in Settings → Labs → Linked environments.`,
+      );
+    }
     if ("botId" in actor) {
       const bot = yield* bots
         .get(actor.botId)
         .pipe(check ? Effect.mapError(unavailable) : Effect.orElseSucceed(() => null));
       if (check && bot === null) {
         return yield* failure("invalid_request", "This headquarters' bot is gone.");
-      }
-      if (check && bot !== null && !bot.permittedEnvironmentIds.includes(environmentId)) {
-        return yield* notPermitted(bot.name, label);
       }
       const home: RequestHome = {
         environmentId: self.environmentId,
@@ -537,11 +542,6 @@ const make = Effect.gen(function* () {
     );
     if (check && (project === undefined || project.deletedAt !== null)) {
       return yield* failure("invalid_request", "This manager's project is gone.");
-    }
-    if (check && project !== undefined) {
-      if (!(yield* managerPermitted(project)).includes(environmentId)) {
-        return yield* managerNotPermitted(project.title, label);
-      }
     }
     const home: RequestHome = {
       environmentId: self.environmentId,
@@ -705,23 +705,13 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignoreCause({ log: true }));
           }
-          // The Feature manager here runs on the lead role's model, within the access sent.
+          // The Feature manager here runs on the lead role's model, with the access sent.
           const workflow = input.workflow;
           const leadRole = workflow?.roles.find((role) => role.id === workflow.workflow.leadRoleId);
-          const carried =
-            leadRole === undefined
-              ? { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection }
-              : {
-                  runtimeMode: narrowerRuntimeMode(leadRole.runtimeMode, input.runtimeMode),
-                  modelSelection: leadRole.modelSelection,
-                };
-          // Builds before withheld tools sent roles' tools with the opposite meaning.
-          if (input.workflow?.roles.some((role) => role.allowedTools !== undefined)) {
-            return yield* failure(
-              "invalid_request",
-              "This Bosun is newer than the environment that sent this; update it to share roles.",
-            );
-          }
+          const carried = {
+            runtimeMode: input.runtimeMode,
+            modelSelection: leadRole?.modelSelection ?? input.modelSelection,
+          };
           // A request this environment refuses as it is stays refused; anything else may pass.
           const refusedOrPassing = (error: { readonly _tag: string; readonly message: string }) =>
             failure(
@@ -762,6 +752,28 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const libraryForLink: BotReach["Service"]["libraryForLink"] = Effect.fn(
+    "BotReach.libraryForLink",
+  )(function* (scope, copy) {
+    const self = yield* here;
+    if (scope.client?.linked !== true) {
+      return yield* failure(
+        "capability_denied",
+        "Only a linked environment copies workflows and roles here.",
+      );
+    }
+    if (scope.client.access !== "full-access") {
+      return yield* failure(
+        "capability_denied",
+        `${self.label} is linked with ${scope.client.access} access, and copying workflows there needs full access. Link ${self.label} again with full access in Settings → Environments → Linked environments.`,
+      );
+    }
+    const refused = yield* crew
+      .applyLibraryCopy(copy)
+      .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
+    return { refused };
+  });
+
   const noticesForLink: BotReach["Service"]["noticesForLink"] = Effect.fn(
     "BotReach.noticesForLink",
   )(function* (home, since) {
@@ -794,9 +806,7 @@ const make = Effect.gen(function* () {
     const snapshot = yield* projects.snapshot.pipe(Effect.mapError(unavailable));
     for (const project of snapshot.projects) {
       if (project.deletedAt !== null || project.remoteManager != null) continue;
-      const permittedIds = yield* managerPermitted(project);
-      const targets = reachable.filter((link) => permittedIds.includes(link.environmentId));
-      if (targets.length === 0) continue;
+      const targets = reachable;
       const threadId = projectHeadquartersThreadId(project.id);
       // A manager that never opened, or is turned off, has no one to tell.
       const shell = yield* threads.getThreadShell(threadId).pipe(Effect.orElseSucceed(() => null));
@@ -841,14 +851,14 @@ const make = Effect.gen(function* () {
     const linked = yield* links.list.pipe(Effect.orElseSucceed(() => []));
     return listed.map((bot) => ({
       ...bot,
+      runtimeMode: "full-access" as const,
+      longConversation: "compact" as const,
       home,
-      permittedEnvironments: linked
-        .filter((link) => bot.permittedEnvironmentIds.includes(link.environmentId))
-        .map((link) => ({
-          environmentId: link.environmentId,
-          label: link.label,
-          reachable: link.status === "reachable",
-        })),
+      permittedEnvironments: linked.map((link) => ({
+        environmentId: link.environmentId,
+        label: link.label,
+        reachable: link.status === "reachable",
+      })),
     }));
   }).pipe(Effect.withSpan("BotReach.list"));
 
@@ -860,6 +870,7 @@ const make = Effect.gen(function* () {
     launchProjectManager,
     startForLink,
     noticesForLink,
+    libraryForLink,
     relayManagerNotices,
   });
 });

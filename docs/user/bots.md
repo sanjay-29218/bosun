@@ -17,38 +17,73 @@ sidebar, opens its settings too.
 **Create** makes the bot on your default model and opens its headquarters. When you're connected to
 several machines that run bots, it also asks which one the bot **Lives on**: its settings, chat,
 memory, automations and home folder stay on that machine, and its settings say so under its name. In its settings a bot
-also has instructions, tools and a default model. The model picker also sets its reasoning, speed and **Access**, with the same levels as the composer: **Supervised** asks before commands and file changes, up to **Full access**. Changes apply when you
-**Save**. Under **Tools**, a ticked tool is one the bot can use. A new bot starts with every
-tool ticked, including **Manage bots, roles and workflows**, and on **Full access**; untick a tool
-to take it away and tick it to give it back. Tools added in a later version start ticked. The
-same goes for roles and project managers. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down or deletes it.
+also has instructions and a default model, whose picker also sets its reasoning and speed. Changes apply when you
+**Save**. Every bot, role and project manager can use every tool an ordinary thread can, with
+**Full access**: starting features and tasks, delegating, worktrees, pull requests, and managing
+bots, roles and workflows. There is nothing to grant. **Open thread** opens its headquarters, and the **⋯** menu moves it up or down, copies or moves it to another machine (see below), or deletes it.
 
-A bot's **Projects** tab lists the projects it owns on every connected environment. Move one to
-another bot, or bring one over; work that already started keeps running as the bot that started
-it. A bot can own a project on any machine it may work on (see **Can work on** below): the project
-stays on its machine, and the bot works on it from its own machine, with no copy of the bot
-there. That project's **Settings → Project → Bot** shows the owner as "Atlas · lives on Mac
-Studio". A project on a machine that isn't answering shows **Offline**; requests to it wait. Projects
-on a machine the bot may not work on, and on an environment that runs T3 Code without Bosun, are
-listed but can't be given to it until you tick that machine or install Bosun there. You can also change a
-project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
+A bot's **Projects** tab lists the projects it owns on every connected environment. **Add project**
+gives it another, and the **✕** on a row takes one off it, leaving that project with no bot; work
+that already started keeps running as the bot that started it. Projects and bots don't need each
+other: a project works with no bot, and a bot with no projects. **Add project** lists the projects
+on the bot's own machine and on the machines linked to it (see below); other machines' projects
+don't show. A project on a linked machine stays there, and the bot works on it from its own
+machine, with no copy of the bot there; once added, the bot can hand it work straight away. That
+project's **Settings → Project → Bot** shows the owner as "Atlas · lives on Mac Studio". A project
+on a machine that isn't answering shows **Offline**; requests to it wait. Projects on a linked
+machine that runs T3 Code without Bosun, or that's linked below **Full access**, are listed but
+can't be added until you install Bosun there or link it again with Full access. You can also change
+a project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
 its project manager, which runs on the project's default model (else the environment's). In the
-thread list it shows under every bot that may work on its machine, and a project on a machine that
-runs T3 Code without Bosun shows under every bot. Its project manager, pinned in the rail or listed
+thread list it shows under every bot whose machine is linked to its machine, and a project on a machine that
+runs T3 Code without Bosun shows under every bot. **Projects** always lists it. Its project manager, pinned in the rail or listed
 under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
-home folder doesn't count, and stays behind): give each to another bot or to **No bot** first.
+home folder doesn't count, and stays behind on Delete): remove each first.
 Deleting a bot also deletes the automations that run as it.
 
-The **Projects** tab also lists, under **Can work on**, the machines linked to the bot's machine
-(see Linked environments in **Settings → Labs**), each with a checkbox. A ticked machine is one the
-bot may start new work on; unticking it stops new work there, while work already running keeps
-going. The choice saves at once. New bots, and bots from before this setting, start with every
-linked machine ticked. A machine you link later is ticked for every bot too; linking the same machine
-again keeps what you unticked. **Link an environment** links another machine with a pairing code.
+Every bot and project manager can work on every machine linked to its own (Linked environments in
+**Settings → Labs**). That list, and each link's access level, is the only control: there is
+nothing to tick per bot. Unlinking a machine there stops new work on it, while work already running
+keeps going. A bot or manager still lives on one home machine.
 
 When the bot hands work to a project on a machine that's asleep or offline, the request waits
 instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
-is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no Feature manager role of its own runs the work with the lead role this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unticking the machine while a request waits fails it.
+is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no Feature manager role of its own runs the work with the lead role this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unlinking the machine while a request waits fails it.
+
+#### Copy or move a bot to another machine
+
+A bot lives on one machine, but you can copy it or move it to a machine linked to that one. Pick
+**Copy to another machine…** or **Move to another machine…** in the bot's **⋯** menu, or **Move…**
+next to **Lives on** under its name, then the machine. Before you confirm, the dialog shows what
+will happen to the bot's projects and automations.
+
+- **Copy** makes a separate bot there with the same name, look, instructions, model and home
+  folder files. Its automations come along
+  turned off, so they don't run on both machines; turn them on there when you're ready. The
+  original stays as it is and keeps its projects. The two aren't kept in sync.
+- **Move** does the same, then hands the bot's projects to the moved bot and removes it from the
+  old machine completely: its settings, home folder, automations and headquarters thread. Its
+  automations stop first and start again on the new machine, so they never run on both. The bot
+  starts a fresh headquarters thread there and keeps its memory, which lives in its home folder.
+  A project comes along when the new machine can reach the project's machine; a project on a
+  machine the new one has no link to is left with no bot, and the dialog says which. To bring
+  those along, link that machine from the new one first. If the move fails, the bot stays where
+  it was, unchanged. If the new machine stops answering mid-move, the bot's automations stay paused
+  here, since it may already run them, and can't be turned back on; move the bot to that machine
+  again to finish, which works from any client, or pick **Cancel move** in the dialog to keep it
+  here. If that machine can't be reached any more, cancelling leaves the automations off, since it
+  may still run them; turn them on once you're sure it doesn't. Once the new machine has taken the
+  bot, the move can only finish: there's no Cancel move. If that machine can't be reached any more,
+  or no longer has the bot's copy, **Stop waiting** keeps the bot here with its automations off. You can move it back the same
+  way once the new machine links back.
+
+Both need the other machine on a link with **Full access**, running a Bosun version that can take
+bots; otherwise the dialog says to link it again or update Bosun there. A bot that's working, in its
+headquarters or another thread in its home, can't move until it finishes or you stop it. A home folder can carry up to 1,000 files and
+8 MB. Webhook automations get a new URL on the new machine and leave their signing secret behind,
+so they arrive turned off: point the sender at the new URL, set a signing secret there if the
+sender signs its requests, then turn them on. Copying and moving
+aren't available in the mobile app; a moved bot shows there under its new machine.
 
 #### Projects owned by a copy of a bot on another machine
 
@@ -68,20 +103,20 @@ replies in the headquarters as the work moves. When you ask the bot to do it its
 the work in the project directly instead: small, clear work as a **task**, a fresh agent in its
 own worktree that opens a pull request, or a [feature](./features.md), which a lead runs with its
 crew. Either way the work is one of that project's threads, listed and on the board with its other
-work, and the bot links it in its reply. Each crew member runs with its role's model and **Access**. The bot can also start
-projects from a name or by cloning a Git URL. With **Manage bots and roles**, it can create and edit bots and roles when you ask, such as "add a Security
-reviewer role"; they show up like ones you made. A feature's threads, its lead's and its crew's,
+work, and the bot links it in its reply. Each crew member runs with its role's model. The bot can also start
+projects from a name or by cloning a Git URL, and create and edit bots and roles when you ask, such as "add a Security
+reviewer role"; they show up like ones you made. Any thread can start a feature itself, without
+going through a bot or a project manager. A feature's threads, its lead's and its crew's,
 carry a tag with the feature's name.
 
-The headquarters follows the bot's current tools, model and **Access**. Its instructions are the
+The headquarters starts on the bot's model. Changing the model in its composer sticks; changing the
+bot's model in its settings moves the headquarters to it. Its instructions are the
 ones it started with until it starts a new session. Type **/new** in its composer, or pick
 **Start new session…** in the thread's menu (or the command palette, or a long press on the bot on
 mobile), to do that now: you keep the whole conversation, while the bot starts again from its
 current instructions and the last few messages and looks up ongoing work instead of remembering it.
 A **New session** divider in the thread shows where it began. A long conversation is otherwise compacted by
-its provider; set **Long conversations** to **Start a new session** on the bot to do this instead,
-once the bot has been quiet for half an hour. Opening the thread also brings back a deleted or
-archived headquarters.
+its provider. Opening the thread also brings back a deleted or archived headquarters.
 
 Each bot has a **home folder** of its own on its environment, where its headquarters works and
 keeps its notes: `~/.bosun/bots/<bot id>`, a plain folder rather than a Git repository. It's made
@@ -115,15 +150,16 @@ thread list with what it's doing: click it to open the manager, or its ⚙ for i
 also opens with **Open project manager** in the project's right-click menu or the command palette,
 or from the link in the bot's reply; the thread is made the first time. A bot's **Lineage** lists
 the work it started itself, not the requests it handed to a Project manager. Like a headquarters, it can't be deleted, opening it brings it
-back if it was archived, and **/new** or **Start new session…** starts it over.
+back if it was archived, and **/new** or **Start new session…** in its thread's menu (on mobile, in
+the thread's header) starts it over. A long conversation is compacted by its provider.
 
-Its settings are in **Settings → Project → Project manager**: its icon, instructions, model and
-**Access**, tools and **Long conversations**. Each manager gets a robot look picked from its
+Its settings are in **Settings → Project → Project manager**: its icon and instructions. Its model is the one in its thread's composer: it starts on the
+project's default model, and a model you pick there stays for every later turn, request and
+automation. Each manager gets a robot look picked from its
 project until you **Change** it; **Use automatic** goes back. The icon saves on its own and
 doesn't count as customizing the manager. It needs no roles: until you save changes there
-it uses built-in instructions on the model of the bot that owns the project, and **Reset to
-defaults** goes back to them. New instructions reach the thread when it next starts a new session;
-model, **Access** and tools apply right away. When you or its bot give the manager a standing rule
+it uses built-in instructions, and **Reset to defaults** goes back to them. New instructions reach
+the thread when it next starts a new session. When you or its bot give the manager a standing rule
 for the project, such as "every piece of work starts from an issue", it adds the rule to its own
 instructions and says so in its thread; the manager then shows as customized here, and the rule
 applies from its next session. Its bot's headquarters can do the same for the bot's projects. The switch at the top turns a project's manager off: its
@@ -135,19 +171,17 @@ thread is archived until you turn it on again.
 A project cloned on several linked machines (matched by its repository) has one manager, on the
 machine it **Lives on**; its copies elsewhere have none of their own. The bot list, **Bots** and
 the project card show that one manager with its machine's name, and opening a copy's manager opens
-it. **Settings → Project → Project manager** shows **Lives on** and **Can work on**:
+it. **Settings → Project → Project manager** shows where it **Lives on**. It starts as the machine
+whose manager already has a thread, otherwise the machine of the project's bot. Picking another
+machine moves the manager there: the old machine's manager thread is archived, not deleted, its
+open requests go back to their senders, and its automations are paused.
 
-- **Lives on** starts as the machine whose manager already has a thread, otherwise the machine of
-  the project's bot. Picking another machine moves the manager there: the old machine's manager
-  thread is archived, not deleted, its open requests go back to their senders, and its
-  automations are paused.
-- **Can work on** lists the other machines with a copy. It starts as the bot's **Can work on**
-  machines that hold one. There the manager can check the copy's threads and open features, send
-  its threads messages and hear the answers, and start features and tasks. It picks the machine for
-  each feature, and the base branch it names is that machine's. When a feature or crew member
-  there stops to ask you something, the manager hears so and can tell you it's blocked; you answer
-  in that thread. A machine you haven't ticked is refused before anything starts there, and a
-  request for a machine that's offline waits until it's back.
+On every machine linked to the one it lives on, the manager can check the copy's threads and open
+features, send its threads messages and hear the answers, and start features and tasks. It picks
+the machine for each feature, and the base branch it names is that machine's. When a feature or
+crew member there stops to ask you something, the manager hears so and can tell you it's blocked;
+you answer in that thread. A machine that isn't linked can't be reached, and a request for a
+machine that's offline waits until it's back.
 
 If both machines already had a manager, the one on the machine it lives on stays, the other's
 thread is archived, and the one that stays is told which manager it replaced and where. This needs
@@ -172,6 +206,13 @@ bot's or manager's thread without changing which bot you're on, the gear opens i
 **Add bot** makes a new bot. A count on **Bots** shows threads waiting on you that only an unpinned
 bot or manager shows. On mobile, the bot button's menu lists the pinned bots and managers, then
 **Bots**, with the same pins.
+
+**Projects**, at the top of the bot list, shows every project on every connected machine, with or
+without a bot, each in a folder with its threads and features. A project on several machines is one
+folder. Right-click a folder for its project manager and its settings, and use **Add project…** in
+the project picker above the list to add one. With no bots, Projects is what the list shows. New
+projects added from it have no bot. **Show all projects** in the command palette picks it too, and
+on mobile it's the first entry in the bot button's menu.
 
 Clicking a bot narrows the thread list and the board to its projects and takes you back to where
 you left it, such as its board or a thread. The first time, and when you click the bot you're
@@ -213,15 +254,36 @@ Roles, in **Settings → Roles**, are who leads a feature and who its lead can h
 role** adds one, and offers **Add the starter roles** for a Feature manager, Planner,
 Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research. Each role
-has instructions, tools and a default model, whose picker also sets reasoning, speed and
-**Access**, from **Supervised** to **Full access**; new roles start with every tool ticked and on
-**Full access**, since the crew works unattended. Pick a role to
+has instructions and a default model, whose picker also sets reasoning and speed. Its crew get
+every tool with **Full access**, since they work unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
 on. Each project gets its own Feature manager the first time a feature needs one; editing a role
 changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see
 [Project managers](#project-managers)).
 
-Editing bots, workflows and roles is available on web and desktop.
+### On other machines
+
+Every machine you link (see [Link another environment](remote-access.md#link-another-environment))
+gets a copy of every workflow and role made on this one, so a feature can run there with them even
+while this machine is off. Linking is the only step. A workflow's or role's settings list each
+linked machine and when it last got a copy.
+
+The machine where one was made owns it. On the others, a copy says **Managed from** that machine
+and can't be edited there; edit it on the owner, and every copy follows. A machine that's off
+keeps its last copy and catches up when it's back. Two machines linked both ways each copy what
+they made to the other; a copy is never copied on again.
+
+Every machine has its own Feature delivery and starter roles. If you change one here, it replaces
+the untouched one on your linked machines; ones that are the same everywhere stay each machine's
+own. If a machine has its own edited workflow or role with the same id, it keeps it, and the list
+here says so.
+
+Unlinking a machine removes this machine's copies there, if it answers; features already running
+there keep going. Feature delivery, the starter roles, and roles that machine's own workflows use
+stay there as its own. A machine that's off when you unlink it keeps the copies.
+
+Editing bots, workflows and roles is available on web and desktop. On mobile, copies show where
+they're managed from and can't be edited.
 
 ## Feature threads
 

@@ -17,7 +17,14 @@ import {
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
-import { BotIcon, ChartNoAxesColumnIcon, ClockIcon, ServerIcon, SettingsIcon } from "lucide-react";
+import {
+  BotIcon,
+  ChartNoAxesColumnIcon,
+  ClockIcon,
+  FoldersIcon,
+  ServerIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { memo, useEffect, type MouseEvent, type ReactNode } from "react";
 
@@ -31,6 +38,7 @@ import { isTerminalFocused } from "../../lib/terminalFocus";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
 import { useHasUnseenAutomationFailure } from "../../state/automations";
 import {
+  PROJECTS_RAIL_KEY,
   useActivityByLogicalBot,
   useAllVisibleLogicalBots,
   useEnvironmentFilter,
@@ -45,6 +53,7 @@ import {
   useConnectedEnvironmentIds,
   useEnvironmentIdentities,
   useEnvironments,
+  useIssuesSupported,
   usePullRequestsSupported,
 } from "../../state/environments";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -58,6 +67,8 @@ import {
 } from "../../uiStateStore";
 import { BotAvatar } from "../BotAvatar";
 import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
+import { readIssueListPreferences } from "../issue/issueListPreferences";
+import { IssueGlyph } from "../issue/issuePresentation";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
@@ -73,6 +84,7 @@ import {
   readBotHref,
   rememberBotHref,
   useRailDestination,
+  useSelectRailProjects,
   useSwitchBotMainView,
 } from "./mainAppLocation";
 import { headquartersMember, useOpenBotHeadquarters } from "./openBotHeadquarters";
@@ -183,6 +195,7 @@ export const BotRail = memo(function BotRail({
   const openProjectManager = useOpenProjectManager();
   const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const selectRailProjects = useSelectRailProjects();
   const collapsedPreference = useUiStateStore((store) => store.botRailCollapsed);
   // The phone sheet keeps the icon column, leaving the thread list most of its width.
   const collapsed = placement === "sheet" || collapsedPreference;
@@ -214,7 +227,7 @@ export const BotRail = memo(function BotRail({
     else setOpen(true);
     // A bot shows its threads across all its projects.
     if (scopeKeys.length > 0) setScopeKeys([]);
-    if (active && !same) rememberBotHref(active.key);
+    if (!same) rememberBotHref(active?.key ?? PROJECTS_RAIL_KEY);
     const href = same || event.metaKey || event.ctrlKey ? undefined : readBotHref(bot.key);
     if (!same) selectBot(bot);
     if (href === undefined) {
@@ -235,12 +248,19 @@ export const BotRail = memo(function BotRail({
         : createLogicalBotResolver(allBots)(manager.owner.environmentId, manager.owner.botId);
     const owner = bots.find((bot) => bot.key === ownerKey);
     if (owner && owner.key !== active?.key) {
-      if (active) rememberBotHref(active.key);
+      rememberBotHref(active?.key ?? PROJECTS_RAIL_KEY);
       selectBot(owner);
     }
     setScopeKeys([manager.projectKey]);
     void openProjectManager(manager);
   };
+  // Every project with its threads, on every machine, whatever bot owns it, or none.
+  const selectProjects = () => {
+    if (isMobile) setOpenMobile(false);
+    else setOpen(true);
+    void selectRailProjects();
+  };
+  const projectsActive = onBots && scopedManager === null && active === null;
   const headquartersHint = `${isMacPlatform(navigator.platform) ? "⌘" : "Ctrl"}-click to open its headquarters`;
 
   // Mod+1-9 switches bots while there are several (thread jumps then use Ctrl+Mod+1-9); the
@@ -307,6 +327,31 @@ export const BotRail = memo(function BotRail({
             collapsed ? "items-center gap-1" : "gap-0.5",
           )}
         >
+          {collapsed ? (
+            <RailItem
+              label="Projects"
+              hint="Every project and its threads"
+              active={projectsActive}
+              signal={null}
+              shortcut={null}
+              variant="icon"
+              onSelect={selectProjects}
+            >
+              <FoldersIcon className="size-5" strokeWidth={1.75} />
+            </RailItem>
+          ) : (
+            <RailRow
+              label="Projects"
+              icon={<FoldersIcon />}
+              active={projectsActive}
+              onSelect={selectProjects}
+            />
+          )}
+          {bots.length === 0 ? null : collapsed ? (
+            <RailDivider />
+          ) : (
+            <div aria-hidden className="mx-4 my-1.5 h-px shrink-0 bg-sidebar-border" />
+          )}
           {bots.map((bot, index) =>
             collapsed ? (
               <RailItem
@@ -340,7 +385,7 @@ export const BotRail = memo(function BotRail({
             ),
           )}
           {managers.length === 0 ? null : collapsed ? (
-            <RailGroupLabel>PMs</RailGroupLabel>
+            <RailDivider />
           ) : (
             <h3 className="px-4 pt-4 pb-1 text-2xs text-muted-foreground">Project managers</h3>
           )}
@@ -667,6 +712,7 @@ function RailPlaces({
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
+  const issuesSupported = useIssuesSupported();
   const hiddenNeedsYou = useHiddenNeedsYouCount();
   const places = [
     {
@@ -703,6 +749,22 @@ function RailPlaces({
               if (isMobile) setOpenMobile(false);
               if (destination !== "pull-requests") {
                 void navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+              }
+            },
+          },
+        ]
+      : []),
+    ...(issuesSupported
+      ? [
+          {
+            label: "Issues",
+            icon: IssueGlyph.issue,
+            active: destination === "issues",
+            signal: null,
+            onSelect: () => {
+              if (isMobile) setOpenMobile(false);
+              if (destination !== "issues") {
+                void navigate({ to: "/issues", search: readIssueListPreferences() });
               }
             },
           },
@@ -818,16 +880,6 @@ function RailRow({
     </button>
   );
 }
-
-/** A collapsed rail's section break that names the group below it. */
-const RailGroupLabel = ({ children }: { readonly children: string }) => (
-  <div aria-hidden className="mt-2.5 mb-0.5 flex shrink-0 flex-col items-center gap-1">
-    <span className="h-px w-8 rounded-full bg-sidebar-foreground/25" />
-    <span className="text-3xs font-semibold tracking-wide text-sidebar-muted-foreground uppercase">
-      {children}
-    </span>
-  </div>
-);
 
 const RailDivider = () => (
   <div aria-hidden className="my-1.5 h-px w-6 shrink-0 rounded-full bg-sidebar-border" />

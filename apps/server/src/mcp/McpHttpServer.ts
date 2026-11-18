@@ -30,7 +30,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import { parseBearerToken } from "../auth/EnvironmentAuth.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { crewThreadGrants } from "../crew/crewMcpCapabilities.ts";
+import { isFeatureCrewMember } from "../crew/crewMcpCapabilities.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
@@ -86,6 +86,8 @@ import * as CrewHandlers from "./toolkits/crew/handlers.ts";
 import * as FeaturesHandlers from "./toolkits/features/handlers.ts";
 import * as ProjectRequestsHandlers from "./toolkits/projectRequests/handlers.ts";
 import { CrewGatedToolkits } from "./crewToolGrants.ts";
+import * as IssuesHandlers from "./toolkits/issues/handlers.ts";
+import { IssuesToolkit } from "./toolkits/issues/tools.ts";
 import * as DeviceHandlers from "./toolkits/device/handlers.ts";
 import {
   DeviceScreenshotTool,
@@ -251,11 +253,12 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     Effect.orElseSucceed(() => false),
   );
   const database = yield* Effect.serviceOption(SqlClient.SqlClient);
-  // Live, like the handlers' own checks, so an edited bot's headquarters lists what it may use now.
-  const grantsOf = (threadId: ThreadId) =>
+  const crewMemberCheck = (threadId: ThreadId) =>
     Option.isNone(database)
-      ? crewThreadGrants(threadId)
-      : crewThreadGrants(threadId).pipe(Effect.provideService(SqlClient.SqlClient, database.value));
+      ? isFeatureCrewMember(threadId)
+      : isFeatureCrewMember(threadId).pipe(
+          Effect.provideService(SqlClient.SqlClient, database.value),
+        );
   const authenticateRequest = Effect.fn("McpHttpServer.authenticateRequest")(function* (
     request: HttpServerRequest.HttpServerRequest,
   ) {
@@ -288,14 +291,14 @@ const makeMcpAuthMiddleware = Effect.gen(function* () {
     const limited = McpInvocationContext.withRuntimeModeCeiling(asked, runtimeModeCeiling);
     const linkedEnvironments = yield* linksEnabled;
     if (limited.client?.linked === true && !linkedEnvironments) return linkedEnvironmentsOff;
-    const crewGrants =
-      limited.thread === undefined ? undefined : yield* grantsOf(limited.thread.threadId);
+    const featureCrewMember =
+      limited.thread !== undefined && (yield* crewMemberCheck(limited.thread.threadId));
     const origin = Option.getOrUndefined(Option.map(requestUrl(request), (url) => url.origin));
     return {
       ...limited,
       linkedEnvironments,
       origin,
-      ...(crewGrants === undefined ? {} : { crewGrants }),
+      ...(featureCrewMember ? { featureCrewMember } : {}),
     };
   });
   // Untraced: a span here would wrap the tool call; the HTTP server span already covers it.
@@ -1313,6 +1316,8 @@ export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsHandlers.layer,
 ).pipe(Layer.provide(PullRequestWatchService.layer));
 
+const layerIssuesToolkit = toolkitRegistration(IssuesToolkit, IssuesHandlers.layer);
+
 const layerDeviceStandardToolkitRegistration = toolkitRegistration(
   DeviceStandardToolkit,
   DeviceHandlers.layerStandard,
@@ -1328,7 +1333,7 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
-/** Bosun's crew, bot, workflow and feature tools, listed only to crew threads by their grants. */
+/** Bosun's crew, bot, workflow and feature tools, listed to thread callers by `crewToolGrants.ts`. */
 export const layerCrewTools = Layer.mergeAll(
   toolkitRegistration(CrewGatedToolkits.bots, BotsHandlers.layer),
   toolkitRegistration(CrewGatedToolkits.crew, CrewHandlers.layer),
@@ -1379,6 +1384,7 @@ export const layerTools = Layer.mergeAll(
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,
   layerCrewTools,
+  layerIssuesToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
   layerMessageToolkit,

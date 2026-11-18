@@ -115,11 +115,13 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
 import * as BotService from "./bots/BotService.ts";
+import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
+import { LibraryCopies } from "./crew/LibraryCopies.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { CrewChanges } from "./crew/CrewChanges.ts";
 import { FeatureService } from "./features/FeatureService.ts";
-import * as IssueService from "./issues/IssueService.ts";
+import * as BoardIssueService from "./issues/IssueService.ts";
 import * as TicketImages from "./tickets/TicketImages.ts";
 import * as TicketService from "./tickets/TicketService.ts";
 import * as NativeChildWorkQuery from "./orchestration-v2/NativeChildWorkQuery.ts";
@@ -259,6 +261,8 @@ import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as TriageService from "./triage/TriageService.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
+import * as IssueService from "./issue/IssueService.ts";
+import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
 import { pullRequestSyncKey } from "./pullRequest/pullRequestSyncKey.ts";
@@ -728,7 +732,14 @@ const ServerT3WsRpcGroup = T3WsRpcGroup.middleware(RpcInstrumentation);
 // crosses TypeScript's instantiation limit and the layer's requirements degrade to
 // `any`, so the handlers are registered as two disjoint, smaller groups.
 type ServerWsRpc = RpcGroup.Rpcs<typeof ServerT3WsRpcGroup>;
-const SPLIT_WS_RPC_PREFIXES = ["server", "pullRequests", "provider", "orchestration"] as const;
+const SPLIT_WS_RPC_PREFIXES = [
+  "server",
+  "pullRequests",
+  "issues",
+  "issueTrackers",
+  "provider",
+  "orchestration",
+] as const;
 type SplitWsRpc = Extract<
   ServerWsRpc,
   { readonly _tag: `${(typeof SPLIT_WS_RPC_PREFIXES)[number]}.${string}` }
@@ -1486,6 +1497,8 @@ export const layerWsRpc = (
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
       const pullRequests = yield* PullRequestService.PullRequestService;
+      const issues = yield* IssueService.IssueService;
+      const issueTrackers = yield* IssueTrackerConnections.IssueTrackerConnections;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const deviceService = yield* DeviceService.DeviceService;
@@ -1556,6 +1569,8 @@ export const layerWsRpc = (
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
+      // The server runs it, so unlinking removes this machine's copies there first.
+      const library = yield* Effect.serviceOption(LibraryCopies);
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
@@ -1980,6 +1995,19 @@ export const layerWsRpc = (
       });
 
       const handlers = ServerT3WsRpcGroup.of({
+        [WS_METHODS.issuesList]: (input) => issues.list(input),
+        [WS_METHODS.issuesDetail]: (input) => issues.detail(input),
+        [WS_METHODS.issuesComments]: (input) => issues.comments(input),
+        [WS_METHODS.issuesTemplates]: (input) => issues.templates(input),
+        [WS_METHODS.issuesCandidates]: (input) => issues.candidates(input),
+        [WS_METHODS.issuesCreate]: (input) => issues.create(input),
+        [WS_METHODS.issuesComment]: (input) => issues.comment(input),
+        [WS_METHODS.issuesUpdate]: (input) => issues.update(input),
+        [WS_METHODS.issuesSetState]: (input) => issues.setState(input),
+        [WS_METHODS.issuesReact]: (input) => issues.react(input),
+        [WS_METHODS.issueTrackersList]: () => issueTrackers.list,
+        [WS_METHODS.issueTrackersConnect]: (input) => issueTrackers.connect(input),
+        [WS_METHODS.issueTrackersBindProject]: (input) => issueTrackers.bindProject(input),
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2271,6 +2299,13 @@ export const layerWsRpc = (
                         cause,
                       }),
                     ThreadLaunchBaseRefError: (cause) =>
+                      new OrchestrationV2ThreadLaunchError({
+                        commandId: input.commandId,
+                        projectId: input.projectId,
+                        message: cause.message,
+                        cause,
+                      }),
+                    ThreadLaunchBranchExistsError: (cause) =>
                       new OrchestrationV2ThreadLaunchError({
                         commandId: input.commandId,
                         projectId: input.projectId,
@@ -2681,7 +2716,9 @@ export const layerWsRpc = (
           peerLinks.list.pipe(Effect.map((links) => ({ links }))),
         [WS_METHODS.peerLinksLink]: (input) => peerLinks.link(input),
         [WS_METHODS.peerLinksUnlink]: ({ environmentId }) =>
-          peerLinks.unlink(environmentId).pipe(Effect.map((removed) => ({ removed }))),
+          (Option.isSome(library) ? library.value.unlink : peerLinks.unlink)(environmentId).pipe(
+            Effect.map((removed) => ({ removed })),
+          ),
         [WS_METHODS.peerLinksAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(peerLinkRequests.answer(input)),
@@ -3052,6 +3089,7 @@ export const layerWsRpc = (
             if (
               input.resource._tag === "attachment" ||
               input.resource._tag === "native-app-icon" ||
+              input.resource._tag === "environment-theme-background" ||
               input.resource._tag === "tool-output-image" ||
               input.resource._tag === SOURCE_CONTROL_MEDIA_ASSET ||
               // A network path is served only from the thread's project, looked up below.
@@ -3602,16 +3640,20 @@ export const layer = Layer.unwrap(
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const crewServices = {
       bots: yield* BotService.BotService,
+      botTransfer: yield* BotTransfer.BotTransfer,
       crew: yield* CrewService,
+      library: yield* LibraryCopies,
       projectRequests: yield* ProjectRequests,
       features: yield* FeatureService,
-      issues: yield* IssueService.IssueService,
+      issues: yield* BoardIssueService.IssueService,
       tickets: yield* TicketService.TicketService,
       ticketImages: yield* TicketImages.make,
     };
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const npmRelease = yield* NpmRelease.NpmRelease;
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const issues = yield* IssueService.IssueService;
+    const issueTrackers = yield* IssueTrackerConnections.IssueTrackerConnections;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
@@ -3702,6 +3744,10 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
               // Share server-lifetime PR caches so WS mutations invalidate every client's HTTP diffs.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
+              Layer.provide(Layer.succeed(IssueService.IssueService, issues)),
+              Layer.provide(
+                Layer.succeed(IssueTrackerConnections.IssueTrackerConnections, issueTrackers),
+              ),
               Layer.provide(OtlpEndpointCheck.layer),
               Layer.provide(
                 Layer.succeed(

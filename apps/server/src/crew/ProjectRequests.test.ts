@@ -357,7 +357,6 @@ it.effect("retires this copy's manager when it moves to another machine, deletin
     yield* requests.setManagerPlacement({
       projectId,
       remoteManager: null,
-      permittedEnvironmentIds: [EnvironmentId.make("environment-linux")],
       retired: { environmentLabel: "Linux box", threadId: ThreadId.make("bot-run:project-hq:x") },
     });
     const note = yield* sent;
@@ -469,9 +468,9 @@ it.effect(
       // The turn that took R-1 ended, then the server stopped before its fallback went out.
       yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        member_revision, model_selection_json, runtime_mode, created_at)
       VALUES (${`project-hq:${projectId}`}, 'project-manager:web', ${projectId},
-        ${managerThreadId}, 'Manage', 'Project manager', '', '[]', 1, '{}', 'full-access',
+        ${managerThreadId}, 'Manage', 'Project manager', '', 1, '{}', 'full-access',
         '2026-11-05')
     `;
       const run = (id: string, ordinal: number, userMessageId: string) => sql`
@@ -512,9 +511,9 @@ it.effect("recovers a later turn's fallback at startup when an earlier turn repl
     yield* clear;
     yield* sql`
       INSERT INTO crew_runs (id, member_id, project_id, thread_id, task_text, title, instructions,
-        withheld_tools_json, member_revision, model_selection_json, runtime_mode, created_at)
+        member_revision, model_selection_json, runtime_mode, created_at)
       VALUES (${`project-hq:${projectId}`}, 'project-manager:web', ${projectId},
-        ${managerThreadId}, 'Manage', 'Project manager', '', '[]', 1, '{}', 'full-access',
+        ${managerThreadId}, 'Manage', 'Project manager', '', 1, '{}', 'full-access',
         '2026-11-05')
     `;
     const prompt = JSON.stringify({ userMessageId: `message:project-request:${projectId}:R-1` });

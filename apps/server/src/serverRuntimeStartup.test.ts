@@ -213,7 +213,6 @@ it.effect.each([
       Layer.mock(AnalyticsService.AnalyticsService)({}),
       Layer.mock(CrewService)({
         reconcileRuns: () => Effect.void,
-        watchHeadquarters: () => Effect.void,
       }),
       // No provider logins or Connect link, so startup records no owners.
       FileSystem.layerNoop({}),

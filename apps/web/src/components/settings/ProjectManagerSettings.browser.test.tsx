@@ -3,7 +3,6 @@ import {
   DEFAULT_UNIFIED_SETTINGS,
   EnvironmentId,
   ProjectId,
-  ProviderInstanceId,
   type ProjectManagerSettings,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
@@ -23,10 +22,6 @@ const settings = (fields: Partial<ProjectManagerSettings> = {}): ProjectManagerS
   projectId,
   enabled: true,
   instructions: "Manage the web app.",
-  withheldTools: [],
-  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
-  runtimeMode: "full-access",
-  longConversation: "compact",
   customized: false,
   revision: 1,
   threadId: null,

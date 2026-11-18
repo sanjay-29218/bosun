@@ -4,7 +4,6 @@ import * as Schema from "effect/Schema";
 import { EnvironmentId, ProjectId, ThreadId } from "./baseSchemas.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectIconColor, ProjectRemoteBot } from "./project.ts";
-import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
  * Every bot has one headquarters: a crew run in the bot's home, created when first needed.
@@ -84,13 +83,6 @@ export const BotAvatar = Schema.Struct({
 });
 export type BotAvatar = typeof BotAvatar.Type;
 
-/**
- * What a bot's headquarters does once its conversation grows long: let the provider compact it,
- * or start a fresh session in the same thread at the next quiet moment.
- */
-export const BotLongConversation = Schema.Literals(["compact", "new-session"]);
-export type BotLongConversation = typeof BotLongConversation.Type;
-
 /** Labels the briefing that opens a headquarters' new session, so clients mark where it began. */
 export const BOT_FRESH_START_LABEL = "Fresh start";
 const isFreshStartRecord = Schema.is(
@@ -100,16 +92,23 @@ export const isBotFreshStartContext = (
   context: { readonly records: ReadonlyArray<unknown> } | undefined,
 ): boolean => context?.records.some(isFreshStartRecord) ?? false;
 
-/**
- * Builds before #96 sent `allowedTools`, a list with the opposite meaning. Inputs accept the key
- * only so the server can refuse it with a plain message instead of flipping access.
- */
-export const LEGACY_ALLOWED_TOOLS = Schema.optionalKey(Schema.Unknown);
-export const LEGACY_TOOLS_MESSAGE = "This Bosun is newer; update the app to edit tools.";
-
 /** Older linked servers omit keys added since; a missing list decodes as empty. */
-export const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
+const listDefaultingToEmpty = <S extends Schema.Top>(item: S) =>
   Schema.Array(item).pipe(Schema.withDecodingDefaultKey(Effect.succeed([])));
+
+/**
+ * A bot's move to another machine that hasn't finished. `pending` until the target confirms it
+ * took the copy: the move can still be undone there. `confirmed` after: the copy runs there, and
+ * only removing the bot here is left.
+ */
+export const BotPendingMove = Schema.Struct({
+  targetEnvironmentId: EnvironmentId,
+  newBotId: Schema.String,
+  state: Schema.Literals(["pending", "confirmed"]).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("pending" as const)),
+  ),
+});
+export type BotPendingMove = typeof BotPendingMove.Type;
 
 export const Bot = Schema.Struct({
   id: Schema.String,
@@ -117,17 +116,13 @@ export const Bot = Schema.Struct({
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.String,
-  /** The tools a person withheld; every other tool is on. */
-  withheldTools: listDefaultingToEmpty(Schema.String),
-  runtimeMode: RuntimeMode,
   /** The model its runs use; null until one is chosen (`crew.initialize` fills it in). */
   modelSelection: Schema.NullOr(ModelSelection),
-  longConversation: BotLongConversation,
   /**
-   * Linked environments the bot may start new work on. Its home is the environment that stores
-   * it; ids no longer linked stay saved and are ignored.
+   * Every environment linked to its home, the one that stores it. A bot works on each of them;
+   * the global link list is the only control. Read-only, worked out when listed.
    */
-  permittedEnvironmentIds: listDefaultingToEmpty(EnvironmentId),
+  linkedEnvironmentIds: listDefaultingToEmpty(EnvironmentId),
   /** Rail order, counted from 0. */
   position: Schema.Int,
   /** Shown in the main rail; every bot is listed under Bots either way. Absent: pinned. */
@@ -140,6 +135,8 @@ export const Bot = Schema.Struct({
    * home exists: a bot gets one when it is created, or first opens or schedules work.
    */
   homePath: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /** A move to another machine that hasn't finished; null or absent when none. */
+  movingTo: Schema.optionalKey(Schema.NullOr(BotPendingMove)),
 });
 export type Bot = typeof Bot.Type;
 
@@ -150,11 +147,7 @@ export const BotCreateInput = Schema.Struct({
   avatar: BotAvatar,
   color: ProjectIconColor,
   instructions: Schema.optionalKey(Schema.String),
-  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-  allowedTools: LEGACY_ALLOWED_TOOLS,
-  runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-  longConversation: Schema.optionalKey(BotLongConversation),
 });
 export type BotCreateInput = typeof BotCreateInput.Type;
 
@@ -166,12 +159,7 @@ export const BotUpdateInput = Schema.Struct({
   avatar: Schema.optionalKey(BotAvatar),
   color: Schema.optionalKey(ProjectIconColor),
   instructions: Schema.optionalKey(Schema.String),
-  withheldTools: Schema.optionalKey(Schema.Array(Schema.String)),
-  allowedTools: LEGACY_ALLOWED_TOOLS,
-  runtimeMode: Schema.optionalKey(RuntimeMode),
   modelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-  longConversation: Schema.optionalKey(BotLongConversation),
-  permittedEnvironmentIds: Schema.optionalKey(Schema.Array(EnvironmentId)),
 });
 export type BotUpdateInput = typeof BotUpdateInput.Type;
 
@@ -198,6 +186,62 @@ export const BotSetPinInput = Schema.Struct({
   pinned: Schema.Boolean,
 });
 export type BotSetPinInput = typeof BotSetPinInput.Type;
+
+export const BotTransferMode = Schema.Literals(["copy", "move"]);
+export type BotTransferMode = typeof BotTransferMode.Type;
+
+/**
+ * Copies a bot to a linked machine, or moves it there. `newBotId` is chosen once per attempt, so
+ * a retry finishes or undoes the same transfer. `dryRun` changes nothing and returns the preview.
+ */
+export const BotTransferInput = Schema.Struct({
+  botId: Schema.String,
+  targetEnvironmentId: EnvironmentId,
+  newBotId: Schema.String,
+  mode: BotTransferMode,
+  dryRun: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Cancels the bot's unfinished move instead, whatever the target says. `undo` needs the target
+   * to undo its copy; `forget` stops waiting for it, leaving the automations here off.
+   */
+  cancelMove: Schema.optionalKey(Schema.Literals(["undo", "forget"])),
+});
+export type BotTransferInput = typeof BotTransferInput.Type;
+
+/**
+ * What becomes of one of the bot's projects: it comes along on a move, stays with the original on
+ * a copy, or is left with no bot when the target has no link to its machine.
+ */
+export const BotTransferProjectOutcome = Schema.Literals([
+  "comes-along",
+  "stays-with-original",
+  "left-without-bot",
+]);
+export type BotTransferProjectOutcome = typeof BotTransferProjectOutcome.Type;
+
+export const BotTransferResult = Schema.Struct({
+  /** The bot on the target machine. */
+  bot: Schema.Struct({ environmentId: EnvironmentId, id: Schema.String, name: Schema.String }),
+  projects: Schema.Array(
+    Schema.Struct({
+      environmentId: EnvironmentId,
+      environmentLabel: Schema.String,
+      projectId: ProjectId,
+      title: Schema.String,
+      outcome: BotTransferProjectOutcome,
+    }),
+  ),
+  /** Linked machines that didn't answer, so their projects may still name the bot. */
+  unchecked: Schema.Array(Schema.Struct({ environmentId: EnvironmentId, label: Schema.String })),
+  automations: Schema.Struct({
+    copied: Schema.Int,
+    /** How many were on; a move keeps them on, a copy brings every one turned off. */
+    enabled: Schema.Int,
+    needAttention: Schema.Array(Schema.Struct({ title: Schema.String, reason: Schema.String })),
+  }),
+  warnings: Schema.Array(Schema.String),
+});
+export type BotTransferResult = typeof BotTransferResult.Type;
 
 export class BotOperationError extends Schema.TaggedError<BotOperationError>()(
   "BotOperationError",

@@ -18,7 +18,7 @@ import {
   IssueChangedError,
   ticketRef,
   type EnvironmentId,
-  type IssueDetail,
+  type BoardIssueDetail,
   type IssueList,
   type Ticket,
 } from "@t3tools/contracts";
@@ -585,7 +585,7 @@ function TicketDetail(props: {
   );
 }
 
-const ISSUE_CLOSED_LABELS: Record<NonNullable<IssueDetail["closedReason"]>, string> = {
+const ISSUE_CLOSED_LABELS: Record<NonNullable<BoardIssueDetail["closedReason"]>, string> = {
   completed: "Closed as completed",
   not_planned: "Closed as not planned",
   duplicate: "Closed as duplicate",
@@ -640,7 +640,10 @@ async function uploadTodoImage(
   return null;
 }
 
-function useIssueEditSaver(owner: TodoOwner, issue: IssueDetail | null | undefined): SaveIssueEdit {
+function useIssueEditSaver(
+  owner: TodoOwner,
+  issue: BoardIssueDetail | null | undefined,
+): SaveIssueEdit {
   const savedAt = useRef<string | null>(null);
   const conflictToast = useRef<string | null>(null);
   const save = async (edit: IssueEdit, overwrite = false): Promise<boolean> => {

@@ -115,6 +115,8 @@ import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
+import * as IssueService from "./issue/IssueService.ts";
+import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as RelayClient from "@t3tools/shared/relayClient";
@@ -164,10 +166,12 @@ import * as ThreadManagement from "./orchestration-v2/ThreadManagementService.ts
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as BotStore from "./bots/BotStore.ts";
 import * as BotService from "./bots/BotService.ts";
+import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
+import { LibraryCopies } from "./crew/LibraryCopies.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { FeatureService } from "./features/FeatureService.ts";
-import * as IssueService from "./issues/IssueService.ts";
+import * as BoardIssueService from "./issues/IssueService.ts";
 import * as TicketService from "./tickets/TicketService.ts";
 import * as ProjectionStore from "./orchestration-v2/ProjectionStore.ts";
 import * as EventSink from "./orchestration-v2/EventSink.ts";
@@ -866,6 +870,8 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
   Layer.mock(PullRequestService.PullRequestService)({}),
+  Layer.mock(IssueService.IssueService)({}),
+  Layer.mock(IssueTrackerConnections.IssueTrackerConnections)({}),
   Layer.mock(PullRequestSyncReactor.PullRequestSyncReactor)({}),
   Layer.mock(RelayClient.RelayClient)({}),
   Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({}),
@@ -967,9 +973,11 @@ it.live.each([
         }),
         // Ws.layer also serves Bosun's RPCs; the handshake never calls them.
         Layer.mock(BotService.BotService)({}),
+        Layer.mock(BotTransfer.BotTransfer)({}),
         Layer.mock(CrewService)({}),
+        Layer.mock(LibraryCopies)({}),
         Layer.mock(FeatureService)({}),
-        Layer.mock(IssueService.IssueService)({}),
+        Layer.mock(BoardIssueService.IssueService)({}),
         Layer.mock(ProjectRequests)({}),
         Layer.mock(TicketService.TicketService)({}),
         ProviderInstallationGate.layer,

@@ -92,6 +92,7 @@ it.effect("grants only the capabilities requested for a provider thread", () =>
       providerInstanceId: ProviderInstanceId.make("codex"),
     });
     expect(yield* capabilitiesOf(defaults)).toEqual([
+      "issues",
       "orchestration",
       "preview",
       "pull-requests",

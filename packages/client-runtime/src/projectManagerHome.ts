@@ -19,13 +19,10 @@ export interface ManagerCopy {
   /** The environment's name, as the other copies will show it. */
   readonly label: string;
   readonly remoteManager?: ProjectRemoteManager | null | undefined;
-  readonly managerPermittedEnvironmentIds?: ReadonlyArray<EnvironmentId> | null | undefined;
   /** Its manager has a thread that isn't archived. */
   readonly hasManager: boolean;
   /** The environment its bot lives on, or null with no bot. */
   readonly botHome: EnvironmentId | null;
-  /** The linked environments its bot may work on, when the client knows them. */
-  readonly botPermittedEnvironmentIds: ReadonlyArray<EnvironmentId> | null;
 }
 
 /** Whether this copy keeps the project's manager: no other environment's copy holds it. */
@@ -72,21 +69,6 @@ function defaultManagerHome(copies: ReadonlyArray<ManagerCopy>): ManagerCopy | n
   return pool.find((copy) => copy.environmentId === copy.botHome) ?? pool[0] ?? null;
 }
 
-/** Where a manager may work until the person says: its bot's machines that hold a copy. */
-function defaultManagerPermitted(
-  home: ManagerCopy,
-  copies: ReadonlyArray<ManagerCopy>,
-): EnvironmentId[] {
-  const held = new Set(copies.map((copy) => copy.environmentId));
-  return (home.botPermittedEnvironmentIds ?? []).filter(
-    (environmentId) => environmentId !== home.environmentId && held.has(environmentId),
-  );
-}
-
-/** The linked environments a home copy's manager works on: its own list, or the default. */
-export const managerPermitted = (home: ManagerCopy, copies: ReadonlyArray<ManagerCopy>) =>
-  home.managerPermittedEnvironmentIds ?? defaultManagerPermitted(home, copies);
-
 export interface ManagerPlacementWrite {
   readonly environmentId: EnvironmentId;
   readonly input: ProjectManagerPlacementInput;
@@ -94,7 +76,7 @@ export interface ManagerPlacementWrite {
 
 /**
  * The writes that give a project one manager, on `home` (the default when not given): every
- * other copy names it, and it gets the default Can work on list when it has none. A move away
+ * other copy names it. A move away
  * from a copy archives that copy's manager thread, so the home's write comes last, once each
  * retired thread is known (`retired`). Nothing when the copies already agree.
  */
@@ -142,26 +124,13 @@ export function planManagerPlacement(
         ],
   );
   const needsHome = home.remoteManager != null;
-  // Until its bot's list loads, the default isn't known; saving none would stick.
-  const needsPermitted =
-    home.managerPermittedEnvironmentIds == null &&
-    (home.botHome === null || home.botPermittedEnvironmentIds !== null);
-  if (away.length === 0 && !needsHome && !needsPermitted) return none;
+  if (away.length === 0 && !needsHome) return none;
   return {
     away,
-    home:
-      needsHome || needsPermitted
-        ? {
-            environmentId: home.environmentId,
-            input: {
-              projectId: home.projectId,
-              ...(needsHome ? { remoteManager: null } : {}),
-              ...(needsPermitted
-                ? { permittedEnvironmentIds: defaultManagerPermitted(home, copies) }
-                : {}),
-            },
-          }
-        : { environmentId: home.environmentId, input: { projectId: home.projectId } },
+    home: {
+      environmentId: home.environmentId,
+      input: { projectId: home.projectId, ...(needsHome ? { remoteManager: null } : {}) },
+    },
   };
 }
 
@@ -223,12 +192,11 @@ export interface PlacedProject {
   readonly botId?: string | null | undefined;
   readonly remoteBot?: ProjectRemoteBot | null | undefined;
   readonly remoteManager?: ProjectRemoteManager | null | undefined;
-  readonly managerPermittedEnvironmentIds?: ReadonlyArray<EnvironmentId> | null | undefined;
 }
 
 /**
  * The copies of one project for placement. `threads` are the client's thread shells, archived ones
- * included; `botPermitted` is the bot's Can work on list, or null while unknown.
+ * included.
  */
 export function managerCopiesOf(input: {
   readonly projects: ReadonlyArray<PlacedProject>;
@@ -238,10 +206,6 @@ export function managerCopiesOf(input: {
     readonly id: string;
     readonly archivedAt: string | null;
   }>;
-  readonly botPermitted: (owner: {
-    readonly environmentId: EnvironmentId;
-    readonly botId: string;
-  }) => ReadonlyArray<EnvironmentId> | null;
 }): ManagerCopy[] {
   const liveManagers = new Set(
     input.threads.flatMap((thread) =>
@@ -255,12 +219,10 @@ export function managerCopiesOf(input: {
       projectId: project.id,
       label: input.labelOf(project.environmentId) ?? project.environmentId,
       remoteManager: project.remoteManager ?? null,
-      managerPermittedEnvironmentIds: project.managerPermittedEnvironmentIds ?? null,
       hasManager: liveManagers.has(
         `${project.environmentId}:${projectHeadquartersThreadId(project.id)}`,
       ),
       botHome: owner?.environmentId ?? null,
-      botPermittedEnvironmentIds: owner === null ? null : input.botPermitted(owner),
     };
   });
 }

@@ -1,9 +1,8 @@
-import { type CREW_TOOL_GRANTS, isStandingThread } from "@t3tools/contracts";
+import { isStandingThread } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Fiber from "effect/Fiber";
 import { McpSchema, type Tool, Toolkit } from "effect/ai";
 
-import { CREW_MEMBER_GRANT } from "../crew/crewMcpCapabilities.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { BotsToolkit } from "./toolkits/bots/tools.ts";
 import {
@@ -14,36 +13,37 @@ import { CrewToolkit } from "./toolkits/crew/tools.ts";
 import { FeaturesToolkit } from "./toolkits/features/tools.ts";
 import { ProjectRequestsToolkit } from "./toolkits/projectRequests/tools.ts";
 
-type Grant = (typeof CREW_TOOL_GRANTS)[number]["id"];
-
 /**
- * What a crew thread needs from its run's grants: a grant, or `null` for none. Callers that
- * aren't crew threads see none of these tools. `linkOnly` tools are for linked environments alone,
- * `standing` ones for a bot's headquarters and projects' managers, and `CREW_MEMBER_GRANT` ones
- * for a feature's crew members.
+ * Which thread callers a tool is listed to. Every thread gets `thread` tools, the same for a plain
+ * task, a bot or a crew member. `crew` ones go to the crew thread acting for a run, `standing`
+ * ones to a bot's headquarters and projects' managers, `member` ones to a feature's crew members,
+ * and `linkOnly` ones to linked environments alone.
  */
-type Needs = Grant | null | "linkOnly" | "standing" | typeof CREW_MEMBER_GRANT;
+type Needs = "thread" | "crew" | "standing" | "member" | "linkOnly";
 
 /**
  * `McpSchema.EnabledWhen` reads only the MCP client profile, so read the caller from the request
  * fiber. Effect refuses a call to a tool it doesn't list, so this gates calls as well. A linked
  * environment's session sees the tools its bots use here; the environment it calls from already
- * checked its own caller's grants, and the handler checks the link's access.
+ * checked its own caller, and the handler checks the link's access.
  */
 const callerHolds = (needs: Needs, forLinks: boolean): boolean => {
   const fiber = Fiber.getCurrent();
   const scope =
     fiber && Context.getOrUndefined(fiber.context, McpInvocationContext.McpInvocationContext);
   if (scope?.client?.linked === true) return forLinks;
-  if (needs === "linkOnly") return false;
-  const grants = scope?.crewGrants;
-  if (grants === undefined) return false;
-  if (needs === null) return true;
-  if (needs === "standing") {
-    const thread = scope?.thread;
-    return thread !== undefined && thread.subagent !== true && isStandingThread(thread.threadId);
+  const thread = scope?.thread;
+  if (thread === undefined || needs === "linkOnly") return false;
+  switch (needs) {
+    case "thread":
+      return true;
+    case "crew":
+      return scope?.capabilities.has("crew") === true;
+    case "standing":
+      return thread.subagent !== true && isStandingThread(thread.threadId);
+    case "member":
+      return scope?.featureCrewMember === true;
   }
-  return grants.includes(needs);
 };
 
 const gated = <Tools extends Record<string, Tool.Any>>(
@@ -63,53 +63,53 @@ const gated = <Tools extends Record<string, Tool.Any>>(
     }),
   ) as unknown as Toolkit.Toolkit<Tools>;
 
-/**
- * Bosun's toolkits, each tool listed only to crew threads whose run holds the grant its handler
- * checks.
- */
+/** Bosun's toolkits, each tool listed to the thread callers it acts for. */
 export const CrewGatedToolkits = {
   bots: gated(
     BotsToolkit,
     {
-      t3_bot_list: null,
-      t3_bot_create: "crew.workflows",
-      t3_bot_update: "crew.workflows",
-      t3_bot_delete: "crew.workflows",
-      t3_bot_reorder: "crew.workflows",
-      t3_bot_move_project: "crew.workflows",
-      t3_bot_pin: "crew.workflows",
-      t3_bot_projects: null,
+      t3_bot_list: "thread",
+      t3_bot_create: "thread",
+      t3_bot_update: "thread",
+      t3_bot_delete: "thread",
+      t3_bot_reorder: "thread",
+      t3_bot_move_project: "thread",
+      t3_bot_pin: "thread",
+      t3_bot_projects: "thread",
       t3_bot_link_projects: "linkOnly",
       t3_bot_link_task: "linkOnly",
       t3_bot_link_notices: "linkOnly",
+      t3_crew_link_library: "linkOnly",
+      t3_bot_link_import: "linkOnly",
+      t3_bot_link_rehome: "linkOnly",
     },
     ["t3_bot_list", "t3_bot_move_project"],
   ),
   crew: gated(CrewToolkit, {
-    crew_ask_person: CREW_MEMBER_GRANT,
-    crew_link_issue: null,
-    crew_list_issues: null,
-    crew_create_todo: null,
-    crew_read_todo: null,
-    crew_update_todo: null,
-    crew_create_milestone: null,
-    crew_update_milestone: null,
+    crew_ask_person: "member",
+    crew_link_issue: "crew",
+    crew_list_issues: "crew",
+    crew_create_todo: "crew",
+    crew_read_todo: "crew",
+    crew_update_todo: "crew",
+    crew_create_milestone: "crew",
+    crew_update_milestone: "crew",
     [READ_MANAGER_INSTRUCTIONS]: "standing",
     [UPDATE_MANAGER_INSTRUCTIONS]: "standing",
   }),
   features: gated(FeaturesToolkit, {
-    t3_role_list: "crew.workflows",
-    t3_role_create: "crew.workflows",
-    t3_role_update: "crew.workflows",
-    t3_feature_workflow_create: "crew.workflows",
-    t3_feature_workflow_update: "crew.workflows",
-    t3_feature_start: null,
-    t3_feature_finish: null,
-    t3_feature_list: null,
+    t3_role_list: "thread",
+    t3_role_create: "thread",
+    t3_role_update: "thread",
+    t3_feature_workflow_create: "thread",
+    t3_feature_workflow_update: "thread",
+    t3_feature_start: "thread",
+    t3_feature_finish: "thread",
+    t3_feature_list: "thread",
   }),
   projectRequests: gated(ProjectRequestsToolkit, {
-    t3_project_send: null,
-    t3_project_requests: null,
-    t3_project_reply: null,
+    t3_project_send: "thread",
+    t3_project_requests: "thread",
+    t3_project_reply: "thread",
   }),
 };

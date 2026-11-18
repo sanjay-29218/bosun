@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
-import * as PeerLinks from "../../../peer/PeerLinks.ts";
+import { unlinkEnvironment } from "../../../crew/LibraryCopies.ts";
 import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import { readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -228,15 +228,12 @@ const handlers = {
   ),
   t3_environment_unlink: McpToolAccess.writesEnvironment(({ environmentId }) =>
     Effect.gen(function* () {
-      const links = yield* PeerLinks.PeerLinks;
-      const removed = yield* links
-        .unlink(environmentId)
-        .pipe(
-          Effect.mapError(
-            (error) =>
-              new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
-          ),
-        );
+      const removed = yield* unlinkEnvironment(environmentId).pipe(
+        Effect.mapError(
+          (error) =>
+            new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
+        ),
+      );
       return { environmentId, removed };
     }),
   ),

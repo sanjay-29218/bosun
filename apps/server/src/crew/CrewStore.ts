@@ -1,8 +1,7 @@
 import {
   BOT_HEADQUARTERS_RUN_PREFIX,
-  type BotLongConversation,
-  PROJECT_HEADQUARTERS_RUN_PREFIX,
   CREW_DISPATCH_STATE,
+  LibraryOwner,
   ModelSelection,
   ProjectId,
   ProjectManagerIcon,
@@ -37,12 +36,8 @@ export interface CrewMember {
   readonly roleRevision: number | null;
   readonly name: string;
   readonly instructions: string;
-  readonly withheldTools: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
   readonly enabled: boolean;
-  /** How a project's standing manager handles a long conversation; other members ignore it. */
-  readonly longConversation: BotLongConversation;
   /** A project manager's chosen look; null for every other member. */
   readonly icon: ProjectManagerIcon | null;
   /** When someone saved its settings in its project; role edits leave it alone from then on. */
@@ -56,10 +51,10 @@ export interface Role {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly withheldTools: ReadonlyArray<string>;
   readonly modelSelection: ModelSelection;
-  readonly runtimeMode: RuntimeMode;
   readonly enabled: boolean;
+  /** Set on a copy of another machine's role, which is edited there. */
+  readonly managedFrom: LibraryOwner | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -71,6 +66,8 @@ export interface Workflow {
   readonly instructions: string;
   readonly leadRoleId: string;
   readonly crewRoleIds: ReadonlyArray<string>;
+  /** Set on a copy of another machine's workflow, which is edited there. */
+  readonly managedFrom: LibraryOwner | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -103,7 +100,6 @@ export interface CrewRun {
   readonly taskText: string;
   readonly title: string;
   readonly instructions: string;
-  readonly withheldTools: ReadonlyArray<string>;
   readonly memberRevision: number;
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
@@ -125,11 +121,8 @@ interface CrewMemberRow {
   readonly roleRevision: number | null;
   readonly name: string;
   readonly instructions: string;
-  readonly withheldToolsJson: string;
   readonly modelSelectionJson: string;
-  readonly runtimeMode: string;
   readonly enabled: number;
-  readonly longConversation: string;
   readonly iconJson: string | null;
   readonly customizedAt: string | null;
   readonly revision: number;
@@ -141,10 +134,9 @@ interface RoleRow {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly withheldToolsJson: string;
   readonly modelSelectionJson: string;
-  readonly runtimeMode: string;
   readonly enabled: number;
+  readonly managedFromJson: string | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -158,7 +150,6 @@ interface CrewRunRow {
   readonly taskText: string;
   readonly title: string;
   readonly instructions: string;
-  readonly withheldToolsJson: string;
   readonly memberRevision: number;
   readonly modelSelectionJson: string;
   readonly runtimeMode: string;
@@ -175,10 +166,11 @@ interface CrewRunRow {
 
 const parseModelSelection = Schema.decodeUnknownSync(ModelSelection);
 const parseRuntimeMode = Schema.decodeUnknownSync(RuntimeMode);
-const parseWithheldTools = Schema.decodeUnknownSync(Schema.Array(Schema.String));
 const decodeModelSelection = (json: string) => parseModelSelection(JSON.parse(json));
-const decodeWithheldTools = (json: string) => parseWithheldTools(JSON.parse(json));
 const parseIcon = Schema.decodeUnknownSync(ProjectManagerIcon);
+const parseOwner = Schema.decodeUnknownSync(LibraryOwner);
+const decodeOwner = (json: string | null) => (json === null ? null : parseOwner(JSON.parse(json)));
+const encodeOwner = (owner: LibraryOwner | null) => (owner === null ? null : JSON.stringify(owner));
 const decodeIcon = (json: string | null) => (json === null ? null : parseIcon(JSON.parse(json)));
 const encodeIcon = (icon: ProjectManagerIcon | null) =>
   icon === null ? null : JSON.stringify(icon);
@@ -191,11 +183,8 @@ const decodeMember = (row: CrewMemberRow): CrewMember => ({
   roleRevision: row.roleRevision,
   name: row.name,
   instructions: row.instructions,
-  withheldTools: decodeWithheldTools(row.withheldToolsJson),
   modelSelection: decodeModelSelection(row.modelSelectionJson),
-  runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
-  longConversation: row.longConversation === "new-session" ? "new-session" : "compact",
   icon: decodeIcon(row.iconJson),
   customizedAt: row.customizedAt,
   revision: row.revision,
@@ -207,23 +196,24 @@ const decodeRole = (row: RoleRow): Role => ({
   id: row.id,
   name: row.name,
   instructions: row.instructions,
-  withheldTools: decodeWithheldTools(row.withheldToolsJson),
   modelSelection: decodeModelSelection(row.modelSelectionJson),
-  runtimeMode: parseRuntimeMode(row.runtimeMode),
   enabled: row.enabled === 1,
+  managedFrom: decodeOwner(row.managedFromJson),
   revision: row.revision,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
-interface WorkflowRow extends Omit<Workflow, "crewRoleIds"> {
+interface WorkflowRow extends Omit<Workflow, "crewRoleIds" | "managedFrom"> {
   readonly crewRoleIdsJson: string;
+  readonly managedFromJson: string | null;
 }
 
-const decodeWorkflow = ({ crewRoleIdsJson, ...row }: WorkflowRow): Workflow => {
+const decodeWorkflow = ({ crewRoleIdsJson, managedFromJson, ...row }: WorkflowRow): Workflow => {
   const crewRoleIds: unknown = JSON.parse(crewRoleIdsJson);
   return {
     ...row,
+    managedFrom: decodeOwner(managedFromJson),
     crewRoleIds: Array.isArray(crewRoleIds)
       ? crewRoleIds.filter((id): id is string => typeof id === "string")
       : [],
@@ -238,7 +228,6 @@ const decodeRun = (row: CrewRunRow): CrewRun => ({
   taskText: row.taskText,
   title: row.title,
   instructions: row.instructions,
-  withheldTools: decodeWithheldTools(row.withheldToolsJson),
   memberRevision: row.memberRevision,
   modelSelection: decodeModelSelection(row.modelSelectionJson),
   runtimeMode: parseRuntimeMode(row.runtimeMode),
@@ -268,6 +257,8 @@ export interface CrewStoreShape {
   ) => Effect.Effect<boolean, PersistenceSqlError>;
   readonly getRole: (id: string) => Effect.Effect<Role | null, PersistenceSqlError>;
   readonly listRoles: () => Effect.Effect<ReadonlyArray<Role>, PersistenceSqlError>;
+  /** Members made from it keep what they hold, no longer following it. */
+  readonly deleteRole: (id: string) => Effect.Effect<void, PersistenceSqlError>;
   readonly insertWorkflow: (workflow: Workflow) => Effect.Effect<void, PersistenceSqlError>;
   readonly updateWorkflow: (
     workflow: Workflow,
@@ -391,9 +382,8 @@ export const CrewStoreLive = Layer.effect(
       sql<CrewMemberRow>`
         SELECT id, project_id AS projectId, feature_id AS featureId,
           role_id AS roleId, role_revision AS roleRevision, name, instructions,
-          withheld_tools_json AS withheldToolsJson,
-          model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-          enabled, long_conversation AS longConversation, icon_json AS iconJson,
+          model_selection_json AS modelSelectionJson,
+          enabled, icon_json AS iconJson,
           customized_at AS customizedAt,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM crew_members WHERE id = ${id}
@@ -410,9 +400,8 @@ export const CrewStoreLive = Layer.effect(
     const getRole = (id: string) =>
       sql<RoleRow>`
         SELECT id, name, instructions,
-          withheld_tools_json AS withheldToolsJson,
-          model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-          enabled,
+          model_selection_json AS modelSelectionJson,
+          enabled, managed_from_json AS managedFromJson,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM roles WHERE id = ${id}
       `.pipe(
@@ -422,18 +411,15 @@ export const CrewStoreLive = Layer.effect(
         ),
       );
 
-    // A bot's headquarters run lasts as long as the bot, so it follows the bot's current grants,
-    // runtime mode and model. Its instructions only ever reach the thread's first message.
+    // A bot's headquarters run lasts as long as the bot, so it follows the bot's current model.
+    // Its instructions only ever reach the thread's first message.
     const getRun = (id: string) =>
       sql<CrewRunRow>`
         SELECT r.id, r.member_id AS memberId, r.project_id AS projectId, r.thread_id AS threadId,
           r.task_text AS taskText, r.title, r.instructions,
-          COALESCE(b.withheld_tools_json, m.withheld_tools_json, r.withheld_tools_json)
-            AS withheldToolsJson,
           r.member_revision AS memberRevision,
-          COALESCE(b.model_selection_json, m.model_selection_json, r.model_selection_json)
-            AS modelSelectionJson,
-          COALESCE(b.runtime_mode, m.runtime_mode, r.runtime_mode) AS runtimeMode,
+          COALESCE(b.model_selection_json, r.model_selection_json) AS modelSelectionJson,
+          r.runtime_mode AS runtimeMode,
           r.dispatch_state AS dispatchState, r.recovery_attempt AS recoveryAttempt,
           r.last_error AS lastError,
           r.created_at AS createdAt, r.dispatched_at AS dispatchedAt,
@@ -442,8 +428,6 @@ export const CrewStoreLive = Layer.effect(
         FROM crew_runs AS r
         LEFT JOIN bots AS b
           ON r.id LIKE ${`${BOT_HEADQUARTERS_RUN_PREFIX}%`} AND b.id = r.member_id
-        LEFT JOIN crew_members AS m
-          ON r.id LIKE ${`${PROJECT_HEADQUARTERS_RUN_PREFIX}%`} AND m.id = r.member_id
         WHERE r.id = ${id}
       `.pipe(
         Effect.mapError(queryError),
@@ -456,13 +440,11 @@ export const CrewStoreLive = Layer.effect(
       insertRole: (role) =>
         sql`
           INSERT INTO roles (
-            id, name, instructions, withheld_tools_json,
-            model_selection_json, runtime_mode, enabled, auto_create_for_feature,
-            revision, created_at, updated_at
+            id, name, instructions, model_selection_json, enabled, auto_create_for_feature,
+            managed_from_json, revision, created_at, updated_at
           ) VALUES (
-            ${role.id}, ${role.name}, ${role.instructions},
-            ${JSON.stringify(role.withheldTools)}, ${JSON.stringify(role.modelSelection)},
-            ${role.runtimeMode}, ${role.enabled ? 1 : 0}, 0, ${role.revision},
+            ${role.id}, ${role.name}, ${role.instructions}, ${JSON.stringify(role.modelSelection)},
+            ${role.enabled ? 1 : 0}, 0, ${encodeOwner(role.managedFrom)}, ${role.revision},
             ${role.createdAt}, ${role.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -470,9 +452,8 @@ export const CrewStoreLive = Layer.effect(
         sql<{ readonly id: string }>`
           UPDATE roles SET
             name = ${role.name}, instructions = ${role.instructions},
-            withheld_tools_json = ${JSON.stringify(role.withheldTools)},
             model_selection_json = ${JSON.stringify(role.modelSelection)},
-            runtime_mode = ${role.runtimeMode}, enabled = ${role.enabled ? 1 : 0},
+            enabled = ${role.enabled ? 1 : 0}, managed_from_json = ${encodeOwner(role.managedFrom)},
             revision = ${role.revision}, updated_at = ${role.updatedAt}
           WHERE id = ${role.id} AND revision = ${expectedRevision}
           RETURNING id
@@ -484,9 +465,8 @@ export const CrewStoreLive = Layer.effect(
       listRoles: () =>
         sql<RoleRow>`
           SELECT id, name, instructions,
-            withheld_tools_json AS withheldToolsJson,
-            model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled,
+            model_selection_json AS modelSelectionJson,
+            enabled, managed_from_json AS managedFromJson,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM roles
           ORDER BY name, id
@@ -499,10 +479,12 @@ export const CrewStoreLive = Layer.effect(
       insertWorkflow: (workflow) =>
         sql`
           INSERT INTO workflows (
-            id, name, instructions, lead_role_id, crew_role_ids_json, revision, created_at, updated_at
+            id, name, instructions, lead_role_id, crew_role_ids_json, managed_from_json, revision,
+            created_at, updated_at
           ) VALUES (
             ${workflow.id}, ${workflow.name}, ${workflow.instructions}, ${workflow.leadRoleId},
-            ${JSON.stringify(workflow.crewRoleIds)}, ${workflow.revision},
+            ${JSON.stringify(workflow.crewRoleIds)}, ${encodeOwner(workflow.managedFrom)},
+            ${workflow.revision},
             ${workflow.createdAt}, ${workflow.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -512,11 +494,18 @@ export const CrewStoreLive = Layer.effect(
             name = ${workflow.name}, instructions = ${workflow.instructions},
             lead_role_id = ${workflow.leadRoleId},
             crew_role_ids_json = ${JSON.stringify(workflow.crewRoleIds)},
+            managed_from_json = ${encodeOwner(workflow.managedFrom)},
             revision = ${workflow.revision}, updated_at = ${workflow.updatedAt}
           WHERE id = ${workflow.id} AND revision = ${expectedRevision}
           RETURNING id
         `.pipe(
           Effect.map((rows) => rows.length > 0),
+          Effect.mapError(queryError),
+        ),
+      deleteRole: (id) =>
+        sql`UPDATE crew_members SET role_id = NULL WHERE role_id = ${id}`.pipe(
+          Effect.andThen(sql`DELETE FROM roles WHERE id = ${id}`),
+          Effect.asVoid,
           Effect.mapError(queryError),
         ),
       deleteWorkflow: (id) =>
@@ -527,7 +516,7 @@ export const CrewStoreLive = Layer.effect(
       getWorkflow: (id) =>
         sql<WorkflowRow>`
           SELECT id, name, instructions, lead_role_id AS leadRoleId,
-            crew_role_ids_json AS crewRoleIdsJson, revision, created_at AS createdAt,
+            crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows WHERE id = ${id}
         `.pipe(
@@ -542,7 +531,7 @@ export const CrewStoreLive = Layer.effect(
       listWorkflows: () =>
         sql<WorkflowRow>`
           SELECT id, name, instructions, lead_role_id AS leadRoleId,
-            crew_role_ids_json AS crewRoleIdsJson, revision, created_at AS createdAt,
+            crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows ORDER BY name, id
         `.pipe(
@@ -555,15 +544,14 @@ export const CrewStoreLive = Layer.effect(
         sql`
           INSERT INTO crew_members (
             id, project_id, feature_id, role_id, role_revision, name, instructions,
-            withheld_tools_json, model_selection_json, runtime_mode, enabled,
-            long_conversation, icon_json, customized_at, revision, created_at, updated_at
+            model_selection_json, enabled,
+            icon_json, customized_at, revision, created_at, updated_at
           ) VALUES (
             ${member.id}, ${member.projectId}, ${member.featureId},
             ${member.roleId}, ${member.roleRevision}, ${member.name},
-            ${member.instructions}, ${JSON.stringify(member.withheldTools)},
-            ${JSON.stringify(member.modelSelection)},
-            ${member.runtimeMode}, ${member.enabled ? 1 : 0},
-            ${member.longConversation}, ${encodeIcon(member.icon)}, ${member.customizedAt},
+            ${member.instructions}, ${JSON.stringify(member.modelSelection)},
+            ${member.enabled ? 1 : 0},
+            ${encodeIcon(member.icon)}, ${member.customizedAt},
             ${member.revision},
             ${member.createdAt}, ${member.updatedAt}
           )
@@ -573,10 +561,8 @@ export const CrewStoreLive = Layer.effect(
           UPDATE crew_members SET
             role_id = ${member.roleId}, role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
-            withheld_tools_json = ${JSON.stringify(member.withheldTools)},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
-            runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
-            long_conversation = ${member.longConversation},
+            enabled = ${member.enabled ? 1 : 0},
             revision = ${member.revision}, updated_at = ${member.updatedAt}
           WHERE id = ${member.id} AND revision = ${expectedRevision} AND customized_at IS NULL
           RETURNING id
@@ -589,10 +575,8 @@ export const CrewStoreLive = Layer.effect(
           UPDATE crew_members SET
             role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
-            withheld_tools_json = ${JSON.stringify(member.withheldTools)},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
-            runtime_mode = ${member.runtimeMode}, enabled = ${member.enabled ? 1 : 0},
-            long_conversation = ${member.longConversation},
+            enabled = ${member.enabled ? 1 : 0},
             icon_json = ${encodeIcon(member.icon)},
             customized_at = ${member.customizedAt},
             revision = ${member.revision}, updated_at = ${member.updatedAt}
@@ -606,9 +590,8 @@ export const CrewStoreLive = Layer.effect(
         sql<CrewMemberRow>`
           SELECT id, project_id AS projectId, feature_id AS featureId,
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
-            withheld_tools_json AS withheldToolsJson,
-            model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled, long_conversation AS longConversation, icon_json AS iconJson,
+            model_selection_json AS modelSelectionJson,
+            enabled, icon_json AS iconJson,
           customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM crew_members
@@ -632,9 +615,8 @@ export const CrewStoreLive = Layer.effect(
         sql<CrewMemberRow>`
           SELECT id, project_id AS projectId, feature_id AS featureId,
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
-            withheld_tools_json AS withheldToolsJson,
-            model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
-            enabled, long_conversation AS longConversation, icon_json AS iconJson,
+            model_selection_json AS modelSelectionJson,
+            enabled, icon_json AS iconJson,
           customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM crew_members
@@ -715,13 +697,12 @@ export const CrewStoreLive = Layer.effect(
         sql`
           INSERT OR IGNORE INTO crew_runs (
             id, member_id, project_id, thread_id, task_text, title, instructions,
-            withheld_tools_json, member_revision,
+            member_revision,
             model_selection_json, runtime_mode, dispatch_state, recovery_attempt, last_error,
             created_at, dispatched_at, branch, worktree_path, base_ref, opening_message_json
           ) VALUES (
             ${run.id}, ${run.memberId}, ${run.projectId}, ${run.threadId}, ${run.taskText},
-            ${run.title}, ${run.instructions}, ${JSON.stringify(run.withheldTools)},
-            ${run.memberRevision}, ${JSON.stringify(run.modelSelection)},
+            ${run.title}, ${run.instructions}, ${run.memberRevision}, ${JSON.stringify(run.modelSelection)},
             ${run.runtimeMode}, ${run.dispatchState}, ${run.recoveryAttempt}, ${run.lastError}, ${run.createdAt},
             ${run.dispatchedAt}, ${run.workspace?.branch ?? null},
             ${run.workspace && "worktreePath" in run.workspace ? run.workspace.worktreePath : null},
@@ -753,7 +734,7 @@ export const CrewStoreLive = Layer.effect(
         sql<CrewRunRow>`
           SELECT id, member_id AS memberId, project_id AS projectId, thread_id AS threadId,
             task_text AS taskText, title, instructions,
-            withheld_tools_json AS withheldToolsJson, member_revision AS memberRevision,
+            member_revision AS memberRevision,
             model_selection_json AS modelSelectionJson, runtime_mode AS runtimeMode,
             dispatch_state AS dispatchState, recovery_attempt AS recoveryAttempt,
             last_error AS lastError,

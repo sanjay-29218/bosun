@@ -433,7 +433,7 @@ describe("logicalBotProjectKeys", () => {
       expect([...logicalBotProjectKeys(entry, bots, linked, vpsRunsBots)]).toEqual([]);
     }
     // A bot that may work on remote shows remote's projects with no bot, which it can take.
-    const permitted = { ...bots[1]!, permittedEnvironmentIds: [remote] };
+    const permitted = { ...bots[1]!, linkedEnvironmentIds: [remote] };
     expect([...logicalBotProjectKeys(permitted, bots, linked, vpsRunsBots)]).toEqual([
       "remote:loose",
     ]);
@@ -443,21 +443,20 @@ describe("logicalBotProjectKeys", () => {
     }
   });
 
-  it("splits an entry's projects into owned, takeable, not allowed, and without bots", () => {
+  it("splits an entry's projects into owned, addable on linked machines, and without bots", () => {
     const vps = EnvironmentId.make("vps");
     const withVps = [...projects, { environmentId: vps, id: "omni" }];
     const social = bots[1]!;
-    const lists = logicalBotProjectLists(social, bots, withVps, new Set([local, remote]));
+    const linked = new Set([local, remote, vps]);
+    const lists = logicalBotProjectLists(social, bots, withVps, new Set([local, remote]), linked);
     expect(lists.owned.map((project) => project.id)).toEqual(["a"]);
-    expect(lists.available.map((project) => project.id)).toEqual(["d"]);
-    // Social may not work on the remote environment until it is ticked there.
-    expect(lists.notAllowed.map((project) => project.id)).toEqual(["b", "c"]);
+    // Addable on any machine linked to its home.
+    expect(lists.available.map((project) => project.id)).toEqual(["b", "c", "d"]);
     expect(lists.withoutBots.map((project) => project.id)).toEqual(["omni"]);
 
-    const permitted = { ...social, permittedEnvironmentIds: [remote] };
+    // Without a link, another machine's projects don't show, except those Social owns there.
     const given = [
       ...withVps,
-      // Given to Social from its home: owned without a copy of Social there.
       {
         environmentId: remote,
         id: "e",
@@ -470,10 +469,10 @@ describe("logicalBotProjectKeys", () => {
         },
       },
     ];
-    const reach = logicalBotProjectLists(permitted, bots, given, new Set([local, remote]));
-    expect(reach.owned.map((project) => project.id)).toEqual(["a", "e"]);
-    expect(reach.available.map((project) => project.id)).toEqual(["b", "c", "d"]);
-    expect(reach.notAllowed).toEqual([]);
+    const homeOnly = logicalBotProjectLists(social, bots, given, linked, new Set([local]));
+    expect(homeOnly.owned.map((project) => project.id)).toEqual(["a", "e"]);
+    expect(homeOnly.available.map((project) => project.id)).toEqual(["d"]);
+    expect(homeOnly.withoutBots).toEqual([]);
   });
 });
 

@@ -321,6 +321,21 @@ export class ScheduledTaskService extends Context.Service<
       readonly projectId: ProjectId;
       readonly reason: string;
     }) => Effect.Effect<void, ScheduledTaskError>;
+    /**
+     * Turns off every task that runs as this bot, records why, and returns the ones it turned
+     * off, as a bot moving to another machine does.
+     */
+    readonly pauseForBot: (input: {
+      readonly botId: string;
+      readonly reason: string;
+    }) => Effect.Effect<ReadonlyArray<ScheduledTaskId>, ScheduledTaskError>;
+    /** Turns these tasks off, on or not, and records why. */
+    readonly pauseTasks: (input: {
+      readonly taskIds: ReadonlyArray<ScheduledTaskId>;
+      readonly reason: string;
+    }) => Effect.Effect<void, ScheduledTaskError>;
+    /** Turns these tasks back on, clearing why they were paused; one that can't run stays off. */
+    readonly resumeTasks: (taskIds: ReadonlyArray<ScheduledTaskId>) => Effect.Effect<void>;
     /** Deletes the tasks that run as the manager of a deleted project. */
     readonly deleteForDeletedProjects: () => Effect.Effect<void, ScheduledTaskError>;
     /** Points tasks bound to these threads at the project the threads moved to. */
@@ -623,6 +638,28 @@ export const layer = Layer.effect(
         Effect.map((rows) => rows.length > 0),
         Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
       );
+
+    /**
+     * A bot whose move to another machine hasn't finished may already run its automations there,
+     * so they stay off here until the move finishes or is undone.
+     */
+    const requireNotMoving = Effect.fn("ScheduledTaskService.requireNotMoving")(function* (
+      botId: string,
+      taskId: ScheduledTaskId,
+    ) {
+      const rows = yield* sql<{ readonly name: string }>`
+        SELECT name FROM bots WHERE id = ${botId} AND deleted_at IS NULL AND moving_json IS NOT NULL
+      `.pipe(
+        NodeSqliteClient.readOnly,
+        Effect.mapError((cause) => taskError("Could not load the task's bot.", { cause })),
+      );
+      const moving = rows[0];
+      if (moving === undefined) return;
+      return yield* taskError(
+        `${moving.name} is moving to another machine, which may already run this automation. Move ${moving.name} there again to finish the move.`,
+        { taskId },
+      );
+    });
 
     /** Files a bot task in the bot's home, where its headquarters lives; made on first use. */
     const botTaskProjectId = Effect.fn("ScheduledTaskService.botTaskProjectId")(function* (
@@ -1040,8 +1077,9 @@ export const layer = Layer.effect(
     );
 
     // A dispatch is recorded once the message is accepted; the provider can still
-    // reject the turn after that, so follow the run and record its failure.
-    const recordRunFailure = Effect.fn("ScheduledTaskService.recordRunFailure")(function* (
+    // reject the turn after that, so follow the run and record its failure. A one-time
+    // task whose turn completed is spent, so it is removed; its thread stays.
+    const recordRunOutcome = Effect.fn("ScheduledTaskService.recordRunOutcome")(function* (
       taskId: ScheduledTaskId,
       startedAtIso: string,
       threadId: ThreadId,
@@ -1058,12 +1096,18 @@ export const layer = Layer.effect(
         runId: dispatched.id,
         timeoutMs: RUN_OUTCOME_WAIT_MS,
       });
-      if (
-        run === null ||
-        run.status === "completed" ||
-        !ThreadManagementService.isTerminalRunStatus(run.status)
-      )
+      if (run === null || !ThreadManagementService.isTerminalRunStatus(run.status)) return;
+      if (run.status === "completed") {
+        const removed = yield* sql`
+          DELETE FROM scheduled_tasks
+          WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso}
+            AND last_run_status = 'succeeded' AND next_run_at IS NULL
+            AND json_extract(schedule_json, '$.type') = 'once'
+          RETURNING task_id
+        `;
+        if (removed.length > 0) yield* notifyChanged;
         return;
+      }
       const { turnItems, messages } = yield* threadManagement.getProjectThreadRecords(thread, [
         "turnItems",
         "messages",
@@ -1336,7 +1380,7 @@ export const layer = Layer.effect(
           );
         if (written) yield* notifyChanged;
         if (written && threadId !== null) {
-          yield* recordRunFailure(active.id, startedAtIso, threadId, messageId).pipe(
+          yield* recordRunOutcome(active.id, startedAtIso, threadId, messageId).pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning("Could not record scheduled run outcome", {
                 taskId: active.id,
@@ -1610,6 +1654,7 @@ export const layer = Layer.effect(
       if (botId !== null && !(yield* botExists(botId))) {
         return yield* taskError("That bot doesn't exist.", { taskId: id });
       }
+      if (botId !== null && input.enabled) yield* requireNotMoving(botId, id);
       // A bot task runs in its headquarters, so it is filed in the bot's home.
       const projectId =
         botId === null
@@ -1793,6 +1838,9 @@ export const layer = Layer.effect(
       if (input.enabled && existing.projectManager === true) {
         yield* requireManagerFor(existing.projectId, true, input.id);
       }
+      if (input.enabled && existing.botId !== undefined) {
+        yield* requireNotMoving(existing.botId, input.id);
+      }
       const now = yield* localNow;
       yield* requireFutureOnce(
         { enabled: input.enabled, schedule: existing.schedule },
@@ -1930,6 +1978,48 @@ export const layer = Layer.effect(
         );
         if (paused.length > 0) yield* notifyChanged;
       });
+
+    const pauseForBot: ScheduledTaskService["Service"]["pauseForBot"] = Effect.fn(
+      "ScheduledTaskService.pauseForBot",
+    )(function* ({ botId, reason }) {
+      const now = iso(yield* localNow);
+      const paused = yield* sql<{ task_id: ScheduledTaskId }>`
+        UPDATE scheduled_tasks
+        SET enabled = 0, next_run_at = NULL, paused_reason = ${reason}, updated_at = ${now}
+        WHERE bot_id = ${botId} AND enabled = 1
+        RETURNING task_id
+      `.pipe(Effect.mapError((cause) => taskError("Could not pause the bot's tasks.", { cause })));
+      if (paused.length > 0) yield* notifyChanged;
+      return paused.map((row) => row.task_id);
+    });
+
+    const pauseTasks: ScheduledTaskService["Service"]["pauseTasks"] = Effect.fn(
+      "ScheduledTaskService.pauseTasks",
+    )(function* ({ taskIds, reason }) {
+      if (taskIds.length === 0) return;
+      const now = iso(yield* localNow);
+      yield* sql`
+        UPDATE scheduled_tasks
+        SET enabled = 0, next_run_at = NULL, paused_reason = ${reason}, updated_at = ${now}
+        WHERE task_id IN ${sql.in(taskIds)}
+      `.pipe(Effect.mapError((cause) => taskError("Could not pause the tasks.", { cause })));
+      yield* notifyChanged;
+    });
+
+    const resumeTasks: ScheduledTaskService["Service"]["resumeTasks"] = Effect.fn(
+      "ScheduledTaskService.resumeTasks",
+    )(function* (taskIds) {
+      yield* Effect.forEach(
+        taskIds,
+        (id) =>
+          setEnabled({ id, enabled: true }).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("A paused task stayed off", { taskId: id, error }),
+            ),
+          ),
+        { discard: true },
+      );
+    });
 
     const botModelSelection: ScheduledTaskService["Service"]["botModelSelection"] = Effect.fn(
       "ScheduledTaskService.botModelSelection",
@@ -2936,6 +3026,9 @@ export const layer = Layer.effect(
       connectBotHeadquarters,
       connectProjectManagers,
       pauseForProjectManager,
+      pauseForBot,
+      pauseTasks,
+      resumeTasks,
       deleteForDeletedProjects,
       moveThreadTasks,
       runNow,

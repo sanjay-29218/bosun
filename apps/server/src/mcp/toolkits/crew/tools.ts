@@ -1,5 +1,5 @@
 import {
-  IssueDetail,
+  BoardIssueDetail,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
   ProjectId,
@@ -152,7 +152,7 @@ const ReadTodo = Tool.make("crew_read_todo", {
   parameters: Schema.Struct({ ref: TodoRef }),
   success: Schema.Union([
     Schema.Struct({ kind: Schema.Literal("ticket"), ticket: Ticket }),
-    Schema.Struct({ kind: Schema.Literal("issue"), issue: IssueDetail }),
+    Schema.Struct({ kind: Schema.Literal("issue"), issue: BoardIssueDetail }),
   ]),
   failure,
   dependencies: [...dependencies, IssueService.IssueService, TicketService],

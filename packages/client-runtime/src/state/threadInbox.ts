@@ -40,6 +40,9 @@ interface SeenThreadInput {
 
 export function hasUnseenCompletion(thread: SeenThreadInput): boolean {
   if (!thread.latestRun?.completedAt) return false;
+  if (thread.latestRun.status === "interrupted" || thread.latestRun.status === "cancelled") {
+    return false;
+  }
   const completedAt = Date.parse(thread.latestRun.completedAt);
   if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) return false;
