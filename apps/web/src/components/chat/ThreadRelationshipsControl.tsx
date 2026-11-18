@@ -2,22 +2,18 @@ import { useAtomValue } from "@effect/atom-react";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
-import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
+import { relationshipRowStatus } from "./relationshipRowStatus.logic";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { threadNeedsYouKind } from "@t3tools/client-runtime/state/crew-board";
 import {
   deriveWorkflowGroups,
   projectedSubagentsToRuntime,
   type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import {
-  type EnvironmentThreadShell,
-  presentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   formatSubagentDisplayTitle,
   subagentRunsOn,
@@ -220,24 +216,6 @@ function ThreadLineageGroup<Row extends LineageRow>(props: {
 }
 
 const FINISHED_STATUSES = ["completed", "failed", "error", "cancelled", "interrupted", "idle"];
-
-/** A feature lead's status as its sidebar row reads it: a lead whose crew is working waits. */
-function featureLeadStatus(lead: EnvironmentThreadShell): string {
-  switch (resolveSidebarThreadStatus(lead)) {
-    case "approval":
-    case "input":
-      return "needs_input";
-    case "working":
-      return "running";
-    case "failed":
-    case "limited":
-      return "failed";
-    case "ready":
-      return "completed";
-    default:
-      return "waiting";
-  }
-}
 
 function relationshipLabel(edge: ThreadRelationshipEdge, currentThreadId: ThreadId) {
   if (edge.kind === "transfer") return "Context transfer";
@@ -862,13 +840,14 @@ export function ThreadRelationshipsPanel(props: {
     const finished = finishedRowIds.has(threadId);
     const shell = node?.thread ? presentThreadShell(props.environmentId, node.thread) : undefined;
     const featureLead = edge.kind === "feature" && !isParent ? shell : undefined;
-    const rowStatus = featureLead
-      ? featureLeadStatus(featureLead)
-      : shell && threadNeedsYouKind(shell) !== null
-        ? "needs_input"
-        : ((isParent && threadId === parentRef?.threadId
-            ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
-            : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }));
+    const rowStatus = relationshipRowStatus({
+      shell,
+      featureLead: featureLead !== undefined,
+      runStatus:
+        (isParent && threadId === parentRef?.threadId
+          ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
+          : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }),
+    });
     const RelationshipIcon = isParent
       ? CornerLeftUpIcon
       : isSubagent
