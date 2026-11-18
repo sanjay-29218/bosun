@@ -16,8 +16,8 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 /**
  * From a bot's headquarters, or a project's manager: a request for a project on linked
- * environment `environmentId` (the bot's, or the manager's project's copy there), as a task of
- * that project's Feature manager there. It starts there now, or waits for that
+ * environment `environmentId` (the bot's, or the manager's project's copy there), as a task in
+ * that project there. It starts there now, or waits for that
  * environment and starts once it answers; its reply comes back to this thread either way.
  */
 export const sendToLinkedProject = Effect.fn("BotsToolkit.sendToLinkedProject")(function* (

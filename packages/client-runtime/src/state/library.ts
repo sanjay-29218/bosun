@@ -3,15 +3,13 @@ import { type EnvironmentId, type RoleConfig, type WorkflowConfig } from "@t3too
 /** Roles and workflows are environment-local, so their ids only mean something with it. */
 const libraryItemKey = (environmentId: EnvironmentId, id: string) => `${environmentId}:${id}`;
 
-/** Why a role won't take part in new features, or null when a workflow leads or uses it. */
+/** Why a role won't take part in new features, or null when a workflow uses it. */
 export function roleAvailabilityNote(
   role: RoleConfig,
   workflows: ReadonlyArray<WorkflowConfig>,
 ): string | null {
   if (!role.enabled) return "Off";
-  const used = workflows.some(
-    (workflow) => workflow.leadRoleId === role.id || workflow.crewRoleIds.includes(role.id),
-  );
+  const used = workflows.some((workflow) => workflow.crewRoleIds.includes(role.id));
   return used ? null : "Not in a workflow";
 }
 

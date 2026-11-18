@@ -96,7 +96,7 @@ export interface LaunchedProjectManager {
 /**
  * A bot's reach beyond its own environment. Bots stay environment-local; a project on a linked
  * environment is the bot's when its `remoteBot` names the bot and its home, and work for it runs
- * there, as that project's Feature manager.
+ * there, as a request in that project.
  */
 export class BotReach extends Context.Service<
   BotReach,
@@ -124,7 +124,7 @@ export class BotReach extends Context.Service<
       actor: LaunchActor,
     ) => Effect.Effect<void, OrchestratorMcpFailure>;
     /**
-     * From a bot's headquarters here: starts a request as a task of the Feature manager of a project on
+     * From a bot's headquarters here: starts a request as a task in a project on
      * linked environment `environmentId`, checking the bot may work there first. Fails with
      * `orchestration_error` while that environment can't be reached; the same `clientRequestId`
      * from the same scope never starts a second run there.
@@ -459,14 +459,14 @@ const make = Effect.gen(function* () {
 
   /**
    * The workflow a feature for a request runs on, sent by value: Feature delivery at its
-   * revision here, with its lead and enabled crew roles. Nothing when it's gone.
+   * revision here, with its enabled crew roles. Nothing when it's gone.
    */
   const workflowSnapshot = Effect.fn("BotReach.workflowSnapshot")(function* () {
     const workflow = yield* crew
       .getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)
       .pipe(Effect.mapError(unavailable));
     if (workflow === null) return undefined;
-    const roles = yield* Effect.forEach([workflow.leadRoleId, ...workflow.crewRoleIds], (id) =>
+    const roles = yield* Effect.forEach(workflow.crewRoleIds, (id) =>
       crew.getRole(id).pipe(Effect.mapError(unavailable)),
     );
     const snapshot: WorkflowSnapshot = {
@@ -474,12 +474,11 @@ const make = Effect.gen(function* () {
         id: workflow.id,
         name: workflow.name,
         instructions: workflow.instructions,
-        leadRoleId: workflow.leadRoleId,
         crewRoleIds: workflow.crewRoleIds,
         revision: workflow.revision,
       },
       roles: roles.flatMap((role) =>
-        role !== null && (role.enabled || role.id === workflow.leadRoleId)
+        role !== null && role.enabled
           ? [
               {
                 id: role.id,
@@ -705,21 +704,16 @@ const make = Effect.gen(function* () {
               })
               .pipe(Effect.ignoreCause({ log: true }));
           }
-          // The Feature manager here runs on the lead role's model, with the access sent.
-          const workflow = input.workflow;
-          const leadRole = workflow?.roles.find((role) => role.id === workflow.workflow.leadRoleId);
-          const carried = {
-            runtimeMode: input.runtimeMode,
-            modelSelection: leadRole?.modelSelection ?? input.modelSelection,
-          };
+          // It runs on the model and access sent; a feature it starts follows the sent workflow.
+          const carried = { runtimeMode: input.runtimeMode, modelSelection: input.modelSelection };
           // A request this environment refuses as it is stays refused; anything else may pass.
           const refusedOrPassing = (error: { readonly _tag: string; readonly message: string }) =>
             failure(
               error._tag === "CrewValidationError" ? "invalid_request" : "orchestration_error",
               error.message,
             );
-          const manager = yield* crew
-            .ensureFeatureManager(project.id, leadRole)
+          const member = yield* crew
+            .ensureLinkedRequestMember(project.id, input.modelSelection)
             .pipe(Effect.mapError(refusedOrPassing));
           // As a request here does: its own worktree, branched from the project's current branch.
           const base = yield* git
@@ -728,7 +722,7 @@ const make = Effect.gen(function* () {
           const run = yield* crew
             .createRun({
               id: runId,
-              memberId: manager.id,
+              memberId: member.id,
               projectId: project.id,
               taskText: input.task,
               title: input.title,

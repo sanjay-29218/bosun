@@ -1,5 +1,5 @@
 import {
-  FEATURE_MANAGER_ROLE_ID,
+  PLANNER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
   type EnvironmentId,
@@ -172,7 +172,7 @@ export function MobileRolesPanel(props: {
   const { busy, error, run } = useRun(rolesQuery.refresh);
   const roles = rolesQuery.data ?? [];
   const needsStarter =
-    rolesQuery.data !== null && !roles.some((role) => role.id === FEATURE_MANAGER_ROLE_ID);
+    rolesQuery.data !== null && !roles.some((role) => role.id === PLANNER_ROLE_ID);
   const role = roles.find((item) => item.id === roleId) ?? null;
 
   return (

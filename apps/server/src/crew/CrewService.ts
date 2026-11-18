@@ -8,7 +8,7 @@ import {
   isStandingThread,
   EPIC_WORKFLOW_ID,
   FEATURE_DELIVERY_WORKFLOW_ID,
-  FEATURE_MANAGER_ROLE_ID,
+  PLANNER_ROLE_ID,
   type LibraryOwner,
   ProjectId,
   projectHeadquartersRunId,
@@ -57,7 +57,7 @@ import type { LinkedWorkflow } from "./linkedWorkflow.ts";
 import {
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
-  FEATURE_MANAGER_INSTRUCTIONS,
+  LINKED_REQUEST_INSTRUCTIONS,
   PROJECT_MANAGER_INSTRUCTIONS,
   projectManagerTask,
   crewMemberInstructions,
@@ -75,36 +75,21 @@ class CrewValidationError extends Error {
  * handoffs, grants and feature bindings reference them.
  */
 /**
- * The member made from the Feature manager role for one project, created on first use. Its ID
- * predates the rename: every feature lead's run and thread ID is hashed from it.
+ * Who a linked machine's request runs as in one project. Its ID predates the Feature manager's
+ * removal: retried requests carry it, and runs and grants reference it.
  */
-export const featureManagerMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
+export const linkedRequestMemberId = (projectId: ProjectId) => `bot-manager:${projectId}`;
 /** A project's standing manager, made from the Project manager role on first use. */
 export const projectManagerMemberId = (projectId: ProjectId) => `project-manager:${projectId}`;
-/** The member that leads a workflow led by a role other than the Feature manager. */
-const projectLeadMemberId = (projectId: ProjectId, roleId: string) =>
-  `bot-lead:${projectId}:${roleId}`;
 
 const builtInManagerInstructions = (projectId: ProjectId) =>
-  `${PROJECT_MANAGER_INSTRUCTIONS}\n\n${projectMemberContext(projectManagerMemberId(projectId), projectId)}`;
+  `${PROJECT_MANAGER_INSTRUCTIONS}\n\nYour project is ${projectId}.`;
 
 /** A manager nobody customized follows the current built-in text, not the one it was saved with. */
 export const managerInstructions = (
   member: Pick<CrewMember, "customizedAt" | "instructions">,
   projectId: ProjectId,
 ) => (member.customizedAt === null ? builtInManagerInstructions(projectId) : member.instructions);
-
-/**
- * What a project-level member adds to its role's instructions, or null for a member that isn't
- * one of the project's own (an instantiated or feature member), which role edits don't reach.
- */
-const projectMemberContext = (id: string, projectId: ProjectId | null) => {
-  if (projectId === null) return null;
-  if (id === featureManagerMemberId(projectId)) return `You manage project ${projectId}.`;
-  if (id === projectManagerMemberId(projectId)) return `Your project is ${projectId}.`;
-  if (id.startsWith(`bot-lead:${projectId}:`)) return `You lead work in project ${projectId}.`;
-  return null;
-};
 
 const BUILDER_WORKSPACE =
   "Work in this thread's workspace, and don't create worktrees or other checkouts. If it's a fresh worktree, install dependencies the way the project's instructions say before you build. Do the building yourself; use delegate_task subagents only for read-only work, such as research or reviewing your diff.";
@@ -116,12 +101,7 @@ const PLANNER_INSTRUCTIONS = `${crewMemberInstructions("Planner")} ${PLANNER_SPL
 
 /** Roles `ensureDefaults` creates when they are missing. People can edit or add more. */
 const DEFAULT_ROLES = [
-  {
-    id: FEATURE_MANAGER_ROLE_ID,
-    name: "Feature manager",
-    instructions: FEATURE_MANAGER_INSTRUCTIONS,
-  },
-  { id: "role:planner", name: "Planner", instructions: PLANNER_INSTRUCTIONS },
+  { id: PLANNER_ROLE_ID, name: "Planner", instructions: PLANNER_INSTRUCTIONS },
   { id: "role:designer", name: "Designer" },
   {
     id: "role:builder",
@@ -157,7 +137,6 @@ export interface CreateWorkflowInput {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly leadRoleId: string;
   readonly crewRoleIds: ReadonlyArray<string>;
 }
 
@@ -223,16 +202,12 @@ const BUILT_IN_WORKFLOWS: ReadonlyArray<CreateWorkflowInput> = [
     id: FEATURE_DELIVERY_WORKFLOW_ID,
     name: "Feature delivery",
     instructions: FEATURE_DELIVERY_INSTRUCTIONS,
-    leadRoleId: FEATURE_MANAGER_ROLE_ID,
-    crewRoleIds: DEFAULT_ROLES.flatMap((role) =>
-      role.id === FEATURE_MANAGER_ROLE_ID ? [] : [role.id],
-    ),
+    crewRoleIds: DEFAULT_ROLES.map((role) => role.id),
   },
   {
     id: EPIC_WORKFLOW_ID,
     name: "Epic",
     instructions: EPIC_INSTRUCTIONS,
-    leadRoleId: FEATURE_MANAGER_ROLE_ID,
     crewRoleIds: ["role:planner", "role:qa-tester"],
   },
 ];
@@ -247,7 +222,7 @@ const BUILT_IN_WORKFLOW_IDS: ReadonlySet<string> = new Set(
 const isStock = (
   kind: LibraryCopyRefusal["kind"],
   item: { readonly id: string; readonly name: string; readonly instructions: string } & Partial<
-    Pick<Workflow, "leadRoleId" | "crewRoleIds">
+    Pick<Workflow, "crewRoleIds">
   >,
 ) =>
   kind === "role"
@@ -263,7 +238,6 @@ const isStock = (
           sameLibraryFields(item, {
             name: stock.name,
             instructions: stock.instructions,
-            leadRoleId: stock.leadRoleId,
             crewRoleIds: stock.crewRoleIds,
           }),
       );
@@ -284,13 +258,12 @@ export interface CrewServiceShape {
     modelSelection: ModelSelection,
   ) => Effect.Effect<void, CrewServiceError>;
   /**
-   * The project's Feature manager, made from its role on first use; every feature lead of the
-   * Feature manager role runs as it. The project's bot may delegate to it. With no enabled
-   * Feature manager role here, it is made from `sentLead`, the lead role a linked environment sent.
+   * Who a linked machine's request runs as in `projectId`: a built-in member, made on first use
+   * with `modelSelection`, the model the request carries.
    */
-  readonly ensureFeatureManager: (
+  readonly ensureLinkedRequestMember: (
     projectId: ProjectId,
-    sentLead?: WorkflowSnapshot["roles"][number],
+    modelSelection: ModelSelection,
   ) => Effect.Effect<CrewMember, CrewServiceError>;
   readonly createMember: (
     input: CreateCrewMemberInput,
@@ -317,14 +290,6 @@ export interface CrewServiceShape {
   readonly applyLibraryCopy: (
     copy: LibraryCopyInput,
   ) => Effect.Effect<ReadonlyArray<LibraryCopyRefusal>, CrewServiceError>;
-  /**
-   * The project's member of a workflow's lead role: its Feature manager for that role,
-   * else one made from the role on first use.
-   */
-  readonly ensureProjectLead: (
-    projectId: ProjectId,
-    roleId: string,
-  ) => Effect.Effect<CrewMember, CrewServiceError>;
   readonly instantiate: (
     id: string,
     projectId: ProjectId,
@@ -665,30 +630,6 @@ export const CrewServiceLive = Layer.effect(
       },
     );
 
-    /**
-     * Brings a project-level member up to its role's revision. A member someone customized, or
-     * one that changed under us, keeps what is stored.
-     */
-    const followRole = Effect.fn("CrewService.followRole")(function* (
-      member: CrewMember,
-      role: Role,
-    ) {
-      const context = projectMemberContext(member.id, member.projectId);
-      if (context === null || member.roleRevision === role.revision) return member;
-      const updated: CrewMember = {
-        ...member,
-        roleId: role.id,
-        roleRevision: role.revision,
-        name: role.name,
-        instructions: `${role.instructions}\n\n${context}`,
-        modelSelection: role.modelSelection,
-        revision: member.revision + 1,
-        updatedAt: DateTime.formatIso(yield* DateTime.now),
-      };
-      if (yield* store.updateMember(updated, member.revision)) return updated;
-      return (yield* store.getMember(member.id)) ?? member;
-    });
-
     const updateRole: CrewServiceShape["updateRole"] = Effect.fn("CrewService.updateRole")(
       function* (input) {
         const previous = yield* store.getRole(input.id);
@@ -721,28 +662,14 @@ export const CrewServiceLive = Layer.effect(
           revision: previous.revision + 1,
           updatedAt: DateTime.formatIso(yield* DateTime.now),
         };
-        yield* store.transaction(saveRole(updated, previous.revision));
+        if (!(yield* store.updateRole(updated, previous.revision))) {
+          return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
+        }
         return updated;
       },
     );
 
-    /**
-     * Writes a role and brings its project-level members along, inside the caller's
-     * transaction, so a standing run never sees the new role with an old member.
-     */
-    const saveRole = Effect.fn("CrewService.saveRole")(function* (
-      updated: Role,
-      expectedRevision: number,
-    ) {
-      if (!(yield* store.updateRole(updated, expectedRevision))) {
-        return yield* Effect.fail(new CrewValidationError("Role changed; reload and retry"));
-      }
-      for (const member of yield* store.listProjectMembersOfRole(updated.id)) {
-        yield* followRole(member, updated);
-      }
-    });
-
-    /** The workflow's fields, checked, with its crew deduplicated and without its lead. */
+    /** The workflow's fields, checked, with its crew deduplicated. */
     const workflowFields = Effect.fn("CrewService.workflowFields")(function* (
       input: CreateWorkflowInput,
     ) {
@@ -753,16 +680,13 @@ export const CrewServiceLive = Layer.effect(
         }),
         catch: () => new CrewValidationError("Give the workflow a name and instructions"),
       });
-      if (!(yield* store.getRole(input.leadRoleId))) {
-        return yield* Effect.fail(new CrewValidationError(`Role not found: ${input.leadRoleId}`));
-      }
-      const crewRoleIds = [...new Set(input.crewRoleIds)].filter((id) => id !== input.leadRoleId);
+      const crewRoleIds = [...new Set(input.crewRoleIds)];
       for (const id of crewRoleIds) {
         if (!(yield* store.getRole(id))) {
           return yield* Effect.fail(new CrewValidationError(`Role not found: ${id}`));
         }
       }
-      return { ...fields, leadRoleId: input.leadRoleId, crewRoleIds };
+      return { ...fields, crewRoleIds };
     });
 
     const createWorkflow: CrewServiceShape["createWorkflow"] = Effect.fn(
@@ -875,7 +799,7 @@ export const CrewServiceLive = Layer.effect(
             });
             if (!takes("role", existing, sameRole)) continue;
             if (sameLibraryFields(existing, fields)) continue;
-            yield* saveRole(
+            yield* store.updateRole(
               { ...existing, ...fields, revision: existing.revision + 1, updatedAt: now },
               existing.revision,
             );
@@ -884,7 +808,6 @@ export const CrewServiceLive = Layer.effect(
             const fields = {
               name: sent.name,
               instructions: sent.instructions,
-              leadRoleId: sent.leadRoleId,
               crewRoleIds: sent.crewRoleIds,
               managedFrom: owner,
             };
@@ -931,7 +854,7 @@ export const CrewServiceLive = Layer.effect(
           const stillUsed = new Set(
             (yield* store.listWorkflows())
               .filter((workflow) => !fromOwner(workflow.managedFrom))
-              .flatMap((workflow) => [workflow.leadRoleId, ...workflow.crewRoleIds]),
+              .flatMap((workflow) => workflow.crewRoleIds),
           );
           for (const role of yield* store.listRoles()) {
             if (!fromOwner(role.managedFrom) || sentRoles.has(role.id)) continue;
@@ -949,57 +872,38 @@ export const CrewServiceLive = Layer.effect(
       return refused;
     });
 
-    /** A member of `roleId` for the project, carrying the role's configuration. */
-    const projectMemberFromRole = Effect.fn("CrewService.projectMemberFromRole")(function* (
-      id: string,
-      projectId: ProjectId,
-      roleId: string,
-      sentRole?: WorkflowSnapshot["roles"][number],
-    ) {
-      const existing = yield* store.getMember(id);
-      const role = yield* store.getRole(roleId);
-      // An existing member keeps working even if its role was turned off since.
-      if (existing?.projectId === projectId) {
-        // One made from a sent role takes on a local role only once that role is on.
-        if (role === null || (existing.roleId === null && !role.enabled)) {
-          return { member: existing, created: false };
-        }
-        return { member: yield* followRole(existing, role), created: false };
-      }
-      const source = role?.enabled ? role : sentRole;
-      if (source === undefined) {
-        const name =
-          role?.name ?? (roleId === FEATURE_MANAGER_ROLE_ID ? "Feature manager" : roleId);
-        return yield* Effect.fail(
-          new CrewValidationError(
-            `Set up the crew before handing it project work: add or turn on the ${name} role in Library → Roles`,
-          ),
-        );
-      }
-      return yield* ensureMember({
-        id,
-        projectId,
-        // A sent role isn't in this library; the member takes on a local one once it exists.
-        roleId: source === role ? roleId : null,
-        name: source.name,
-        instructions: `${source.instructions}\n\n${projectMemberContext(id, projectId)}`,
-        modelSelection: source.modelSelection,
-      });
-    });
-
-    const ensureFeatureManager: CrewServiceShape["ensureFeatureManager"] = Effect.fn(
-      "CrewService.ensureFeatureManager",
-    )(function* (projectId, sentLead) {
+    const ensureLinkedRequestMember: CrewServiceShape["ensureLinkedRequestMember"] = Effect.fn(
+      "CrewService.ensureLinkedRequestMember",
+    )(function* (projectId, modelSelection) {
       if (!(yield* runtime.projectExists(projectId))) {
         return yield* Effect.fail(new CrewValidationError("Project does not exist"));
       }
-      const manager = yield* projectMemberFromRole(
-        featureManagerMemberId(projectId),
-        projectId,
-        FEATURE_MANAGER_ROLE_ID,
-        sentLead,
-      );
-      return manager.member;
+      const id = linkedRequestMemberId(projectId);
+      const fields = {
+        roleId: null,
+        roleRevision: null,
+        name: "Linked request",
+        instructions: `${LINKED_REQUEST_INSTRUCTIONS}\n\nYour project is ${projectId}.`,
+        enabled: true,
+      };
+      const existing = yield* store.getMember(id);
+      if (existing === null) {
+        const { member } = yield* ensureMember({ id, projectId, ...fields, modelSelection });
+        return member;
+      }
+      if (existing.projectId !== projectId) {
+        return yield* Effect.fail(new CrewValidationError("Default member ID is in use"));
+      }
+      // One made from the Feature manager role, before it was removed, takes the built-in text.
+      if (sameLibraryFields(existing, fields)) return existing;
+      const updated: CrewMember = {
+        ...existing,
+        ...fields,
+        revision: existing.revision + 1,
+        updatedAt: DateTime.formatIso(yield* DateTime.now),
+      };
+      if (yield* store.updateMember(updated, existing.revision)) return updated;
+      return (yield* store.getMember(id)) ?? existing;
     });
 
     /** Fails for a missing project, Scratch and a bot's home. */
@@ -1224,21 +1128,6 @@ export const CrewServiceLive = Layer.effect(
         });
         return instructionsOf(saved);
       });
-
-    const ensureProjectLead: CrewServiceShape["ensureProjectLead"] = Effect.fn(
-      "CrewService.ensureProjectLead",
-    )(function* (projectId, roleId) {
-      if (roleId === FEATURE_MANAGER_ROLE_ID) return yield* ensureFeatureManager(projectId);
-      if (!(yield* runtime.projectExists(projectId))) {
-        return yield* Effect.fail(new CrewValidationError("Project does not exist"));
-      }
-      const lead = yield* projectMemberFromRole(
-        projectLeadMemberId(projectId, roleId),
-        projectId,
-        roleId,
-      );
-      return lead.member;
-    });
 
     /**
      * Who acts in a new run: a crew member on the run's project (or an environment-wide one),
@@ -1788,8 +1677,7 @@ export const CrewServiceLive = Layer.effect(
           );
         }
       }),
-      ensureFeatureManager,
-      ensureProjectLead,
+      ensureLinkedRequestMember,
       createMember,
       createRole,
       updateRole,

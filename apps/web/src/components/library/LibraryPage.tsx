@@ -242,8 +242,8 @@ function NewRole({
           <UsersIcon />
           <AlertTitle>No starter roles yet</AlertTitle>
           <AlertDescription>
-            Add a Feature manager, Planner, Designer, Builder, QA Tester and Reviewer, then change
-            each one as you like.
+            Add a Planner, Designer, Builder, QA Tester and Reviewer, then change each one as you
+            like.
           </AlertDescription>
           <AlertAction>
             <Button

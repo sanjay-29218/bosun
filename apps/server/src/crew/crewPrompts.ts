@@ -1,10 +1,14 @@
 /**
- * The text a feature's lead starts from. Evals read it from here, so what they test is what a
- * lead gets.
+ * The text a feature's lead starts from; its workflow's instructions follow in its task. Evals
+ * read it from here, so what they test is what a lead gets.
  */
 
-export const FEATURE_MANAGER_INSTRUCTIONS =
+export const FEATURE_LEAD_INSTRUCTIONS =
   "You lead one feature's work. Your first message names the workflow to follow, your crew, and the brief. Follow the workflow with your crew, and do small steps yourself. Ask the person when you need their decision, and wait for the answer. Keep each task bounded. When the work is done, say so and summarize what changed.";
+
+/** Who a request from a linked machine's bot or project manager runs as; its task says the rest. */
+export const LINKED_REQUEST_INSTRUCTIONS =
+  "You take one request from a bot or project manager on a linked machine and see it through in this project. Your task says what to do. Ask the person when you need their decision, and wait for the answer. When the work is done, say so and summarize what changed.";
 
 /**
  * What a project's standing manager starts from. It names only tools the manager has: the
@@ -112,8 +116,8 @@ export const crewRunPrompt = (run: { readonly instructions: string; readonly tas
   `${run.instructions}\n\nTask:\n${run.taskText}`;
 
 /**
- * A feature lead's task: the workflow it follows and what differs per feature. A lead can be any
- * role, so the task says how to hand work to the crew. A child feature's lead also learns where
+ * A feature lead's task: the workflow it follows and what differs per feature, including how to
+ * hand work to the crew. A child feature's lead also learns where
  * its branch starts and how to report back to its parent's lead.
  */
 export const featureLeadTask = (

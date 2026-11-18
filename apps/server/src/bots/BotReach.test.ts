@@ -69,10 +69,8 @@ const laptop = descriptorOf("environment-laptop", "Laptop");
 const box = descriptorOf("environment-box", "Box");
 const couch = descriptorOf("environment-couch", "Couch");
 const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
-/** The model the Feature delivery lead role runs with, unlike the bot's. */
-const leadRole = { modelSelection: { ...modelSelection, model: "gpt-5.4-mini" } };
-/** What a request's lead runs with there: its lead role's model, with the access sent. */
-const carried = { ...leadRole, runtimeMode: "full-access" as const };
+/** What a request runs with there: the model and access it was sent with. */
+const carried = { modelSelection, runtimeMode: "full-access" as const };
 
 const bot = (id: string, name: string, position: number): Bot => ({
   id,
@@ -139,8 +137,6 @@ interface Environment {
   readonly fallbackModelSelection?: ModelSelection;
   /** Runs as a run is created there, before it is recorded. */
   readonly beforeCreate?: Effect.Effect<void>;
-  /** False: no Feature manager role there, so its manager comes only from a sent lead role. */
-  readonly crewSetUp?: boolean;
 }
 
 /** What one environment's services were asked to change. */
@@ -172,7 +168,7 @@ const signedInCodex = {
   enabled: true,
   installed: true,
   auth: { status: "authenticated" },
-  models: [{ slug: modelSelection.model }, { slug: leadRole.modelSelection.model }],
+  models: [{ slug: modelSelection.model }],
 } as unknown as ServerProvider;
 const signedOutCodex = { ...signedInCodex, auth: { status: "unauthenticated" as const } };
 const claudeModel = {
@@ -247,7 +243,6 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           id: FEATURE_DELIVERY_WORKFLOW_ID,
           name: "Feature delivery",
           instructions: `Revision ${data.workflowRevision ?? 1}.`,
-          leadRoleId: "role:feature-manager",
           crewRoleIds: ["role:builder", "role:security-reviewer"],
           revision: data.workflowRevision ?? 1,
         } as never),
@@ -256,24 +251,14 @@ const layerData = (data: Environment, seen: Ref.Ref<Seen>) =>
           id,
           name: id,
           instructions: `You are ${id}.`,
-          ...(id === "role:feature-manager"
-            ? leadRole
-            : id === "role:security-reviewer"
-              ? // On a provider the box lacks; a feature checks it, a request doesn't.
-                { modelSelection: { instanceId: "opencode", model: "big-pickle" } }
-              : { modelSelection }),
+          ...(id === "role:security-reviewer"
+            ? // On a provider the box lacks; a feature checks it, a request doesn't.
+              { modelSelection: { instanceId: "opencode", model: "big-pickle" } }
+            : { modelSelection }),
           enabled: true,
         } as never),
-      ensureFeatureManager: (projectId, sentLead) =>
-        data.crewSetUp !== false
-          ? Effect.succeed({ id: `bot-manager:${projectId}` } as never)
-          : sentLead === undefined
-            ? Effect.fail(
-                Object.assign(new Error("Set up the crew before handing it project work"), {
-                  _tag: "CrewValidationError",
-                }) as never,
-              )
-            : Effect.succeed({ id: `bot-manager:${projectId}:${sentLead.name}` } as never),
+      ensureLinkedRequestMember: (projectId) =>
+        Effect.succeed({ id: `bot-manager:${projectId}` } as never),
       // A run whose task says so is still queued, as one whose dispatch failed.
       cancelQueuedRun: (id) =>
         Ref.get(seen).pipe(
@@ -646,40 +631,29 @@ it.live(
           fallbackModelSelection: claudeModel,
         })).startForLink(linkScope("full-access"), { ...signedOut, clientRequestId: "stuck" });
         expect(blocked.threadId).toMatch(/^bot-run:link-task:/);
-        // With no Feature manager role there, the lead role sent runs the work.
-        const noCrew = yield* reachWith({ crewSetUp: false });
-        const sentLead = {
-          id: "role:feature-manager",
-          name: "Lead",
-          instructions: "Lead the work.",
-          ...leadRole,
-        };
-        yield* noCrew.startForLink(linkScope("full-access"), {
-          ...request,
-          clientRequestId: "no-crew-sent-lead",
+        // A machine with no roles of its own runs the request on the workflow sent: no lead role
+        // is needed there or in the snapshot.
+        const sentModel = { ...modelSelection, model: "gpt-5.4-mini" };
+        const workflow = {
           workflow: {
-            workflow: {
-              id: FEATURE_DELIVERY_WORKFLOW_ID,
-              name: "Feature delivery",
-              instructions: "",
-              leadRoleId: sentLead.id,
-              crewRoleIds: [],
-              revision: 1,
-            },
-            roles: [sentLead],
+            id: FEATURE_DELIVERY_WORKFLOW_ID,
+            name: "Feature delivery",
+            instructions: "Plan it, then build it.",
+            crewRoleIds: [],
+            revision: 1,
           },
+          roles: [],
+        };
+        yield* (yield* reachWith({})).startForLink(linkScope("full-access"), {
+          ...request,
+          clientRequestId: "no-roles-here",
+          modelSelection: sentModel,
+          workflow,
         });
         expect((yield* Ref.get(boxSeen)).runs.at(-1)).toMatchObject({
-          memberId: "bot-manager:project:omni:Lead",
-          carried: leadRole,
-        });
-        // With no lead role sent either, it's refused for good, not left waiting.
-        const unset = yield* noCrew
-          .startForLink(linkScope("full-access"), { ...request, clientRequestId: "no-crew" })
-          .pipe(Effect.flip);
-        expect(unset).toMatchObject({
-          code: "invalid_request",
-          message: "Set up the crew before handing it project work",
+          memberId: "bot-manager:project:omni",
+          carried: { modelSelection: sentModel, runtimeMode: "full-access" },
+          workflow: { snapshot: workflow },
         });
       }),
     ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -793,7 +767,6 @@ it.live("starts the project manager there, or says before starting anything why 
           memberId: "bot-manager:project:omni",
           projectId: "project:omni",
           taskText: "Start a feature: dark mode.",
-          // Its lead runs as the workflow's lead role, not as the bot that sent it.
           carried,
           workspace: { branch: expect.stringMatching(/^bosun\/dark-mode-/), baseRef: "main" },
           // The laptop's workflow goes along by value, for the features this request starts.
@@ -807,7 +780,6 @@ it.live("starts the project manager there, or says before starting anything why 
                 instructions: "Revision 3.",
               },
               roles: [
-                { id: "role:feature-manager" },
                 { id: "role:builder" },
                 { id: "role:security-reviewer", instructions: "You are role:security-reviewer." },
               ],
@@ -942,14 +914,17 @@ it.live("starts the project manager there, or says before starting anything why 
       );
       // The omni run, and the one left queued above; refusals start nothing.
       expect((yield* Ref.get(boxSeen)).runs).toHaveLength(2);
-      // The bot's own model goes unused when a workflow's lead role runs the work.
+      // It runs on the model the sender passed.
       yield* a.reach.launchProjectManager(
         headquartersScope,
         box.environmentId,
         { botId: CAPTAIN_ID },
         launch("project:omni", "gpt-elsewhere"),
       );
-      expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual(carried);
+      expect((yield* Ref.get(boxSeen)).runs.at(-1)?.carried).toEqual({
+        ...carried,
+        modelSelection: { ...modelSelection, model: "gpt-elsewhere" },
+      });
       // It runs with the access it was sent with.
       yield* a.reach.launchProjectManager(
         headquartersScope,

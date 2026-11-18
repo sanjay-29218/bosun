@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
+import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -13,7 +14,6 @@ import {
   EPIC_WORKFLOW_ID,
   MessageId,
   FEATURE_DELIVERY_WORKFLOW_ID,
-  FEATURE_MANAGER_ROLE_ID,
   projectHeadquartersThreadId,
   ProjectId,
   ProviderDriverKind,
@@ -61,7 +61,7 @@ import {
 import { FeatureWorkspacesLive } from "./FeatureWorkspaces.ts";
 import * as NoticeInbox from "./NoticeInbox.ts";
 import * as FeatureReportReactor from "./FeatureReportReactor.ts";
-import FeatureManagerMigration from "../persistence/Migrations/103_FeatureManager.ts";
+import { FEATURE_LEAD_INSTRUCTIONS } from "../crew/crewPrompts.ts";
 import { retitleFeatureManagerLeads } from "./featureManagerTitles.ts";
 import { firstIssueRef } from "./featureIssue.ts";
 
@@ -211,7 +211,7 @@ describe("feature lead and crew", () => {
           brief: "Add a dark mode toggle to settings",
           workspace: "local",
         });
-        // Every role that joins features gets a member; the manager leads instead.
+        // Every role in the workflow's crew gets a member; the feature's own thread leads.
         expect(Object.keys(feature.crewAssignments).toSorted()).toEqual([
           "role:builder",
           "role:designer",
@@ -238,6 +238,35 @@ describe("feature lead and crew", () => {
         expect(messages[0]!.text).toMatch(/^Workflow: Feature delivery$/m);
         expect(messages[0]!.text).toMatch(/^Crew: .*Planner/m);
         expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(started.leadThreadId);
+      }),
+    ),
+  );
+
+  effectIt.effect("keeps a lead started before workflows lost their lead role", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const crew = yield* CrewService;
+        const features = yield* FeatureService;
+        const target = { id: "legacy-feature", projectId };
+        yield* features.create({ ...target, title: "Legacy", brief: "Old", workspace: "local" });
+        // The lead it started then ran as the project's Feature manager member.
+        const legacy = yield* crew.ensureLinkedRequestMember(projectId, modelSelection);
+        const runId = `feature-lead:${NodeCrypto.createHash("sha256")
+          .update(JSON.stringify([target.id, legacy.id]))
+          .digest("hex")
+          .slice(0, 32)}`;
+        const run = yield* crew.createRun({
+          id: runId,
+          memberId: legacy.id,
+          projectId,
+          taskText: "Legacy lead task",
+          title: "Legacy",
+        });
+        const started = yield* features.start(target.id, projectId);
+        expect(started.leadThreadId).toBe(run.threadId);
+        expect(
+          (yield* (yield* CrewStore).listMembersForProject(projectId)).map((member) => member.name),
+        ).not.toContain("Lead");
       }),
     ),
   );
@@ -280,65 +309,84 @@ describe("feature lead and crew", () => {
     ),
   );
 
-  effectIt.effect("runs a feature on its workflow's lead, crew and instructions", () =>
-    withSystem(
-      Effect.gen(function* () {
-        const crew = yield* CrewService;
-        const features = yield* FeatureService;
-        const engine = yield* OrchestrationEngineService;
-        const role = (id: string, name: string) =>
-          crew.createRole({
-            id,
-            name,
-            instructions: `You are the ${name}.`,
+  effectIt.effect(
+    "leads a feature from its own thread, on its workflow's instructions and crew",
+    () =>
+      withSystem(
+        Effect.gen(function* () {
+          const crew = yield* CrewService;
+          const features = yield* FeatureService;
+          const engine = yield* OrchestrationEngineService;
+          yield* crew.createRole({
+            id: "role:copywriter",
+            name: "Copywriter",
+            instructions: "You are the Copywriter.",
             modelSelection,
           });
-        yield* role("role:content-lead", "Content lead");
-        yield* role("role:copywriter", "Copywriter");
-        const workflow = yield* crew.createWorkflow({
-          id: "workflow:social",
-          name: "Social media",
-          instructions: "Draft the week's posts, then ask the person to approve them.",
-          leadRoleId: "role:content-lead",
-          crewRoleIds: ["role:copywriter", "role:content-lead", "role:copywriter"],
-        });
-        // The lead leads; it isn't on its own crew.
-        expect(workflow.crewRoleIds).toEqual(["role:copywriter"]);
-        const input = {
-          id: "social-feature",
-          projectId,
-          title: "Launch week",
-          brief: "Posts for the launch",
-          workspace: "local" as const,
-          workflowId: workflow.id,
-        };
-        const feature = yield* features.create(input);
-        expect(feature.workflowId).toBe(workflow.id);
-        expect(Object.keys(feature.crewAssignments)).toEqual(["role:copywriter"]);
-        // The same feature ID on another workflow is another request.
-        const { workflowId: _workflowId, ...onDefault } = input;
-        expect((yield* Effect.flip(features.create(onDefault))).message).toBe(
-          "Feature ID belongs to another request",
-        );
+          const workflow = yield* crew.createWorkflow({
+            id: "workflow:social",
+            name: "Social media",
+            instructions: "Draft the week's posts, then ask the person to approve them.",
+            crewRoleIds: ["role:copywriter", "role:copywriter"],
+          });
+          expect(workflow.crewRoleIds).toEqual(["role:copywriter"]);
+          // There is no lead role to set up.
+          expect((yield* crew.listRoles()).map((role) => role.id)).not.toContain(
+            "role:feature-manager",
+          );
+          const input = {
+            id: "social-feature",
+            projectId,
+            title: "Launch week",
+            brief: "Posts for the launch",
+            workspace: "local" as const,
+            workflowId: workflow.id,
+          };
+          const feature = yield* features.create(input);
+          expect(feature.workflowId).toBe(workflow.id);
+          expect(Object.keys(feature.crewAssignments)).toEqual(["role:copywriter"]);
+          // The same feature ID on another workflow is another request.
+          const { workflowId: _workflowId, ...onDefault } = input;
+          expect((yield* Effect.flip(features.create(onDefault))).message).toBe(
+            "Feature ID belongs to another request",
+          );
 
-        const { leadThreadId } = yield* features.start(input.id, projectId);
-        // The lead reads as the feature, whatever its role.
-        expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Launch week");
-        const { messages } = yield* engine.getThreadRecords(leadThreadId, ["messages"], {
-          messageRoles: ["user"],
-        });
-        const text = messages[0]!.text;
-        expect(text).toContain("You are the Content lead.");
-        expect(text).toContain(
-          "Workflow: Social media\nDraft the week's posts, then ask the person to approve them.",
-        );
-        expect(text).toMatch(/^Crew: Copywriter\. /m);
-        expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(leadThreadId);
-        expect(yield* Effect.flip(crew.deleteWorkflow(FEATURE_DELIVERY_WORKFLOW_ID))).toMatchObject(
-          { message: "Feature delivery can be edited but not deleted" },
-        );
-      }),
-    ),
+          const { leadThreadId } = yield* features.start(input.id, projectId);
+          expect((yield* engine.getThreadShell(leadThreadId))?.title).toBe("Launch week");
+          const text = (yield* userTexts(leadThreadId))[0]!;
+          expect(text).toContain(FEATURE_LEAD_INSTRUCTIONS);
+          expect(text).toContain(
+            "Workflow: Social media\nDraft the week's posts, then ask the person to approve them.",
+          );
+          expect(text).toMatch(/^Crew: Copywriter\. /m);
+          expect((yield* features.board(projectId))[0]?.leadThreadId).toBe(leadThreadId);
+
+          // Editing the workflow's instructions changes how the next feature is led; the one
+          // already started keeps its text.
+          yield* crew.updateWorkflow({
+            ...workflow,
+            instructions: "Draft the posts, then schedule them without asking.",
+            expectedRevision: workflow.revision,
+          });
+          const next = yield* features.launch({
+            projectId,
+            title: "Launch week 2",
+            brief: "More posts",
+            workspace: "local",
+            workflowId: workflow.id,
+          });
+          const nextText = (yield* userTexts(next.leadThreadId))[0]!;
+          expect(nextText).toContain(
+            "Workflow: Social media\nDraft the posts, then schedule them without asking.",
+          );
+          expect(nextText).not.toContain("ask the person to approve them");
+          expect((yield* features.start(input.id, projectId)).leadThreadId).toBe(leadThreadId);
+          expect((yield* userTexts(leadThreadId))[0]).toBe(text);
+          expect(
+            yield* Effect.flip(crew.deleteWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)),
+          ).toMatchObject({ message: "Feature delivery can be edited but not deleted" });
+        }),
+      ),
   );
 
   effectIt.effect(
@@ -350,6 +398,9 @@ describe("feature lead and crew", () => {
           const features = yield* FeatureService;
           const library = yield* crew.getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID);
           expect(library?.revision).toBe(1);
+          // This box has no roles of its own; the workflow sent is all a feature needs.
+          const store = yield* CrewStore;
+          for (const local of yield* crew.listRoles()) yield* store.deleteRole(local.id);
           const role = (id: string, name: string, model = modelSelection) => ({
             id,
             name,
@@ -368,18 +419,16 @@ describe("feature lead and crew", () => {
               id: FEATURE_DELIVERY_WORKFLOW_ID,
               name: "Feature delivery v3",
               instructions: "Have the Security reviewer check the diff before the Builder pushes.",
-              leadRoleId: "role:feature-manager",
               crewRoleIds: ["role:builder", "role:security-reviewer"],
               revision: 3,
             },
             roles: [
-              role("role:feature-manager", "Feature manager"),
               role("role:builder", "Builder"),
               role("role:security-reviewer", "Security reviewer", reviewerModel),
             ],
           };
-          // The Feature manager a link's request started here, which keeps that workflow.
-          const manager = yield* crew.ensureFeatureManager(projectId);
+          // The task a link's request started here, which keeps that workflow.
+          const manager = yield* crew.ensureLinkedRequestMember(projectId, modelSelection);
           const requested = yield* crew.createRun({
             id: "link-task:dark-mode",
             memberId: manager.id,
@@ -418,7 +467,7 @@ describe("feature lead and crew", () => {
             modelSelection: reviewerModel,
           });
           const opening = (yield* userTexts(started.leadThreadId))[0]!;
-          expect(opening).toContain("You are the laptop's Feature manager.");
+          expect(opening).toContain(FEATURE_LEAD_INSTRUCTIONS);
           expect(opening).toContain(
             "Workflow: Feature delivery v3\nHave the Security reviewer check the diff before the Builder pushes.",
           );
@@ -479,12 +528,11 @@ describe("feature lead and crew", () => {
                 id: "workflow:release",
                 name: "Release",
                 instructions: "Have the Writer write the notes, then ship.",
-                leadRoleId: "role:release-lead",
                 crewRoleIds: ["role:writer"],
                 revision: 4,
               },
             ],
-            roles: [role("role:release-lead", "Release lead"), role("role:writer", "Writer")],
+            roles: [role("role:writer", "Writer")],
           };
           expect(yield* crew.applyLibraryCopy(copy)).toEqual([]);
 
@@ -498,7 +546,7 @@ describe("feature lead and crew", () => {
             requesterThreadId: ThreadId.make("bot-run:bot-hq:bot-ops"),
           });
           const opening = (yield* userTexts(started.leadThreadId))[0]!;
-          expect(opening).toContain("You are the laptop's Release lead.");
+          expect(opening).toContain(FEATURE_LEAD_INSTRUCTIONS);
           expect(opening).toContain(
             "Workflow: Release\nHave the Writer write the notes, then ship.",
           );
@@ -1503,73 +1551,6 @@ describe("feature lead and crew", () => {
         ).toMatchObject({ message: "Branch no-such-branch doesn't exist in this project" });
       }),
     ),
-  );
-
-  effectIt.effect(
-    "keeps delegating to a custom workflow's old manager by name after the rename",
-    () =>
-      withSystem(
-        Effect.gen(function* () {
-          const crew = yield* CrewService;
-          const features = yield* FeatureService;
-          const sql = yield* SqlClient.SqlClient;
-          const workflow = yield* crew.createWorkflow({
-            id: "workflow:managed",
-            name: "Managed",
-            instructions: "Plan it, then have the manager run it.",
-            leadRoleId: "role:planner",
-            crewRoleIds: [FEATURE_MANAGER_ROLE_ID],
-          });
-          yield* features.create({
-            id: "managed-feature",
-            projectId,
-            title: "Managed",
-            brief: "Run it",
-            workspace: "local",
-            workflowId: workflow.id,
-          });
-          // Back to the shape a feature started before the rename, and the Project manager, had.
-          yield* sql`DELETE FROM roles WHERE id = 'role:project-manager'`;
-          yield* sql`
-          INSERT INTO roles (
-            id, name, instructions, model_selection_json, enabled, auto_create_for_feature,
-            revision, created_at, updated_at
-          )
-          SELECT 'role:project-manager', 'Project manager', instructions, model_selection_json,
-            enabled, auto_create_for_feature, revision, created_at, updated_at
-          FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}
-        `;
-          yield* sql`
-          UPDATE crew_members SET role_id = 'role:project-manager', name = 'Project manager'
-          WHERE role_id = ${FEATURE_MANAGER_ROLE_ID}
-        `;
-          yield* sql`
-          UPDATE workflows SET
-            lead_role_id = replace(lead_role_id, ${FEATURE_MANAGER_ROLE_ID}, 'role:project-manager'),
-            crew_role_ids_json = replace(crew_role_ids_json, ${FEATURE_MANAGER_ROLE_ID}, 'role:project-manager')
-        `;
-          yield* sql`DELETE FROM roles WHERE id = ${FEATURE_MANAGER_ROLE_ID}`;
-          expect(
-            (yield* features.crewMember("managed-feature", "role:project-manager"))?.name,
-          ).toBe("Project manager");
-
-          // 103 ran while roles still had tools and access, which 116 and 122 changed.
-          yield* sql`ALTER TABLE roles ADD COLUMN allowed_tools_json TEXT NOT NULL DEFAULT '[]'`;
-          yield* sql`ALTER TABLE roles ADD COLUMN runtime_mode TEXT NOT NULL DEFAULT 'full-access'`;
-          yield* FeatureManagerMigration;
-          yield* sql`ALTER TABLE roles DROP COLUMN allowed_tools_json`;
-          yield* sql`ALTER TABLE roles DROP COLUMN runtime_mode`;
-
-          expect((yield* features.crewMember("managed-feature", "Project manager"))?.name).toBe(
-            "Project manager",
-          );
-          expect(yield* features.crewMember("managed-feature", "role:project-manager")).toBeNull();
-          expect((yield* crew.getWorkflow(workflow.id))?.crewRoleIds).toEqual([
-            FEATURE_MANAGER_ROLE_ID,
-          ]);
-        }),
-        makeCrewTestOrchestration({ providers: [readyCodex] }),
-      ),
   );
 
   effectIt.effect("retitles open features' leads still called by their manager, once", () =>

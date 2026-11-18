@@ -63,7 +63,7 @@ const writing = guarded(checkWrite);
 
 /**
  * A feature for a headquarters' project, or a manager's project's copy, on a linked environment,
- * which that project's Feature manager there starts.
+ * which a task there starts.
  */
 const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnvironment")(function* (
   callerThreadId: ThreadId,
@@ -96,8 +96,8 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
   ) {
     return yield* invalid(
       manager
-        ? "With environmentId, pass only projectId, title, brief, issue, baseBranch, requestId and featureId; the Feature manager there picks the rest."
-        : "With environmentId, pass only projectId, title, brief, issue and featureId; the Feature manager there picks the rest.",
+        ? "With environmentId, pass only projectId, title, brief, issue, baseBranch, requestId and featureId; the task there picks the rest."
+        : "With environmentId, pass only projectId, title, brief, issue and featureId; the task there picks the rest.",
     );
   }
   const requestId = input.requestId?.trim() || undefined;

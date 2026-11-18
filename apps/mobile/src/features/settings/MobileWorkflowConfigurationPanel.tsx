@@ -1,6 +1,5 @@
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
-  FEATURE_MANAGER_ROLE_ID,
   type EnvironmentId,
   type RoleConfig,
   type WorkflowConfig,
@@ -20,7 +19,6 @@ interface WorkflowFields {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly leadRoleId: string;
   readonly crewRoleIds: Array<string>;
   readonly expectedRevision?: number;
 }
@@ -35,24 +33,18 @@ function Editor(props: {
   const choices = props.roles;
   const [name, setName] = useState(props.workflow?.name ?? "");
   const [instructions, setInstructions] = useState(props.workflow?.instructions ?? "");
-  const [leadRoleId, setLeadRoleId] = useState(
-    props.workflow?.leadRoleId ??
-      (props.roles.some((role) => role.id === FEATURE_MANAGER_ROLE_ID)
-        ? FEATURE_MANAGER_ROLE_ID
-        : ""),
-  );
   const [crewRoleIds, setCrewRoleIds] = useState<ReadonlyArray<string>>(
     props.workflow?.crewRoleIds ?? [],
   );
   // The fields above match this revision; a newer save elsewhere refuses this one.
   const [baseRevision, setBaseRevision] = useState(props.workflow?.revision);
-  const canSave = !!name.trim() && !!instructions.trim() && !!leadRoleId;
+  const canSave = !!name.trim() && !!instructions.trim();
   const roleName = (id: string) => props.roles.find((role) => role.id === id)?.name ?? id;
   // Roles that are off or gone stay listed while the workflow names them, so they can be removed.
   const crewChoices = [
     ...choices.filter((role) => role.enabled).map((role) => role.id),
     ...crewRoleIds.filter((id) => !choices.some((role) => role.enabled && role.id === id)),
-  ].filter((id) => id !== leadRoleId);
+  ];
 
   const managedFrom = props.workflow?.managedFrom ?? null;
 
@@ -69,19 +61,6 @@ function Editor(props: {
         onChangeText={setName}
         maxLength={200}
       />
-      <Text className="text-xs text-foreground-muted">Lead</Text>
-      <View className="flex-row flex-wrap gap-1.5">
-        {choices
-          .filter((role) => role.enabled || role.id === leadRoleId)
-          .map((role) => (
-            <Action
-              key={role.id}
-              label={role.name}
-              selected={leadRoleId === role.id}
-              onPress={() => setLeadRoleId(role.id)}
-            />
-          ))}
-      </View>
       <Text className="text-xs text-foreground-muted">Crew the lead can hand work to</Text>
       <View className="flex-row flex-wrap gap-1.5">
         {crewChoices.map((id) => {
@@ -120,8 +99,7 @@ function Editor(props: {
                 id: props.workflow?.id ?? `workflow:${uuidv4()}`,
                 name: name.trim(),
                 instructions: instructions.trim(),
-                leadRoleId,
-                crewRoleIds: crewRoleIds.filter((id) => id !== leadRoleId),
+                crewRoleIds: [...crewRoleIds],
                 ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
               })
               .then((saved) => {
@@ -143,7 +121,7 @@ function Editor(props: {
   );
 }
 
-/** An environment's workflows: which role leads a feature, its crew, and the lead's instructions. */
+/** An environment's workflows: the instructions a feature's lead follows, and its crew. */
 export function MobileWorkflowsPanel(props: { readonly environmentId: EnvironmentId }) {
   const { environmentId } = props;
   const workflowsQuery = useEnvironmentQuery(

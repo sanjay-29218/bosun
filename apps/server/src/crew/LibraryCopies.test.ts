@@ -9,7 +9,7 @@ import { it } from "@effect/vitest";
 import {
   EnvironmentId,
   FEATURE_DELIVERY_WORKFLOW_ID,
-  FEATURE_MANAGER_ROLE_ID,
+  PLANNER_ROLE_ID,
   type LibraryCopy,
   OrchestratorMcpFailure,
   type PeerLinkSummary,
@@ -134,7 +134,6 @@ const release = {
   id: "workflow:release",
   name: "Release",
   instructions: "Have the Writer write the notes, then ship.",
-  leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: ["role:writer"],
 };
 const writer = {
@@ -192,8 +191,8 @@ describe("LibraryCopies", () => {
           instructions: "The laptop's way.",
           managedFrom: laptopOwner,
         });
-        expect((yield* box.crew.getRole(FEATURE_MANAGER_ROLE_ID))?.managedFrom).toBeNull();
-        expect(yield* copiesOf(laptop.copies, "role", FEATURE_MANAGER_ROLE_ID)).toMatchObject([
+        expect((yield* box.crew.getRole(PLANNER_ROLE_ID))?.managedFrom).toBeNull();
+        expect(yield* copiesOf(laptop.copies, "role", PLANNER_ROLE_ID)).toMatchObject([
           { environmentId: boxId, deliveredRevision: 1, problem: null },
         ]);
         expect(yield* copiesOf(laptop.copies, "workflow", release.id)).toMatchObject([
@@ -284,9 +283,9 @@ describe("LibraryCopies", () => {
       // The box never sends back what it got from the laptop, and stock built-ins pushed both
       // ways stay each machine's own.
       expect((yield* laptop.crew.getRole("role:writer"))?.managedFrom).toBeNull();
-      expect((yield* laptop.crew.getRole(FEATURE_MANAGER_ROLE_ID))?.managedFrom).toBeNull();
-      expect((yield* box.crew.getRole(FEATURE_MANAGER_ROLE_ID))?.managedFrom).toBeNull();
-      expect(yield* copiesOf(box.copies, "role", FEATURE_MANAGER_ROLE_ID)).toMatchObject([
+      expect((yield* laptop.crew.getRole(PLANNER_ROLE_ID))?.managedFrom).toBeNull();
+      expect((yield* box.crew.getRole(PLANNER_ROLE_ID))?.managedFrom).toBeNull();
+      expect(yield* copiesOf(box.copies, "role", PLANNER_ROLE_ID)).toMatchObject([
         { environmentId: laptopId, problem: null },
       ]);
     }),
@@ -300,13 +299,12 @@ describe("LibraryCopies", () => {
       yield* laptop.copies.createWorkflow(release);
       yield* changeDelivery(laptop);
       yield* laptop.copies.push;
-      // The box's own workflow leads with a role it got from the laptop.
+      // The box's own workflow uses a role it got from the laptop.
       yield* box.copies.createWorkflow({
         ...release,
         id: "workflow:box-notes",
         name: "Box notes",
-        leadRoleId: "role:writer",
-        crewRoleIds: [],
+        crewRoleIds: ["role:writer"],
       });
 
       expect(yield* laptop.copies.unlink(boxId)).toBe(true);

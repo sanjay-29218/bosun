@@ -6,7 +6,7 @@ import {
   type LibraryWorkflowEntry,
 } from "@t3tools/client-runtime/state/library";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, RoleConfig, WorkflowConfig } from "@t3tools/contracts";
+import type { EnvironmentId, WorkflowConfig } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 import { memo, useState } from "react";
@@ -28,9 +28,6 @@ export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
   const libraries = loadedLibraries(states);
   const workflows = libraryWorkflowEntries(libraries);
   const roles = libraryRoleEntries(libraries);
-  const rolesByEnvironment = new Map(
-    libraries.map((library) => [library.environmentId, library.roles]),
-  );
   const workflowsByEnvironment = new Map(
     libraries.map((library) => [library.environmentId, library.workflows]),
   );
@@ -58,7 +55,6 @@ export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
           <WorkflowRow
             key={entry.key}
             entry={entry}
-            leadName={leadName(entry, rolesByEnvironment)}
             environmentLabel={environmentLabel(entry.environmentId)}
           />
         ))
@@ -83,8 +79,8 @@ export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
           {loading
             ? "Loading…"
             : kind === "workflow"
-              ? "No workflows yet. A feature follows a workflow: its lead role takes the brief and hands work to its crew."
-              : "No roles yet. A workflow's lead and crew are roles."}
+              ? "No workflows yet. A feature follows a workflow: its lead takes the brief and hands work to the workflow's crew."
+              : "No roles yet. A workflow's crew are roles."}
         </p>
       )}
       {errors.map((state) => (
@@ -97,27 +93,18 @@ export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
   );
 }
 
-const leadName = (
-  entry: LibraryWorkflowEntry,
-  rolesByEnvironment: ReadonlyMap<EnvironmentId, ReadonlyArray<RoleConfig>>,
-) =>
-  rolesByEnvironment.get(entry.environmentId)?.find((role) => role.id === entry.item.leadRoleId)
-    ?.name ?? null;
-
 const crewLabel = (workflow: WorkflowConfig) =>
   workflow.crewRoleIds.length === 1 ? "1 crew role" : `${workflow.crewRoleIds.length} crew roles`;
 
 const ROW_CLASS =
   "flex min-w-0 items-center gap-3 px-4 py-2.5 outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
-/** One workflow: its name, then its lead and how many crew roles it hands work to. */
+/** One workflow: its name, then how many crew roles it hands work to. */
 const WorkflowRow = memo(function WorkflowRow({
   entry,
-  leadName,
   environmentLabel,
 }: {
   readonly entry: LibraryWorkflowEntry;
-  readonly leadName: string | null;
   readonly environmentLabel: string | null;
 }) {
   const workflow = entry.item;
@@ -134,7 +121,6 @@ const WorkflowRow = memo(function WorkflowRow({
           </span>
           <span className="truncate text-xs text-muted-foreground">
             {[
-              leadName,
               crewLabel(workflow),
               workflow.managedFrom ? `From ${workflow.managedFrom.label}` : null,
             ]

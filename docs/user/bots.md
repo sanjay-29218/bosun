@@ -48,7 +48,7 @@ keeps going. A bot or manager still lives on one home machine.
 
 When the bot hands work to a project on a machine that's asleep or offline, the request waits
 instead of failing: its row in the headquarters says **Waiting for MacBook. It starts when MacBook
-is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no Feature manager role of its own runs the work with the lead role this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unlinking the machine while a request waits fails it.
+is back**, and it starts by itself once that machine answers, even after a restart. If that machine answers but can't start it yet, the row says what it answered instead. A machine with no roles of its own runs the work with the workflow this machine sends. To cancel it, open the thread details and press Stop on its row under **Lineage**; if it had already reached that machine, it's stopped there once that machine answers. Unlinking the machine while a request waits fails it.
 
 #### Copy or move a bot to another machine
 
@@ -245,20 +245,20 @@ sidebar's project picker and choose **Move to bot**.
 
 ## Workflows and roles
 
-A workflow, in **Settings → Workflows**, is how a kind of feature runs: a name, the role that
-leads it, the crew roles the lead can hand work to, and instructions for the lead. **New
-workflow** adds one. **Feature delivery** is the default and can be edited but not deleted. A role no workflow
+A workflow, in **Settings → Workflows**, is how a kind of feature runs: a name, instructions for
+the feature's lead, and the crew roles the lead can hand work to. A feature's own thread is its
+lead, so there is no lead role to set up: edit the instructions to change how features are led.
+**New workflow** adds one. **Feature delivery** is the default and can be edited but not deleted. A role no workflow
 uses says **Not in a workflow**.
 
-Roles, in **Settings → Roles**, are who leads a feature and who its lead can hand work to. **New
-role** adds one, and offers **Add the starter roles** for a Feature manager, Planner,
-Designer, Builder, QA Tester and Reviewer when an environment doesn't have them yet. The
+Roles, in **Settings → Roles**, are who a feature's lead can hand work to. **New role** adds one,
+and offers **Add the starter roles** for a Planner, Designer, Builder, QA Tester and Reviewer when
+an environment doesn't have them yet. The
 Builder builds on its own and uses subagents only for read-only work such as research. Each role
 has instructions and a default model, whose picker also sets reasoning and speed. Its crew get
 every tool with **Full access**, since they work unattended. Pick a role to
 edit it. Roles aren't deleted: the **On** switch at the top turns one off to retire it, and back
-on. Each project gets its own Feature manager the first time a feature needs one; editing a role
-changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see
+on. Editing a role changes the crews of features started later, not existing ones. A project's manager isn't a role; it's set up in the project (see
 [Project managers](#project-managers)).
 
 ### On other machines
@@ -289,7 +289,7 @@ they're managed from and can't be edited.
 
 A feature shows in the sidebar as one row, titled by the feature, with the crew members its lead
 has handed work to on its third line. Clicking the row opens the thread waiting on you if there is
-one, otherwise the feature's lead (its Feature manager's thread). A thread of the feature that
+one, otherwise the feature's lead. A thread of the feature that
 waits on you also shows under the row. The **Crew** tab in the right panel lists the lead and each
 crew member's thread with its state, plus the feature's branch and pull request; a member handed
 work twice shows as **Planner · try 2**. Subagents a crew member starts stay inside its thread.

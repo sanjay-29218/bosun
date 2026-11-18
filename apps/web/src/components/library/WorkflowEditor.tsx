@@ -1,7 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
-  FEATURE_MANAGER_ROLE_ID,
   type EnvironmentId,
   type RoleConfig,
   type WorkflowConfig,
@@ -16,11 +15,10 @@ import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { EditorField } from "../settings/CrewAgentFields";
-import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { LibraryMachines, ManagedFromNotice } from "./LibraryMachines";
 
@@ -38,7 +36,7 @@ function newWorkflowId(name: string) {
 /** A role the workflow can pick: an enabled one, or one it already has. */
 const pickable = (role: RoleConfig, picked: boolean) => role.enabled || picked;
 
-/** A workflow's name, lead, crew and instructions; `workflow` null adds one. */
+/** A workflow's name, crew and instructions; `workflow` null adds one. */
 export function WorkflowEditorForm({
   environmentId,
   workflow,
@@ -65,12 +63,8 @@ export function WorkflowEditorForm({
   );
   const canEdit = permitted && managedFrom === null;
   const canDelete = useAtomValue(rolesEnvironment.deleteWorkflow.permissionAtom(environmentId));
-  const defaultLead =
-    roles.find((role) => role.id === FEATURE_MANAGER_ROLE_ID && role.enabled) ??
-    roles.find((role) => role.enabled);
   const [name, setName] = useState(workflow?.name ?? "");
   const [instructions, setInstructions] = useState(workflow?.instructions ?? "");
-  const [leadRoleId, setLeadRoleId] = useState(workflow?.leadRoleId ?? defaultLead?.id ?? "");
   const [crewRoleIds, setCrewRoleIds] = useState<ReadonlyArray<string>>(
     workflow?.crewRoleIds ?? [],
   );
@@ -78,27 +72,16 @@ export function WorkflowEditorForm({
   const fields = {
     name: name.trim(),
     instructions: instructions.trim(),
-    leadRoleId,
-    crewRoleIds: crewRoleIds.filter((id) => id !== leadRoleId),
+    crewRoleIds,
   };
   const edited = workflow
     ? fields.name !== workflow.name ||
       fields.instructions !== workflow.instructions ||
-      fields.leadRoleId !== workflow.leadRoleId ||
       fields.crewRoleIds.join("\n") !== workflow.crewRoleIds.join("\n")
     : fields.name.length > 0 || fields.instructions.length > 0 || fields.crewRoleIds.length > 0;
   const canSave =
-    edited &&
-    canEdit &&
-    fields.name.length > 0 &&
-    fields.instructions.length > 0 &&
-    fields.leadRoleId.length > 0 &&
-    !busy;
-  const leadOptions = roles.filter((role) => pickable(role, role.id === leadRoleId));
-  const crewOptions = roles.filter(
-    (role) => role.id !== leadRoleId && pickable(role, crewRoleIds.includes(role.id)),
-  );
-  const leadName = roles.find((role) => role.id === leadRoleId)?.name ?? "Pick a role";
+    edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !busy;
+  const crewOptions = roles.filter((role) => pickable(role, crewRoleIds.includes(role.id)));
 
   useUnsavedChangesGuard({
     unsaved: edited,
@@ -189,42 +172,16 @@ export function WorkflowEditorForm({
                 maxLength={16_000}
                 size="lg"
                 disabled={busy || !canEdit}
-                placeholder="How the lead runs the work and when to hand it to the crew"
+                placeholder="How the feature's lead runs the work and when to hand it to the crew"
                 onChange={setInstructions}
               />
             </EditorField>
           </div>
         </SettingsSection>
-        <SettingsSection title="Lead">
-          <SettingsRow
-            title="Lead role"
-            description="Starts each feature and hands work to the crew."
-            control={
-              <Select
-                value={leadRoleId}
-                disabled={busy || !canEdit}
-                onValueChange={(next) => {
-                  if (typeof next === "string") setLeadRoleId(next);
-                }}
-              >
-                <SelectTrigger size="sm" aria-label="Lead role">
-                  <SelectValue>{leadName}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {leadOptions.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.enabled ? role.name : `${role.name} (off)`}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            }
-          />
-        </SettingsSection>
         <SettingsSection title={`Crew · ${fields.crewRoleIds.length}`}>
           <div className="px-3 py-4 sm:px-4">
             {crewOptions.length === 0 ? (
-              <p className="px-2.5 text-sm text-muted-foreground">No other roles yet.</p>
+              <p className="px-2.5 text-sm text-muted-foreground">No roles yet.</p>
             ) : (
               <div className="grid gap-0.5 sm:grid-cols-2">
                 {crewOptions.map((role) => {
