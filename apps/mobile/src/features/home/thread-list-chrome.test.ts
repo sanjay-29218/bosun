@@ -172,6 +172,17 @@ describe("buildBotSwitcherMenu", () => {
     ]);
     menu.items[3]!.onPress();
     expect(openManager).toHaveBeenCalledWith(manager);
+    const showProjects = vi.fn();
+    const unpinnedMenu = buildBotSwitcherMenu({
+      ...places,
+      bots: [idle, { ...social, pinned: false }],
+      active: idle,
+      needsYou: new Map(),
+      showProjects,
+    });
+    expect(unpinnedMenu.items[0]).toMatchObject({ key: "projects", state: "off" });
+    unpinnedMenu.items[0]!.onPress();
+    expect(showProjects).toHaveBeenCalledOnce();
   });
 
   it("leaves a bot with nothing waiting without a subtitle", () => {

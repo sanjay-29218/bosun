@@ -71,7 +71,7 @@ export function buildBotSwitcherMenu<Manager extends SwitcherManager>(input: {
     elsewhereNeedsYou,
     items: [
       // With no bot there is nothing to switch from: the list already shows every project.
-      ...(pinned.length === 0
+      ...(input.bots.length === 0
         ? []
         : [
             {
