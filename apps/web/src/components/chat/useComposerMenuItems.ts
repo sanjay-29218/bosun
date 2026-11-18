@@ -275,7 +275,7 @@ export function useComposerMenuItems({
                 type: "slash-command",
                 command: "new",
                 label: "/new",
-                description: "Start a new session; the bot keeps this thread",
+                description: "Start a new session in this thread",
               },
             ] as const)
           : []),
