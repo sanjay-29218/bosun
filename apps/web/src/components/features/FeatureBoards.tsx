@@ -1,7 +1,6 @@
 import {
   WORK_GROUPS,
   featureCardKey,
-  featureDropAction,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
   type WorkGroupCards,
@@ -64,7 +63,7 @@ export interface SettledShelf {
 /** Chat threads by the Work section they sit in. */
 export type BoardChats = Partial<Record<WorkSection, ReadonlyArray<EnvironmentThreadShell>>>;
 
-type DropAction = "close" | "reopen" | "settle";
+type DropAction = "settle";
 type DropTarget = "open" | "done" | "settled";
 
 export interface FeatureBoardHandlers {
@@ -94,7 +93,7 @@ export interface FeatureBoardHandlers {
   readonly canShelf: (card: EnvironmentFeatureCard) => boolean;
   readonly onWake: (card: EnvironmentFeatureCard) => void;
   readonly onSnooze: (card: EnvironmentFeatureCard, snoozedUntil: string) => void;
-  /** Called only for an allowed move: into Done closes, out of it reopens, onto Settled settles. */
+  /** Dragging onto Settled settles the feature; progress groups come from its PR and activity. */
   readonly onDrop: (
     card: EnvironmentFeatureCard,
     action: DropAction,
@@ -129,7 +128,7 @@ const dropAction = (
   target: DropTarget,
   handlers: FeatureBoardHandlers,
 ): DropAction | null => {
-  if (target !== "settled") return featureDropAction(card, target);
+  if (target !== "settled") return null;
   // Any feature settles, the way any thread does.
   return handlers.canShelf(card) ? "settle" : null;
 };
@@ -222,6 +221,7 @@ function WorkCardRows(props: {
 
 /** Work as a list: a band per group, then Snoozed and Settled folded at the bottom. */
 export function WorkList(props: {
+  readonly revealedRow?: string | null;
   readonly items: WorkItems;
   readonly settledShelf: SettledShelf;
   readonly handlers: FeatureBoardHandlers;
@@ -238,7 +238,12 @@ export function WorkList(props: {
         const total = cards.length + chats.length + (settled ? props.settledShelf.unloaded : 0);
         if (total === 0) return null;
         const shelf = isShelf(section);
-        const expanded = !shelf || (settled ? props.settledShelf.expanded : snoozedOpen);
+        const containsTarget = (card: EnvironmentFeatureCard): boolean =>
+          featureCardKey(card) === props.revealedRow ||
+          handlers.childrenFor(card).some(containsTarget);
+        const revealIndex = cards.findIndex(containsTarget);
+        const expanded =
+          revealIndex >= 0 || !shelf || (settled ? props.settledShelf.expanded : snoozedOpen);
         const look = shelf ? null : GROUP_LOOK[section];
         return (
           <section key={section} className="flex flex-col">
@@ -262,6 +267,7 @@ export function WorkList(props: {
               <>
                 <PagedRows
                   items={cards}
+                  revealIndex={revealIndex}
                   pageSize={section === "done" || shelf ? PAGE : null}
                   render={(card) => (
                     <WorkCardRows
@@ -594,15 +600,24 @@ export interface IssueItems {
 
 /** Issues as a list: each open milestone, then No milestone, then closed milestones folded. */
 export function IssuesList(props: {
+  readonly revealedRow?: string | null;
   readonly items: IssueItems;
   readonly handlers: FeatureBoardHandlers;
 }) {
   const { handlers } = props;
   const { groups, starting } = props.items;
   const [closedOpen, setClosedOpen] = useState(false);
+  const revealClosed = groups.closedMilestones.some((group) =>
+    group.items.some((item) =>
+      [item.issue, ...item.parts].some((issue) => issueKey(issue) === props.revealedRow),
+    ),
+  );
   const rows = (items: ReadonlyArray<IssueTreeItem>, pageSize: number | null) => (
     <PagedRows
       items={items}
+      revealIndex={items.findIndex((item) =>
+        [item.issue, ...item.parts].some((issue) => issueKey(issue) === props.revealedRow),
+      )}
       pageSize={pageSize}
       render={(item) => (
         <IssueItemRows
@@ -670,10 +685,10 @@ export function IssuesList(props: {
             iconClassName="text-muted-foreground"
             label="Closed milestones"
             count={closedCount}
-            expanded={closedOpen}
+            expanded={closedOpen || revealClosed}
             onToggle={() => setClosedOpen(!closedOpen)}
           />
-          {closedOpen
+          {closedOpen || revealClosed
             ? groups.closedMilestones.map((group) => (
                 <Fragment key={group.key}>
                   <div className="flex h-8 items-center gap-2 ps-18 text-xs text-muted-foreground">

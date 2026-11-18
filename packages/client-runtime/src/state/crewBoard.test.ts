@@ -15,7 +15,6 @@ import {
   featureCardActions,
   featureCardKey,
   featureColumn,
-  featureDropAction,
   featureFinished,
   chatWorkGroup,
   featureOpenThreadId,
@@ -424,13 +423,6 @@ describe("search", () => {
 });
 
 describe("drag and actions", () => {
-  it("only closes into Done and reopens out of it", () => {
-    expect(featureDropAction(card("a"), "done")).toBe("close");
-    expect(featureDropAction(card("a"), "open")).toBeNull();
-    expect(featureDropAction(card("a", { status: "closed" }), "open")).toBe("reopen");
-    expect(featureDropAction(card("a", { status: "closed" }), "done")).toBeNull();
-  });
-
   it("offers Start until the lead has its thread, and Reopen once closed", () => {
     expect(featureCardActions(card("a", { leadThreadId: null }))).toEqual(["start", "close"]);
     expect(featureCardActions(card("a"))).toEqual(["close"]);

@@ -73,39 +73,23 @@ bot's headquarters hears only when a feature finishes or fails.
 
 ## The board
 
-The board has four columns. **Todo** holds each project's open issues and tickets that no feature
-works on yet, and features you haven't started. **Working** holds features whose lead or a crew
-member is running. **Needs you** holds features waiting on you, oldest first: a thread asks for an
-approval or an answer, or the lead has stopped and it's your turn. **Done** holds closed features.
+The board opens on **Work**, with features and tasks grouped into **Needs input**, **Working**,
+**Ready for review**, and **Done**. Done features have merged pull requests; an open pull request
+is Ready for review. A stopped, unfinished lead reads **Waiting**; a failed lead reads **Failed**.
+Pending approvals and questions take priority, followed by running turns.
 
-Your other threads sit beside the features, in the column their sidebar status puts them: running
-ones in Working, ones waiting on an approval or answer in Needs you, and the rest in Done. Click
-one to open it; hover for Snooze and Settle. Todo stays for work not started yet. Milestone and
-label filters show only features and todos.
+Switch to **Issues** for open GitHub issues and tickets, grouped by milestone and parent.
+Start work there without leaving the board. An issue with work links to its row in Work;
+the issue number on a work row links back. Features without an issue that haven't started yet
+also appear in Issues.
 
-Each card shows its project, status, the crew member the status is about, its linked issue (or,
-without one, the feature's own number, such as F-3), and its branch or pull request. Click a card
-to open the lead's thread. **Start feature** starts one in Todo, and **Close feature** and
-**Reopen feature** are in its menu. Dragging a card into Done closes the feature, and dragging it
-out reopens it. Closing leaves its threads as they are.
+Use `W` and `I` to switch tabs, and `/` to search. The board remembers the last tab per project;
+both tabs share search and project, milestone, and label filters. Each tab remembers whether
+you prefer columns or a list. Phones use the list, with row actions available beside each item.
 
-Hover any feature for **Snooze** and **Settle**, as on a thread, or drag it onto **Settled** under
-Done. Both act on the feature's threads, so the sidebar files it the same way, and a feature
-snoozed or settled in the sidebar moves on the board too. Snoozed features wait in **Snoozed**
-under Done until they wake; **Wake** brings one back early and **Un-settle** undoes a settle.
-
-Search (the magnifier in the board's header, or `/`) matches titles, projects, issue numbers and
-feature numbers. **Filter** narrows the board to a project, a milestone or issue labels; the board's project is the
-sidebar's project filter, so picking one in either place narrows both; each
-filter in effect shows below the header, where its × removes it. **Display** switches between the
-columns and a list.
-
-A parent issue's sub-issues sit under it. In the list, a sub-issue nests under its parent when both
-land in the same section, and the parent's `0/3` chip folds them; one in another section, such as a
-running feature on a sub-issue, stays in its own section with a `↰ #48` chip naming its parent.
-Narrowed to a milestone, the list opens with the milestone's progress and due date, then each
-parent with all of its sub-issues under it, whatever their status. In columns, a parent's card lists
-its sub-issues and each sub-issue keeps its own card.
+Use a feature's menu to close or reopen it. Closing doesn't mark its pull request merged.
+**Snooze** and **Settle** act on its threads, matching the sidebar. Dragging onto **Settled**
+settles the feature; **Wake** and **Un-settle** bring it back.
 
 ## Issues and tickets
 

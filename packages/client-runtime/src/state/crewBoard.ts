@@ -559,15 +559,6 @@ export function matchesFeatureSearch(
 
 // ── Drag and actions ─────────────────────────────────────────────────
 
-/** The only board moves: into Done closes, out of Done reopens. */
-export function featureDropAction(
-  card: Pick<FeatureBoardCard, "status">,
-  target: "done" | "open",
-): "close" | "reopen" | null {
-  if (target === "done") return card.status === "open" ? "close" : null;
-  return card.status === "closed" ? "reopen" : null;
-}
-
 export type FeatureCardActionId = "start" | "close" | "reopen";
 
 /** What a card's menu offers. Everything else happens in the lead's thread. */

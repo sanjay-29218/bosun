@@ -107,12 +107,7 @@ import {
   type FeaturesPagePreferences,
 } from "./featuresPagePreferences";
 import { resolveFeaturesShortcut } from "./featuresShortcuts";
-import {
-  pickWorkflow,
-  useEnvironmentWorkflows,
-  useStartTodo,
-  useStartingTodos,
-} from "./startFromBoard";
+import { pickWorkflow, useBoardWorkflows, useStartTodo, useStartingTodos } from "./startFromBoard";
 import { closeTodoAsCompleted } from "./todoState";
 import { useFeatureActions } from "./useFeatureActions";
 import { useFeatureBoard, useFeatureEnvironmentIds } from "./useFeatureBoard";
@@ -452,6 +447,7 @@ export function FeaturesPage(props: {
 
   // A jump between tabs lands on the row it names once that tab has rendered it.
   const jumpTo = useRef<string | null>(null);
+  const [revealedRow, setRevealedRow] = useState<string | null>(null);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Scrolls to and focuses the row a jump names once the other tab has rendered it.
   useEffect(() => {
     const key = jumpTo.current;
@@ -464,8 +460,11 @@ export function FeaturesPage(props: {
   });
   const jump = (target: BoardTab, key: string) => {
     jumpTo.current = key;
-    if (layout !== "list") setLayout("list");
-    setTab(target);
+    setRevealedRow(key);
+    updatePreferences((current) => ({
+      layoutByTab: { ...current.layoutByTab, [target]: "list" },
+      tabByProject: { ...current.tabByProject, [scopeKey]: target },
+    }));
   };
 
   const actions = useFeatureActions();
@@ -473,13 +472,13 @@ export function FeaturesPage(props: {
   const startTodo = useStartTodo();
   // Workflows belong to an environment; the board reads the one New starts in.
   const newFeatureProject: EnvironmentProject | null = scopedProject ?? projects[0] ?? null;
-  const workflows = useEnvironmentWorkflows(newFeatureProject?.environmentId ?? null);
+  const workflowsByEnvironment = useBoardWorkflows(targets.map((target) => target.environmentId));
   const workflowsFor = (owner: {
     readonly environmentId: EnvironmentId;
     readonly projectId: ProjectId;
   }) => ({
-    workflows,
-    workflow: pickWorkflow(workflows, owner),
+    workflows: workflowsByEnvironment.get(owner.environmentId) ?? [],
+    workflow: pickWorkflow(workflowsByEnvironment.get(owner.environmentId) ?? [], owner),
   });
   const description = (issue: EnvironmentIssue) =>
     issueBoard.tickets.get(issueKey(issue))?.description;
@@ -499,10 +498,7 @@ export function FeaturesPage(props: {
     canShelf: (card) => rowFor(card).length > 0,
     onWake: wake,
     onSnooze: snooze,
-    onDrop: (card, action) => {
-      if (action === "settle") toggleShelf(card);
-      else void actions.run(card, action);
-    },
+    onDrop: (card) => toggleShelf(card),
     onShowIssue: (card) => {
       const issue = issueOfFeature.get(featureCardKey(card));
       if (issue) jump("issues", issueKey(issue));
@@ -531,13 +527,13 @@ export function FeaturesPage(props: {
             },
       ),
     onStartTodo: (issue, workflow) => {
-      // A feature made for it earlier but never started starts as it is.
       const feature = featureFor(issue);
-      if (feature && feature.leadThreadId === null && feature.status === "open") {
-        void actions.run(feature, "start");
-        return;
-      }
-      void startTodo(issue, workflow ?? pickWorkflow(workflows, issue), description(issue));
+      void startTodo(
+        issue,
+        workflow ?? workflowsFor(issue).workflow,
+        description(issue),
+        feature?.leadThreadId === null && feature.status === "open" ? feature : undefined,
+      );
     },
     onEditBrief: (issue) =>
       startFeatureDraft(
@@ -908,12 +904,17 @@ export function FeaturesPage(props: {
         layout === "board" ? (
           <WorkColumns items={workItems} settledShelf={settledShelf} handlers={handlers} />
         ) : (
-          <WorkList items={workItems} settledShelf={settledShelf} handlers={handlers} />
+          <WorkList
+            revealedRow={revealedRow}
+            items={workItems}
+            settledShelf={settledShelf}
+            handlers={handlers}
+          />
         )
       ) : layout === "board" ? (
         <IssuesColumns items={issueItems} handlers={handlers} />
       ) : (
-        <IssuesList items={issueItems} handlers={handlers} />
+        <IssuesList revealedRow={revealedRow} items={issueItems} handlers={handlers} />
       );
   }
 

@@ -340,11 +340,11 @@ function BoardRow(props: {
       </span>
       <PlaceCell place={props.place} />
       <span className="flex w-4.5 shrink-0 justify-center max-sm:hidden">{props.agent}</span>
-      <span className="relative flex w-14 shrink-0 items-center justify-end text-xs text-muted-foreground tabular-nums max-sm:hidden">
-        <span className="group-hover/row:hidden group-has-[:focus-visible]/row:hidden group-data-menu-open/row:hidden pointer-coarse:hidden">
+      <span className="relative flex w-14 shrink-0 items-center justify-end text-xs text-muted-foreground tabular-nums">
+        <span className="max-sm:hidden group-hover/row:hidden group-has-[:focus-visible]/row:hidden group-data-menu-open/row:hidden pointer-coarse:hidden">
           {props.time}
         </span>
-        <span className="relative z-10 hidden items-center gap-0.5 group-hover/row:flex group-has-[:focus-visible]/row:flex group-data-menu-open/row:flex pointer-coarse:flex">
+        <span className="relative z-10 hidden items-center gap-0.5 group-hover/row:flex group-has-[:focus-visible]/row:flex group-data-menu-open/row:flex pointer-coarse:flex max-sm:flex">
           {props.actions}
         </span>
       </span>
@@ -836,11 +836,14 @@ export function MilestonePie(props: {
 export function PagedRows<T>(props: {
   readonly items: ReadonlyArray<T>;
   readonly pageSize: number | null;
+  readonly revealIndex?: number;
   readonly render: (item: T, index: number) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visible =
-    props.pageSize !== null && !expanded ? props.items.slice(0, props.pageSize) : props.items;
+    props.pageSize !== null && !expanded
+      ? props.items.slice(0, Math.max(props.pageSize, (props.revealIndex ?? -1) + 1))
+      : props.items;
   const hidden = props.items.length - visible.length;
   return (
     <>

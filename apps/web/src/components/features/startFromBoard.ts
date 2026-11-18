@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentFeatureCard } from "@t3tools/client-runtime/state/crew-board";
 import { issueKey, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
 import {
   isAtomCommandInterrupted,
@@ -7,13 +8,9 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
-import {
-  FEATURE_DELIVERY_WORKFLOW_ID,
-  type EnvironmentId,
-  type ProjectId,
-} from "@t3tools/contracts";
+import { FEATURE_DELIVERY_WORKFLOW_ID, EnvironmentId, type ProjectId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import { randomUUID } from "../../lib/utils";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
@@ -63,6 +60,26 @@ export function useEnvironmentWorkflows(
   return workflows.map((workflow) => ({ id: workflow.id, name: workflow.name }));
 }
 
+const boardWorkflowsAtom = Atom.family((key: string) =>
+  Atom.make(
+    (get) =>
+      new Map(
+        key
+          .split("\n")
+          .filter(Boolean)
+          .map((id) => {
+            const environmentId = EnvironmentId.make(id);
+            const result = get(rolesEnvironment.workflows({ environmentId, input: {} }));
+            return [environmentId, AsyncResult.getOrElse(result, () => [])] as const;
+          }),
+      ),
+  ),
+);
+
+export function useBoardWorkflows(environmentIds: ReadonlyArray<EnvironmentId>) {
+  return useAtomValue(boardWorkflowsAtom([...new Set(environmentIds)].sort().join("\n")));
+}
+
 /** The workflow ▶ Start uses: the last one started from this project's board, else Feature delivery. */
 export function pickWorkflow(
   workflows: ReadonlyArray<BoardWorkflow>,
@@ -101,67 +118,74 @@ export function useStartTodo() {
     >,
     workflow: BoardWorkflow,
     description?: string,
+    existing?: EnvironmentFeatureCard,
   ): Promise<boolean> => {
     const key = issueKey(issue);
-    const { environmentId, projectId } = issue;
-    const featureId = `feature:${randomUUID()}`;
-    const brief = todoBrief(issue, description);
-    const failed = (result: AtomCommandResult<unknown, unknown>) => {
-      setStarting(key, false);
-      if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return false;
-      const error = squashAtomCommandFailure(result);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Could not start the feature",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-      return false;
-    };
+    if (appAtomRegistry.get(startingTodosAtom).has(key)) return false;
     setStarting(key, true);
-    updateFeaturesPagePreferences((current) => ({
-      workflowByProject: { ...current.workflowByProject, [projectKey(issue)]: workflow.id },
-    }));
-    const created = await runAtomCommand(
-      appAtomRegistry,
-      featuresEnvironment.create,
-      {
-        environmentId,
-        input: {
-          id: featureId,
-          projectId,
-          title: brief.split("\n")[0]!.trim().slice(0, 120) || "New feature",
-          brief,
-          autoTitle: true,
-          workflowId: workflow.id,
-          workspace: "worktree",
-        },
-      },
-      { reportFailure: false },
-    );
-    if (created._tag !== "Success") return failed(created);
-    const started = await runAtomCommand(
-      appAtomRegistry,
-      featuresEnvironment.start,
-      { environmentId, input: { projectId, featureId } },
-      { reportFailure: false },
-    );
-    if (started._tag !== "Success") return failed(started);
-    const leadThreadId = started.value.leadThreadId;
-    toastManager.add({
-      type: "success",
-      title: `Started ${issue.ticketId ? "T-" : "#"}${issue.number} on ${workflow.name}`,
-      description: "It's under Working.",
-      actionProps: {
-        children: "Open",
-        onClick: () =>
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: buildThreadRouteParams(scopeThreadRef(environmentId, leadThreadId)),
+    try {
+      const { environmentId, projectId } = issue;
+      const featureId = existing?.featureId ?? `feature:${randomUUID()}`;
+      const brief = todoBrief(issue, description);
+      const failed = (result: AtomCommandResult<unknown, unknown>) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return false;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not start the feature",
+            description: error instanceof Error ? error.message : "An error occurred.",
           }),
-      },
-    });
-    return true;
+        );
+        return false;
+      };
+      updateFeaturesPagePreferences((current) => ({
+        workflowByProject: { ...current.workflowByProject, [projectKey(issue)]: workflow.id },
+      }));
+      if (!existing) {
+        const created = await runAtomCommand(
+          appAtomRegistry,
+          featuresEnvironment.create,
+          {
+            environmentId,
+            input: {
+              id: featureId,
+              projectId,
+              title: brief.split("\n")[0]!.trim().slice(0, 120) || "New feature",
+              brief,
+              autoTitle: true,
+              workflowId: workflow.id,
+              workspace: "worktree",
+            },
+          },
+          { reportFailure: false },
+        );
+        if (created._tag !== "Success") return failed(created);
+      }
+      const started = await runAtomCommand(
+        appAtomRegistry,
+        featuresEnvironment.start,
+        { environmentId, input: { projectId, featureId } },
+        { reportFailure: false },
+      );
+      if (started._tag !== "Success") return failed(started);
+      const leadThreadId = started.value.leadThreadId;
+      toastManager.add({
+        type: "success",
+        title: `Started ${issue.ticketId ? "T-" : "#"}${issue.number} on ${workflow.name}`,
+        description: "It's under Working.",
+        actionProps: {
+          children: "Open",
+          onClick: () =>
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: buildThreadRouteParams(scopeThreadRef(environmentId, leadThreadId)),
+            }),
+        },
+      });
+      return true;
+    } finally {
+      setStarting(key, false);
+    }
   };
 }
