@@ -8,7 +8,7 @@ import {
   featureCardKey,
   featureCardQuickActions,
   featureOpenThreadId,
-  featureProgress,
+  featureWorkStatus,
   featurePullRequest,
   featureRef,
   groupFeaturesByWork,
@@ -16,9 +16,10 @@ import {
   nestFeatureChildren,
   threadsByFeature,
   WORK_GROUP_LABELS,
+  WORK_ROW_LABELS,
   type EnvironmentFeatureCard,
-  type FeatureStatus,
   type WorkPullRequest,
+  type WorkRowStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
   featureForIssue,
@@ -55,7 +56,7 @@ const TAB_OPTIONS = [
 
 /** Where a started feature stands, as a row shows it. */
 interface FeatureWork {
-  readonly status: FeatureStatus;
+  readonly status: WorkRowStatus;
   readonly pullRequest: WorkPullRequest | null;
   /** The thread a tap opens: the one asking you something, else the lead. */
   readonly openThreadId: ThreadId | null;
@@ -131,9 +132,7 @@ function FeatureRow(props: {
             {card.title}
           </Text>
           <Text className="text-xs text-foreground-secondary" numberOfLines={1}>
-            {[featureRef(card), FEATURE_STATUS_LABELS[props.work.status]]
-              .filter(Boolean)
-              .join(" · ")}
+            {[featureRef(card), WORK_ROW_LABELS[props.work.status]].filter(Boolean).join(" · ")}
           </Text>
         </View>
         <PullRequestNumber pullRequest={props.work.pullRequest} />
@@ -189,7 +188,7 @@ function IssueRow(props: {
         </Text>
         {work !== null ? (
           <Text className="text-xs text-foreground-secondary" numberOfLines={1}>
-            {FEATURE_STATUS_LABELS[work.status]}
+            {WORK_ROW_LABELS[work.status]}
           </Text>
         ) : (
           <Text className="text-xs text-foreground-muted" numberOfLines={1}>
@@ -340,7 +339,7 @@ export function FeatureBoard(props: {
     const workOf = (card: EnvironmentFeatureCard): FeatureWork => {
       const threads = nested.threads.get(featureCardKey(card)) ?? [];
       return {
-        status: featureProgress(card, threads).status,
+        status: featureWorkStatus(card, threads).status,
         pullRequest: featurePullRequest(card, threads),
         openThreadId: featureOpenThreadId(card, threads),
       };
@@ -381,7 +380,7 @@ export function FeatureBoard(props: {
         const own = threads.get(featureCardKey(card)) ?? [];
         return {
           environmentId: card.environmentId,
-          status: featureProgress(card, own).status,
+          status: featureWorkStatus(card, own).status,
           pullRequest: featurePullRequest(card, own),
           openThreadId: featureOpenThreadId(card, own),
         };

@@ -3,16 +3,15 @@ import {
   WORK_GROUP_LABELS,
   chatWorkGroup,
   featureCardKey,
-  featureProgress,
   featurePullRequest,
   featureRef,
-  featureWorkGroup,
+  featureWorkStatus,
   threadPullRequest,
   threadFailed,
   type EnvironmentFeatureCard,
-  type FeatureStatus,
   type WorkGroupId,
   type WorkPullRequest,
+  type WorkRowStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import {
   issueKey,
@@ -79,9 +78,6 @@ import {
 import { FeatureNow } from "./FeatureNow";
 import type { BoardWorkflow } from "./startFromBoard";
 
-/** What a row's status icon says: its Work group, with Working split into its own states. */
-export type WorkRowStatus = Exclude<WorkGroupId, "working"> | "working" | "waiting" | "failed";
-
 export const WORK_LOOK: Record<
   WorkRowStatus,
   { readonly label: string; readonly icon: LucideIcon; readonly className: string }
@@ -109,23 +105,13 @@ export const GROUP_LOOK: Record<WorkGroupId, (typeof WORK_LOOK)[WorkRowStatus]> 
   done: { ...WORK_LOOK.done, label: WORK_GROUP_LABELS.done },
 };
 
-const workRowStatus = (group: WorkGroupId, status: FeatureStatus): WorkRowStatus =>
-  status === "failed" || (group === "working" && status === "waiting") ? status : group;
-
 /** A feature's Work group, status icon and pull request, from its threads. */
 export function featureWork(
   card: EnvironmentFeatureCard,
   handlers: Pick<FeatureBoardHandlers, "threadsFor">,
 ) {
   const threads = handlers.threadsFor(card);
-  const group = featureWorkGroup(card, threads);
-  const progress = featureProgress(card, threads);
-  return {
-    group,
-    status: workRowStatus(group, progress.status),
-    thread: progress.thread,
-    pullRequest: featurePullRequest(card, threads),
-  };
+  return { ...featureWorkStatus(card, threads), pullRequest: featurePullRequest(card, threads) };
 }
 
 export function WorkIcon(props: { readonly status: WorkRowStatus; readonly className?: string }) {

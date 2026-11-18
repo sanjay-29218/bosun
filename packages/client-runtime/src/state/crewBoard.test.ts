@@ -20,6 +20,7 @@ import {
   featureOpenThreadId,
   featureProgress,
   featureWorkGroup,
+  featureWorkStatus,
   groupFeaturesByWork,
   featureRef,
   groupFeaturesByColumn,
@@ -348,6 +349,18 @@ describe("work groups", () => {
     ["a running closed feature", { runtime: runtime("running") }, { status: "closed" }, "working"],
   ] as const)("files %s under %s", (_, fields, overrides, group) => {
     expect(featureWorkGroup(card("f", overrides as never), [lead(fields)])).toBe(group);
+  });
+
+  it("says Done only for merged work; a finished feature without one is Ready for review", () => {
+    const report = { outcome: "finished" as const, runId: "run-1" };
+    const statusOf = (fields: object, overrides: object = {}) =>
+      featureWorkStatus(card("f", overrides as never), [lead(fields)]).status;
+    expect(statusOf({}, { report })).toBe("review");
+    expect(statusOf({ pullRequests: [pr("merged")] }, { report })).toBe("done");
+    expect(statusOf({})).toBe("waiting");
+    expect(statusOf({ latestRun: { runId: "run-1", status: "failed" } })).toBe("failed");
+    expect(statusOf({ runtime: runtime("running") })).toBe("working");
+    expect(statusOf({ hasPendingUserInput: true })).toBe("needs-input");
   });
 
   it("files chats by their PR, and leaves features not started out of Work", () => {

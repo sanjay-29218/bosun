@@ -381,9 +381,8 @@ function WorkCards(props: {
           <FeatureCard
             key={featureCardKey(card)}
             card={card}
-            threads={handlers.threadsFor(card)}
             project={handlers.projectFor(card)}
-            pullRequest={featureWork(card, handlers).pullRequest}
+            work={featureWork(card, handlers)}
             settled={shelf !== null}
             draggable={shelf === null}
             onOpen={handlers.onOpen}
