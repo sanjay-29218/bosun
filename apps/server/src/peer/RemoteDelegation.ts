@@ -389,7 +389,7 @@ const make = Effect.gen(function* () {
       const parentNodeId = parentRun.rootNodeId;
       const { target } = input;
       // A bot's headquarters, or a project's manager, hands a project its request as it does
-      // here: the child is that project's Feature manager there, in a worktree it branches from
+      // here: the child is a task in that project there, in a worktree it branches from
       // its own checkout.
       const actor = launchActorOf(scope.thread.threadId);
       // A worktree there would branch from a commit this checkout has and the
@@ -569,7 +569,7 @@ const make = Effect.gen(function* () {
 
   /**
    * A bot's request for its project on a linked environment, or a project manager's for its
-   * project's copy there, as a task of that project's Feature manager there. It is recorded before anything is sent, so a restart or a lost answer can't
+   * project's copy there, as a task in that project there. It is recorded before anything is sent, so a restart or a lost answer can't
    * lose it; its first attempt runs right away, and its follower retries while that environment
    * can't be reached. A replayed request finds its task and starts nothing.
    */

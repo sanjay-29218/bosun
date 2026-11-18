@@ -19,7 +19,7 @@ export type CrewRosterThread = WorkGroupThread & {
 export interface CrewRosterEntry {
   readonly key: string;
   readonly kind: "lead" | "member";
-  /** "Feature manager", "Planner", "Planner · try 2". */
+  /** "Lead", "Planner", "Planner · try 2". */
   readonly name: string;
   readonly threadId: ThreadId;
   /** Its status word, such as "Needs input". */

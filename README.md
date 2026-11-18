@@ -42,10 +42,10 @@ and it ships under its own name, identity, and branding.
   the work runs: a **task** for a small, clear change, a **feature** for one reviewable
   pull request, or several features for bigger work. It replies in the bot's headquarters
   when work starts, when it needs an answer and when it's done.
-- **Features** are one worktree, one branch and one pull request. A **workflow** decides
-  who leads a feature and which crew roles it can hand work to. The default, **Feature
-  delivery**, is led by a Feature manager with a Planner, Designer, Builder, QA Tester and
-  Reviewer, and asks you to approve the plan before anything is built. **Epic** splits big
+- **Features** are one worktree, one branch and one pull request. The feature's own thread
+  leads it, following a **workflow**: instructions for the lead and the crew roles it can
+  hand work to. The default, **Feature delivery**, has a Planner, Designer, Builder, QA
+  Tester and Reviewer, and asks you to approve the plan before anything is built. **Epic** splits big
   work into child features; a child that builds on another starts from its branch, so the
   pull requests stack.
 - **Issues and tickets**: every piece of work can trace back to a GitHub issue or a Bosun

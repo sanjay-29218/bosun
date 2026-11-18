@@ -1,6 +1,6 @@
 # Features
 
-A feature is a brief that a Feature manager leads to done with a crew of roles. The board shows
+A feature is a brief that its own thread, the lead, takes to done with a crew of roles. The board shows
 every feature across your projects and everything waiting on you. Click the board button at the
 top right of a thread, press `mod+alt+shift+b`, or choose **Switch to Board** in the command
 palette; the same button returns to your threads. The toggle appears when a connected environment
@@ -47,10 +47,14 @@ child to open its lead; its menu closes or reopens it.
 
 ## The lead and its crew
 
-A feature follows a workflow from **Settings → Workflows**: the role that leads it, the crew roles it hands work to, and instructions for the lead.
-**Feature delivery** is led by the Feature manager with a Planner, Designer, Builder, QA Tester
-and Reviewer; you can edit it but not delete it. Crew roles that are turned off are skipped. The
-lead hands a crew member a task, such as a plan for the Planner, and
+A feature follows a workflow from **Settings → Workflows**: instructions for the lead and the crew
+roles it hands work to. The feature's own thread is its lead: it follows the workflow's
+instructions, runs the crew, asks you when it needs a decision, and reports when it's done. It
+starts on the project's default model, which you can change in its composer like any thread. To
+change how features are led, edit the workflow's instructions; features already started keep the
+text they started with. **Feature delivery** has a Planner, Designer, Builder, QA Tester and
+Reviewer; you can edit it but not delete it. Crew roles that are turned off are skipped. The lead
+hands a crew member a task, such as a plan for the Planner, and
 the member's thread shows under the lead in the thread's **Crew** tab, named by the member. Each
 member runs with its role's instructions and model, in the feature's worktree, and its result
 comes back to the lead. The lead does small steps itself and skips what the work doesn't need.

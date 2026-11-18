@@ -167,7 +167,6 @@ const make = Effect.gen(function* () {
         id: workflow.id,
         name: workflow.name,
         instructions: workflow.instructions,
-        leadRoleId: workflow.leadRoleId,
         crewRoleIds: workflow.crewRoleIds,
         revision: workflow.revision,
       })),

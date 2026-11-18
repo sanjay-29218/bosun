@@ -8,7 +8,7 @@ import { ProjectIconColor, ProjectRemoteManager } from "./project.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
 
 /**
- * Crew mode: global Roles (planner, designer, builder, reviewer, feature manager...) and the
+ * Crew mode: global Roles (planner, designer, builder, reviewer...) and the
  * crew members a project or feature instantiates from them. Runs are the durable work those
  * members do. "Bot" is reserved for the top-level bots that own projects.
  */
@@ -29,8 +29,8 @@ export const CREW_DISPATCH_STATE = {
 } as const;
 export type CrewDispatchState = (typeof CREW_DISPATCH_STATE)[keyof typeof CREW_DISPATCH_STATE];
 
-/** The role that leads a feature in the built-in workflows; each project's lead is made from it. */
-export const FEATURE_MANAGER_ROLE_ID = "role:feature-manager";
+/** A starter role; clients offer the starter roles while it is missing. */
+export const PLANNER_ROLE_ID = "role:planner";
 
 /** A crew member: a role instantiated for a project, a feature, or the whole environment. */
 export const CrewMemberSummary = Schema.Struct({
@@ -72,7 +72,7 @@ const libraryCopyFields = {
   copies: Schema.Array(LibraryCopy).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 };
 
-/** A global role: who a lead or crew member is. Editing it never rewrites existing members. */
+/** A global role: who a crew member is. Editing it never rewrites existing members. */
 export const RoleConfig = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -117,7 +117,8 @@ export const WorkflowSnapshot = Schema.Struct({
     id: Schema.String,
     name: Schema.String,
     instructions: Schema.String,
-    leadRoleId: Schema.String,
+    /** Sent by older peers, and kept in snapshots stored before; its role's text leads too. */
+    leadRoleId: Schema.optionalKey(Schema.String),
     crewRoleIds: Schema.Array(Schema.String),
     revision: Schema.Int,
   }),
@@ -128,14 +129,13 @@ export type WorkflowSnapshot = typeof WorkflowSnapshot.Type;
 export const EPIC_WORKFLOW_ID = "workflow:epic";
 
 /**
- * How a kind of work runs: the role that leads it, the roles it can hand work to, and plain
- * instructions the lead follows. A feature's lead gets them with the brief as its first message.
+ * How a kind of work runs: plain instructions and the roles it can hand work to. A feature's own
+ * thread leads it, and gets the instructions with the brief as its first message.
  */
 export const WorkflowConfig = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  leadRoleId: Schema.String,
   crewRoleIds: Schema.Array(Schema.String),
   revision: Schema.Int,
   ...libraryCopyFields,
@@ -145,7 +145,6 @@ const workflowFields = {
   id: Schema.String,
   name: Schema.String,
   instructions: Schema.String,
-  leadRoleId: Schema.String,
   crewRoleIds: Schema.Array(Schema.String),
 };
 export const WorkflowCreateInput = Schema.Struct({ ...workflowFields });

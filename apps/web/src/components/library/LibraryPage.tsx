@@ -242,8 +242,8 @@ function NewRole({
           <UsersIcon />
           <AlertTitle>No starter roles yet</AlertTitle>
           <AlertDescription>
-            Add a Feature manager, Planner, Designer, Builder, QA Tester and Reviewer, then change
-            each one as you like.
+            Add a Planner, Designer, Builder, QA Tester and Reviewer, then change each one as you
+            like.
           </AlertDescription>
           <AlertAction>
             <Button
@@ -283,7 +283,7 @@ function NewWorkflow({
   readonly onCancel: () => void;
 }) {
   if (!roles.some((role) => role.enabled)) {
-    return <LibraryStatus status="Add a role first. A workflow's lead and crew are roles." />;
+    return <LibraryStatus status="Add a role first. A workflow's crew are roles." />;
   }
   return (
     <WorkflowEditorForm

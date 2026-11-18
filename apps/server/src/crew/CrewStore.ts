@@ -64,7 +64,6 @@ export interface Workflow {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly leadRoleId: string;
   readonly crewRoleIds: ReadonlyArray<string>;
   /** Set on a copy of another machine's workflow, which is edited there. */
   readonly managedFrom: LibraryOwner | null;
@@ -284,10 +283,6 @@ export interface CrewStoreShape {
     member: CrewMember,
     expectedRevision: number,
   ) => Effect.Effect<boolean, PersistenceSqlError>;
-  /** Members of `roleId` that belong to a project but not to one feature. */
-  readonly listProjectMembersOfRole: (
-    roleId: string,
-  ) => Effect.Effect<ReadonlyArray<CrewMember>, PersistenceSqlError>;
   readonly transaction: <A, E, R>(
     effect: Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E | PersistenceSqlError, R>;
@@ -479,10 +474,10 @@ export const CrewStoreLive = Layer.effect(
       insertWorkflow: (workflow) =>
         sql`
           INSERT INTO workflows (
-            id, name, instructions, lead_role_id, crew_role_ids_json, managed_from_json, revision,
+            id, name, instructions, crew_role_ids_json, managed_from_json, revision,
             created_at, updated_at
           ) VALUES (
-            ${workflow.id}, ${workflow.name}, ${workflow.instructions}, ${workflow.leadRoleId},
+            ${workflow.id}, ${workflow.name}, ${workflow.instructions},
             ${JSON.stringify(workflow.crewRoleIds)}, ${encodeOwner(workflow.managedFrom)},
             ${workflow.revision},
             ${workflow.createdAt}, ${workflow.updatedAt}
@@ -492,7 +487,6 @@ export const CrewStoreLive = Layer.effect(
         sql<{ readonly id: string }>`
           UPDATE workflows SET
             name = ${workflow.name}, instructions = ${workflow.instructions},
-            lead_role_id = ${workflow.leadRoleId},
             crew_role_ids_json = ${JSON.stringify(workflow.crewRoleIds)},
             managed_from_json = ${encodeOwner(workflow.managedFrom)},
             revision = ${workflow.revision}, updated_at = ${workflow.updatedAt}
@@ -515,7 +509,7 @@ export const CrewStoreLive = Layer.effect(
         ),
       getWorkflow: (id) =>
         sql<WorkflowRow>`
-          SELECT id, name, instructions, lead_role_id AS leadRoleId,
+          SELECT id, name, instructions,
             crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows WHERE id = ${id}
@@ -530,7 +524,7 @@ export const CrewStoreLive = Layer.effect(
         ),
       listWorkflows: () =>
         sql<WorkflowRow>`
-          SELECT id, name, instructions, lead_role_id AS leadRoleId,
+          SELECT id, name, instructions,
             crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows ORDER BY name, id
@@ -585,24 +579,6 @@ export const CrewStoreLive = Layer.effect(
         `.pipe(
           Effect.map((rows) => rows.length > 0),
           Effect.mapError(queryError),
-        ),
-      listProjectMembersOfRole: (roleId) =>
-        sql<CrewMemberRow>`
-          SELECT id, project_id AS projectId, feature_id AS featureId,
-            role_id AS roleId, role_revision AS roleRevision, name, instructions,
-            model_selection_json AS modelSelectionJson,
-            enabled, icon_json AS iconJson,
-          customized_at AS customizedAt,
-            revision, created_at AS createdAt, updated_at AS updatedAt
-          FROM crew_members
-          WHERE role_id = ${roleId} AND project_id IS NOT NULL AND feature_id IS NULL
-            AND customized_at IS NULL
-          ORDER BY id
-        `.pipe(
-          Effect.mapError(queryError),
-          Effect.flatMap((rows) =>
-            Effect.try({ try: () => rows.map(decodeMember), catch: decodeError }),
-          ),
         ),
       transaction: (effect) =>
         sql

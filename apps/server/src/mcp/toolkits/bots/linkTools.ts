@@ -129,7 +129,7 @@ export const LinkBotProjects = Tool.make("t3_bot_link_projects", {
 export const LinkBotTask = Tool.make("t3_bot_link_task", {
   ...shared,
   description:
-    "Starts a request from the calling environment's bot headquarters or project manager as this project's Feature manager, in a new worktree.",
+    "Starts a request from the calling environment's bot headquarters or project manager as a task in this project, in a new worktree.",
   parameters: Schema.Struct({
     projectId: ProjectId,
     home: RequestHome,

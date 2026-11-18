@@ -2,7 +2,6 @@ import {
   DEFAULT_UNIFIED_SETTINGS,
   EnvironmentId,
   FEATURE_DELIVERY_WORKFLOW_ID,
-  FEATURE_MANAGER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
   type WorkflowConfig,
@@ -25,13 +24,11 @@ const reviewer: RoleConfig = {
   managedFrom: null,
   copies: [],
 };
-const featureManager: RoleConfig = { ...reviewer, id: FEATURE_MANAGER_ROLE_ID, name: "Lead" };
 const designer: RoleConfig = { ...reviewer, id: "role:designer", name: "Designer" };
 const featureDelivery: WorkflowConfig = {
   id: FEATURE_DELIVERY_WORKFLOW_ID,
   name: "Feature delivery",
   instructions: "Plan, build and review",
-  leadRoleId: FEATURE_MANAGER_ROLE_ID,
   crewRoleIds: [reviewer.id],
   revision: 3,
   managedFrom: null,
@@ -142,7 +139,7 @@ describe("LibraryPage", () => {
   });
 
   it("saves a workflow's crew, and keeps Feature delivery from being deleted", async () => {
-    setup([featureManager, reviewer, designer], [featureDelivery]);
+    setup([reviewer, designer], [featureDelivery]);
     await using _screen = await render(
       <LibraryPage
         kind="workflow"
@@ -161,7 +158,6 @@ describe("LibraryPage", () => {
         id: FEATURE_DELIVERY_WORKFLOW_ID,
         name: "Feature delivery",
         instructions: "Plan, build and review",
-        leadRoleId: FEATURE_MANAGER_ROLE_ID,
         crewRoleIds: [reviewer.id, designer.id],
         expectedRevision: 3,
       },

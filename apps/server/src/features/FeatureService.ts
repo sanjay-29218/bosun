@@ -58,7 +58,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
-import { featureLeadTask } from "../crew/crewPrompts.ts";
+import { FEATURE_LEAD_INSTRUCTIONS, featureLeadTask } from "../crew/crewPrompts.ts";
 import { decodeWorkflowSnapshot, encodeWorkflowSnapshot } from "../crew/linkedWorkflow.ts";
 import {
   decodeFeatureIssue,
@@ -294,6 +294,17 @@ export class FeatureService extends Context.Service<FeatureService, FeatureServi
 const validText = (value: string, max: number) => value.trim().length > 0 && value.length <= max;
 
 const FEATURE_LEAD_RUN_PREFIX = "feature-lead";
+
+/**
+ * A snapshot's workflow as its lead follows it. One from an older peer, or stored before
+ * workflows lost their lead role, names a lead role; text someone edited there leads too.
+ */
+const snapshotWorkflow = ({ workflow, roles }: WorkflowSnapshot) => {
+  const lead = roles.find((role) => role.id === workflow.leadRoleId)?.instructions.trim() ?? "";
+  return lead === "" || lead === FEATURE_LEAD_INSTRUCTIONS || workflow.instructions.includes(lead)
+    ? workflow
+    : { ...workflow, instructions: `${lead}\n\n${workflow.instructions}` };
+};
 
 /** How a child's report to its parent's lead opens, by what happened. */
 const REPORT_HEADLINES = {
@@ -600,8 +611,8 @@ export const FeatureServiceLive = Layer.effect(
       );
 
     /**
-     * Fails until the project can run work: its bot's model, else the project's or this
-     * environment's default model.
+     * The model the project runs work on, which a feature's lead starts on: its bot's model, else
+     * the project's or this environment's default model. Fails until there is one.
      */
     const readyOwner = Effect.fn("FeatureService.readyOwner")(function* (
       projectId: ProjectId,
@@ -613,6 +624,7 @@ export const FeatureServiceLive = Layer.effect(
       if (modelSelection === null) {
         return yield* Effect.fail(new FeatureValidationError(`Set up the crew before ${action}`));
       }
+      return modelSelection;
     });
 
     /** The names of the feature's crew members, as its lead addresses them. */
@@ -649,53 +661,67 @@ export const FeatureServiceLive = Layer.effect(
       );
 
     /**
-     * A snapshot feature's lead: a member of its own, made from the snapshot's lead role, which
-     * this environment may not have.
+     * The feature's lead: a member of its own with the built-in lead instructions, over the
+     * feature's crew. Its workflow's instructions reach it in its task.
      */
-    const ensureSnapshotLead = Effect.fn("FeatureService.ensureSnapshotLead")(function* (
+    const ensureLead = Effect.fn("FeatureService.ensureLead")(function* (
       featureId: string,
       projectId: ProjectId,
-      snapshot: WorkflowSnapshot,
+      crewMemberIds: ReadonlyArray<string>,
     ) {
-      const id = featureMemberId(featureId, `lead:${snapshot.workflow.leadRoleId}`);
+      const id = featureMemberId(featureId, "lead");
       const existing = yield* crewStore.getMember(id);
       if (existing) return existing;
-      const role = snapshot.roles.find(
-        (candidate) => candidate.id === snapshot.workflow.leadRoleId,
-      );
-      if (!role) {
-        return yield* Effect.fail(
-          new FeatureValidationError(`${snapshot.workflow.name} has no lead role to run`),
-        );
-      }
-      return yield* crew.createMember({
+      const lead = yield* crew.createMember({
         id,
         projectId,
         featureId,
         roleId: null,
-        name: role.name,
-        instructions: role.instructions,
-        modelSelection: role.modelSelection,
+        name: "Lead",
+        instructions: FEATURE_LEAD_INSTRUCTIONS,
+        modelSelection: yield* readyOwner(projectId, "starting a feature"),
       });
+      for (const [position, memberId] of crewMemberIds.entries()) {
+        yield* crew.setHierarchyParent(memberId, lead.id, position);
+        yield* crew.allowDelegation(lead.id, memberId);
+      }
+      return lead;
     });
 
     /**
-     * The feature's lead: its workflow's lead role, in a run of its own in the feature's
-     * worktree, with the workflow and brief as its first message. The run ID is fixed, so
-     * starting again reuses it.
+     * The feature's lead run, once started. Leads started before workflows lost their lead role
+     * ran as another member, so the run is found by the hash of its own member.
+     */
+    const startedLeadRun = Effect.fn("FeatureService.startedLeadRun")(function* (
+      feature: FeatureRecord,
+    ) {
+      const runs = yield* sql<{ readonly id: string; readonly memberId: string }>`
+        SELECT id, member_id AS memberId FROM crew_runs
+        WHERE project_id = ${feature.projectId} AND id LIKE ${`${FEATURE_LEAD_RUN_PREFIX}:%`}
+      `.pipe(Effect.mapError(queryError));
+      const run = runs.find(
+        (candidate) =>
+          candidate.id === hashed(FEATURE_LEAD_RUN_PREFIX, feature.id, candidate.memberId),
+      );
+      return run === undefined ? null : yield* crewStore.getRun(run.id);
+    });
+
+    /**
+     * The feature's lead, in a run of its own in the feature's worktree, with the workflow and
+     * brief as its first message. The run ID is fixed, so starting again reuses it.
      */
     const startLead = Effect.fn("FeatureService.startLead")(function* (feature: FeatureRecord) {
+      // A lead started on older text keeps it: the run's task is part of its identity.
+      const started = yield* startedLeadRun(feature);
       const snapshot = yield* featureSnapshot(feature.id);
       const workflow =
-        snapshot?.workflow ??
-        (yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID));
-      const manager =
         snapshot === null
-          ? yield* crew.ensureProjectLead(feature.projectId, workflow.leadRoleId)
-          : yield* ensureSnapshotLead(feature.id, feature.projectId, snapshot);
-      if (!manager.enabled) {
-        return yield* Effect.fail(new FeatureValidationError(`${manager.name} is unavailable`));
-      }
+          ? yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID)
+          : snapshotWorkflow(snapshot);
+      const memberId =
+        started?.memberId ??
+        (yield* ensureLead(feature.id, feature.projectId, Object.values(feature.crewAssignments)))
+          .id;
       const workspace = yield* featureWorkspaces
         .forFeature(feature.id)
         .pipe(Effect.mapError((error) => new FeatureValidationError(error.message)));
@@ -708,13 +734,10 @@ export const FeatureServiceLive = Layer.effect(
           requester_thread_id AS requesterThreadId
         FROM features WHERE id = ${feature.id}
       `.pipe(Effect.mapError(toPersistenceSqlError("FeatureService.startLead")));
-      const runId = hashed(FEATURE_LEAD_RUN_PREFIX, feature.id, manager.id);
-      // A lead started on older text keeps it: the run's task is part of its identity.
-      const started = yield* crewStore.getRun(runId);
       const parent = feature.parentFeatureId ? yield* get(feature.parentFeatureId) : null;
       const run = yield* crew.createRun({
-        id: runId,
-        memberId: manager.id,
+        id: started?.id ?? hashed(FEATURE_LEAD_RUN_PREFIX, feature.id, memberId),
+        memberId,
         projectId: feature.projectId,
         taskText:
           started?.taskText ??
@@ -749,12 +772,12 @@ export const FeatureServiceLive = Layer.effect(
 
     /**
      * The crew a feature's lead delegates to: a member of each enabled role in its workflow's
-     * crew, each reporting to the workflow's lead.
+     * crew. The lead, made when the feature starts, gets them under it.
      */
     const assembleCrew = Effect.fn("FeatureService.assembleCrew")(function* (
       featureId: string,
       projectId: ProjectId,
-      workflow: Pick<Workflow, "leadRoleId" | "crewRoleIds">,
+      workflow: Pick<Workflow, "crewRoleIds">,
       snapshot: WorkflowSnapshot | undefined,
     ) {
       // A snapshot's roles stand in for the library's, including ones this environment lacks.
@@ -767,14 +790,8 @@ export const FeatureServiceLive = Layer.effect(
               const role = snapshot.roles.find((candidate) => candidate.id === id);
               return role ? [role] : [];
             });
-      const manager =
-        snapshot === undefined
-          ? yield* crew
-              .ensureProjectLead(projectId, workflow.leadRoleId)
-              .pipe(Effect.catchTags({ CrewValidationError: () => Effect.succeed(null) }))
-          : yield* ensureSnapshotLead(featureId, projectId, snapshot);
       const bindings = new Map<string, string>();
-      for (const [position, role] of roles.entries()) {
+      for (const role of roles) {
         const id = featureMemberId(featureId, role.id);
         if (yield* crewStore.getMember(id)) {
           return yield* Effect.fail(
@@ -792,10 +809,6 @@ export const FeatureServiceLive = Layer.effect(
           modelSelection: role.modelSelection,
         });
         bindings.set(role.id, id);
-        if (manager?.enabled) {
-          yield* crew.setHierarchyParent(id, manager.id, position);
-          yield* crew.allowDelegation(manager.id, id);
-        }
       }
       return Object.fromEntries(bindings);
     });

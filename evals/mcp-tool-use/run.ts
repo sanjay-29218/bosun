@@ -46,7 +46,7 @@ import {
   FEATURE_DELIVERY_INSTRUCTIONS,
   featureLeadTask,
   BOT_DEFAULT_INSTRUCTIONS,
-  FEATURE_MANAGER_INSTRUCTIONS,
+  FEATURE_LEAD_INSTRUCTIONS,
   headquartersTask,
   PROJECT_MANAGER_INSTRUCTIONS,
   projectManagerTask,
@@ -1154,7 +1154,7 @@ export const buildMessages = (sample: Sample) => {
     const lead = testCase.setup.featureLead;
     if (lead === undefined) throw new Error(`${testCase.id}: a feature lead needs featureLead.`);
     return crewRunPrompt({
-      instructions: FEATURE_MANAGER_INSTRUCTIONS,
+      instructions: FEATURE_LEAD_INSTRUCTIONS,
       taskText: featureLeadTask(
         { id: "feature:eval", title: lead.title, brief },
         lead.epic
