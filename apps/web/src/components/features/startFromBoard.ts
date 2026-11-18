@@ -128,6 +128,7 @@ export function useStartTodo() {
       const featureId = existing?.featureId ?? `feature:${randomUUID()}`;
       const brief = todoBrief(issue, description);
       const failed = (result: AtomCommandResult<unknown, unknown>) => {
+        setStarting(key, false);
         if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return false;
         const error = squashAtomCommandFailure(result);
         toastManager.add(
@@ -169,6 +170,7 @@ export function useStartTodo() {
         { reportFailure: false },
       );
       if (started._tag !== "Success") return failed(started);
+      setStarting(key, false);
       const leadThreadId = started.value.leadThreadId;
       toastManager.add({
         type: "success",
@@ -185,14 +187,13 @@ export function useStartTodo() {
       });
       return true;
     } catch (error) {
+      setStarting(key, false);
       toastManager.add({
         type: "error",
         title: "Could not start the feature",
         description: error instanceof Error ? error.message : "An error occurred.",
       });
       return false;
-    } finally {
-      setStarting(key, false);
     }
   };
 }
