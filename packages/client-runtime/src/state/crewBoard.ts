@@ -69,13 +69,6 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
 const FEATURE_COLUMNS = ["todo", "working", "needs-you", "done"] as const;
 export type FeatureColumn = (typeof FEATURE_COLUMNS)[number];
 
-export const FEATURE_COLUMN_LABELS: Record<FeatureColumn, string> = {
-  todo: "Todo",
-  working: "Working",
-  "needs-you": "Needs you",
-  done: "Done",
-};
-
 /** The shell fields a column reads from a feature's threads, or from a chat. */
 export type BoardThreadShell = NeedsYouShell &
   Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "runtime"> & {
@@ -232,19 +225,24 @@ export function featurePullRequest(
 
 /**
  * A started feature's Work group. Anything asking the person comes first, then a running turn,
- * even with a PR open. Done means merged, or closed by the person; an open PR, or a lead that
+ * even with a PR open. Done means merged; an open PR, or a lead that
  * reported the work finished, is Ready for review. A lead that stopped short stays in Working.
  */
 export function featureWorkGroup(
   card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
   threads: ReadonlyArray<BoardThreadShell & Partial<PullRequestShell>>,
 ): WorkGroupId {
-  const { status } = featureProgress(card, threads);
-  if (status === "needs-input") return "needs-input";
-  if (status === "working") return "working";
+  const live = threads.filter((thread) => thread.archivedAt === null);
+  if (live.some(threadWaitsOnYou)) return "needs-input";
+  if (live.some((thread) => threadRuntimeIsActive(thread.runtime))) return "working";
   const pullRequest = featurePullRequest(card, threads);
-  if (pullRequest?.state === "merged" || card.status === "closed") return "done";
-  if ((pullRequest && pullRequest.state !== "closed") || status === "done") return "review";
+  if (pullRequest?.state === "merged") return "done";
+  if (
+    (pullRequest && pullRequest.state !== "closed") ||
+    card.status === "closed" ||
+    featureFinished(card, live)
+  )
+    return "review";
   return "working";
 }
 
@@ -254,9 +252,8 @@ export function chatWorkGroup(shell: BoardThreadShell & Partial<PullRequestShell
   if (column === "needs-you") return "needs-input";
   if (column === "working") return "working";
   const pullRequest = threadPullRequest(shell);
-  return pullRequest && pullRequest.state !== "merged" && pullRequest.state !== "closed"
-    ? "review"
-    : "done";
+  if (pullRequest?.state === "closed") return "working";
+  return pullRequest && pullRequest.state !== "merged" ? "review" : "done";
 }
 
 export interface WorkGroupCards<Card extends EnvironmentFeatureCard = EnvironmentFeatureCard> {

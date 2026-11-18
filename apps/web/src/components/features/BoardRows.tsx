@@ -106,7 +106,7 @@ export const GROUP_LOOK: Record<WorkGroupId, (typeof WORK_LOOK)[WorkRowStatus]> 
 };
 
 const workRowStatus = (group: WorkGroupId, status: FeatureStatus): WorkRowStatus =>
-  group === "working" && (status === "waiting" || status === "failed") ? status : group;
+  status === "failed" || (group === "working" && status === "waiting") ? status : group;
 
 /** A feature's Work group, status icon and pull request, from its threads. */
 export function featureWork(

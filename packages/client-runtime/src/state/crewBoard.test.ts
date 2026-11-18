@@ -333,7 +333,20 @@ describe("work groups", () => {
       { report: { outcome: "finished", runId: "run-1" } },
       "review",
     ],
-    ["a feature the person closed", {}, { status: "closed" }, "done"],
+    ["a feature the person closed without a PR", {}, { status: "closed" }, "review"],
+    [
+      "a closed feature with an open PR",
+      { pullRequests: [pr("open")] },
+      { status: "closed" },
+      "review",
+    ],
+    [
+      "a closed feature with a merged PR",
+      { pullRequests: [pr("merged")] },
+      { status: "closed" },
+      "done",
+    ],
+    ["a running closed feature", { runtime: runtime("running") }, { status: "closed" }, "working"],
   ] as const)("files %s under %s", (_, fields, overrides, group) => {
     expect(featureWorkGroup(card("f", overrides as never), [lead(fields)])).toBe(group);
   });
@@ -342,6 +355,7 @@ describe("work groups", () => {
     const chat = (fields: object) => featureThread("c", "c", fields as Partial<BoardThreadShell>);
     expect(chatWorkGroup(chat({ pullRequests: [pr("open")] }))).toBe("review");
     expect(chatWorkGroup(chat({ pullRequests: [pr("merged")] }))).toBe("done");
+    expect(chatWorkGroup(chat({ pullRequests: [pr("closed")] }))).toBe("working");
     expect(chatWorkGroup(chat({}))).toBe("done");
     expect(chatWorkGroup(chat({ hasPendingApprovals: true }))).toBe("needs-input");
     const groups = groupFeaturesByWork(
