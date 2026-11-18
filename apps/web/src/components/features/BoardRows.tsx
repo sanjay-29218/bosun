@@ -8,6 +8,7 @@ import {
   featureRef,
   featureWorkGroup,
   threadPullRequest,
+  threadFailed,
   type EnvironmentFeatureCard,
   type FeatureStatus,
   type WorkGroupId,
@@ -19,7 +20,10 @@ import {
   type EnvironmentIssue,
   type IssueTreeItem,
 } from "@t3tools/client-runtime/state/issue-board";
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import {
+  threadRuntimeIsActive,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   ArrowUpRightIcon,
@@ -557,23 +561,17 @@ export const WorkChatRow = memo(function WorkChatRow(props: {
   const { shell, handlers } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const group = chatWorkGroup(shell);
-  const status: WorkRowStatus = group === "done" && !threadPullRequest(shell) ? "done" : group;
-  const doneWithoutPr = group === "done" && !threadPullRequest(shell);
+  const status: WorkRowStatus = threadFailed(shell)
+    ? "failed"
+    : group === "working" && !threadRuntimeIsActive(shell.runtime)
+      ? "waiting"
+      : group;
   return (
     <WithThreadDetails shell={shell} project={handlers.projectFor(shell)}>
       <BoardRow
         rowKey={`${shell.environmentId}:${shell.id}`}
         id={<MessageSquareIcon aria-label="Thread" className="size-3.5" />}
-        status={
-          doneWithoutPr ? (
-            <MessageSquareIcon
-              aria-label="Done"
-              className="size-4 shrink-0 text-muted-foreground"
-            />
-          ) : (
-            <WorkIcon status={status} />
-          )
-        }
+        status={<WorkIcon status={status} />}
         title={chatTitle(shell)}
         note={group === "needs-input" ? "Needs input" : null}
         noteClassName="text-warning-foreground"

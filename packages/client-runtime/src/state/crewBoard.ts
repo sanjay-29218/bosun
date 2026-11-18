@@ -246,14 +246,14 @@ export function featureWorkGroup(
   return "working";
 }
 
-/** A chat's Work group. With no PR, a finished chat is Done: it has nothing to review. */
+/** Chats follow the same PR groups; completed work without a merged PR can be settled. */
 export function chatWorkGroup(shell: BoardThreadShell & Partial<PullRequestShell>): WorkGroupId {
   const column = threadBoardColumn(shell);
   if (column === "needs-you") return "needs-input";
   if (column === "working") return "working";
   const pullRequest = threadPullRequest(shell);
-  if (pullRequest?.state === "closed") return "working";
-  return pullRequest && pullRequest.state !== "merged" ? "review" : "done";
+  if (pullRequest?.state === "merged") return "done";
+  return pullRequest && pullRequest.state !== "closed" ? "review" : "working";
 }
 
 export interface WorkGroupCards<Card extends EnvironmentFeatureCard = EnvironmentFeatureCard> {
