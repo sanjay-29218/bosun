@@ -21,6 +21,7 @@ import {
   featureProgress,
   featureWorkGroup,
   featureWorkStatus,
+  WORK_ROW_LABELS,
   groupFeaturesByWork,
   featureRef,
   groupFeaturesByColumn,
@@ -361,6 +362,12 @@ describe("work groups", () => {
     expect(statusOf({ latestRun: { runId: "run-1", status: "failed" } })).toBe("failed");
     expect(statusOf({ runtime: runtime("running") })).toBe("working");
     expect(statusOf({ hasPendingUserInput: true })).toBe("needs-input");
+    // A child that reported finished hands its parent work to review, not merged work.
+    expect(statusOf({}, { report, parentFeatureId: "epic" })).toBe("review");
+    // A feature nobody started, such as an Epic's queued child, isn't working.
+    const queued = featureWorkStatus(card("f", { leadThreadId: null }), []);
+    expect(queued.status).toBe("not-started");
+    expect(WORK_ROW_LABELS[queued.status]).toBe("Not started");
   });
 
   it("files chats by their PR, and leaves features not started out of Work", () => {

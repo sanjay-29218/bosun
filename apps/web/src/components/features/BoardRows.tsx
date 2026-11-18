@@ -3,9 +3,7 @@ import {
   WORK_GROUP_LABELS,
   chatWorkGroup,
   featureCardKey,
-  featurePullRequest,
   featureRef,
-  featureWorkStatus,
   threadPullRequest,
   threadFailed,
   type EnvironmentFeatureCard,
@@ -27,14 +25,9 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   ArrowUpRightIcon,
   ChevronRightIcon,
-  CircleAlertIcon,
-  CircleDashedIcon,
   CircleIcon,
-  CirclePauseIcon,
   EllipsisIcon,
-  EyeIcon,
   ListTreeIcon,
-  MessageCircleQuestionIcon,
   MessageSquareIcon,
   MonitorIcon,
   PencilIcon,
@@ -51,7 +44,7 @@ import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import { pickSnoozePreset, resolveSnoozePresets } from "../Sidebar.snooze";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { PULL_REQUEST_STATE_PRESENTATION, PullRequestGlyph } from "../pullRequest/pullRequestIcons";
+import { PULL_REQUEST_STATE_PRESENTATION } from "../pullRequest/pullRequestIcons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ThreadProviderStack } from "../sidebar/SidebarThreadRow";
 import {
@@ -76,27 +69,8 @@ import {
   type FeatureShelf,
 } from "./FeatureCard";
 import { FeatureNow } from "./FeatureNow";
+import { WORK_LOOK, WorkIcon, featureWork } from "./workStatus";
 import type { BoardWorkflow } from "./startFromBoard";
-
-export const WORK_LOOK: Record<
-  WorkRowStatus,
-  { readonly label: string; readonly icon: LucideIcon; readonly className: string }
-> = {
-  "needs-input": {
-    label: "Needs input",
-    icon: MessageCircleQuestionIcon,
-    className: "text-warning-foreground",
-  },
-  working: { label: "Working", icon: CircleDashedIcon, className: "text-info-foreground" },
-  waiting: { label: "Waiting", icon: CirclePauseIcon, className: "text-muted-foreground" },
-  failed: { label: "Failed", icon: CircleAlertIcon, className: "text-error-foreground" },
-  review: { label: WORK_GROUP_LABELS.review, icon: EyeIcon, className: "text-success-foreground" },
-  done: {
-    label: "Merged",
-    icon: PullRequestGlyph.merged,
-    className: PULL_REQUEST_STATE_PRESENTATION.merged.toneClassName,
-  },
-};
 
 export const GROUP_LOOK: Record<WorkGroupId, (typeof WORK_LOOK)[WorkRowStatus]> = {
   "needs-input": WORK_LOOK["needs-input"],
@@ -104,25 +78,6 @@ export const GROUP_LOOK: Record<WorkGroupId, (typeof WORK_LOOK)[WorkRowStatus]> 
   review: WORK_LOOK.review,
   done: { ...WORK_LOOK.done, label: WORK_GROUP_LABELS.done },
 };
-
-/** A feature's Work group, status icon and pull request, from its threads. */
-export function featureWork(
-  card: EnvironmentFeatureCard,
-  handlers: Pick<FeatureBoardHandlers, "threadsFor">,
-) {
-  const threads = handlers.threadsFor(card);
-  return { ...featureWorkStatus(card, threads), pullRequest: featurePullRequest(card, threads) };
-}
-
-export function WorkIcon(props: { readonly status: WorkRowStatus; readonly className?: string }) {
-  const look = WORK_LOOK[props.status];
-  return (
-    <look.icon
-      aria-label={look.label}
-      className={cn("size-4 shrink-0", look.className, props.className)}
-    />
-  );
-}
 
 /** A group's shaded band: icon, label, count, and what it adds on the right. */
 export function BoardBand(props: {
@@ -456,7 +411,7 @@ export const WorkFeatureRow = memo(function WorkFeatureRow(props: {
   const lead = useThreadShell(
     card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
-  const work = featureWork(card, handlers);
+  const work = featureWork(card, handlers.threadsFor(card));
   const who = work.thread?.feature?.member ?? "Lead";
   const note =
     work.status === "needs-input"
@@ -654,7 +609,7 @@ export const IssueRow = memo(function IssueRow(props: {
   const lead = useThreadShell(
     started ? scopeThreadRef(feature.environmentId, feature.leadThreadId!) : null,
   );
-  const work = started ? featureWork(feature, handlers) : null;
+  const work = started ? featureWork(feature, handlers.threadsFor(feature)) : null;
   const start = started ? undefined : () => handlers.onStartTodo(issue);
   const subIssues = issue.subIssues;
   return (

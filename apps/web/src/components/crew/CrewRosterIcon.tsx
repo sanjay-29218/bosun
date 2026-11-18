@@ -13,7 +13,7 @@ import {
 import { cn } from "../../lib/utils";
 
 /** How each status word looks, the same on crew rows, feature cards and board rows. */
-export const STATUS_LOOK: Record<
+const STATUS_LOOK: Record<
   FeatureStatus,
   { readonly className: string; readonly icon: LucideIcon }
 > = {

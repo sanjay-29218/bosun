@@ -24,7 +24,8 @@ import { useWorkGroup } from "../../state/workGroup";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
-import { WorkingDuration, featureStatus } from "../features/FeatureCard";
+import { WorkingDuration } from "../features/FeatureCard";
+import { featureWork } from "../features/workStatus";
 import { useFeatureBoard } from "../features/useFeatureBoard";
 import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
 
@@ -67,24 +68,24 @@ function CrewSection(props: {
     feature ? board.cards.filter((card) => card.parentFeatureId === feature.id) : []
   )
     .toSorted((a, b) => (a.number ?? 0) - (b.number ?? 0) || a.createdAt.localeCompare(b.createdAt))
-    .map((card) => ({ card, ...featureStatus(card, threads.get(featureCardKey(card)) ?? []) }));
+    .map((card) => ({ card, ...featureWork(card, threads.get(featureCardKey(card)) ?? []) }));
 
   // A member's question also shows on its lead, so the lead counts only for its own.
   const lead = workGroupLead(props.group);
   const asking =
     roster.filter((entry) => entry.kind === "member" && entry.tone === "needs-input").length +
     (lead && threadNeedsYouKind(lead) !== null ? 1 : 0) +
-    children.filter((child) => child.column === "needs-you" && child.thread !== null).length;
+    children.filter((child) => child.status === "needs-input" && child.thread !== null).length;
   const running =
     roster.filter((entry) => entry.tone === "working").length +
-    children.filter((child) => child.column === "working").length;
+    children.filter((child) => child.status === "working").length;
   const title =
     asking > 0
       ? `Crew · ${asking} need${asking === 1 ? "s" : ""} input`
       : running > 0
         ? `Crew · ${running} running`
         : "Crew";
-  const done = children.filter((child) => child.column === "done").length;
+  const done = children.filter((child) => child.status === "done").length;
   const label = (card: EnvironmentFeatureCard) =>
     [featureRef(card), card.title].filter(Boolean).join(" ");
   const openThread = (threadId: ThreadId) =>
@@ -129,10 +130,10 @@ function CrewSection(props: {
             Child features · {done} of {children.length} done
           </div>
         ) : null}
-        {children.map(({ card, column, status, thread: statusThread }) => {
+        {children.map(({ card, status: childStatus, look: status, thread: statusThread }) => {
           const StatusIcon = status.icon;
           const startedAt =
-            column === "working" && statusThread
+            childStatus === "working" && statusThread
               ? resolveThreadWorkingStartedAt(statusThread)
               : null;
           return (

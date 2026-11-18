@@ -246,18 +246,23 @@ export function featureWorkGroup(
   return "working";
 }
 
-/** What a Work row or card says: its group, with Working split into Waiting and Failed. */
-export type WorkRowStatus = WorkGroupId | "waiting" | "failed";
+/**
+ * What every surface says a feature is: its Work group, with Working split into Waiting and
+ * Failed, or Not started.
+ */
+export type WorkRowStatus = WorkGroupId | "waiting" | "failed" | "not-started";
 
 export const WORK_ROW_LABELS: Record<WorkRowStatus, string> = {
   ...WORK_GROUP_LABELS,
   waiting: FEATURE_STATUS_LABELS.waiting,
   failed: FEATURE_STATUS_LABELS.failed,
+  "not-started": FEATURE_STATUS_LABELS["not-started"],
 };
 
 /**
- * A started feature's Work group and what its row says. Done means merged, so a lead that
- * reported the feature finished reads Ready for review until its PR merges.
+ * A feature's Work group and what every surface says it is. Done means merged, so a lead that
+ * reported the feature finished reads Ready for review until its PR merges. Count by `status`:
+ * a feature nobody started has no Work group of its own.
  */
 export function featureWorkStatus<Shell extends BoardThreadShell & Partial<PullRequestShell>>(
   card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
@@ -270,7 +275,9 @@ export function featureWorkStatus<Shell extends BoardThreadShell & Partial<PullR
   const group = featureWorkGroup(card, threads);
   const progress = featureProgress(card, threads);
   const status =
-    progress.status === "failed" || (group === "working" && progress.status === "waiting")
+    progress.status === "not-started" ||
+    progress.status === "failed" ||
+    (group === "working" && progress.status === "waiting")
       ? progress.status
       : group;
   return { group, status, thread: progress.thread };
