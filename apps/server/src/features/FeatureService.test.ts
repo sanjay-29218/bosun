@@ -506,6 +506,45 @@ describe("feature lead and crew", () => {
       ),
   );
 
+  effectIt.effect("a snapshot that names an edited lead role leads with its text too", () =>
+    withSystem(
+      Effect.gen(function* () {
+        const features = yield* FeatureService;
+        // As an older peer sends it, or as a feature stored before stays.
+        const snapshot: WorkflowSnapshot = {
+          workflow: {
+            id: FEATURE_DELIVERY_WORKFLOW_ID,
+            name: "Feature delivery",
+            instructions: "Plan, then build.",
+            leadRoleId: "role:feature-manager",
+            crewRoleIds: [],
+            revision: 2,
+          },
+          roles: [
+            {
+              id: "role:feature-manager",
+              name: "Feature manager",
+              instructions: "Never push without asking.",
+              modelSelection,
+            },
+          ],
+        };
+        yield* features.create({
+          id: "legacy-snapshot",
+          projectId,
+          title: "Legacy",
+          brief: "Old request",
+          workspace: "local",
+          workflowSnapshot: snapshot,
+        });
+        const { leadThreadId } = yield* features.start("legacy-snapshot", projectId);
+        expect((yield* userTexts(leadThreadId))[0]).toContain(
+          "Workflow: Feature delivery\nNever push without asking.\n\nPlan, then build.",
+        );
+      }),
+    ),
+  );
+
   effectIt.effect(
     "a machine holding a copy of a workflow runs it with no snapshot, and keeps running features when it goes",
     () =>

@@ -295,6 +295,17 @@ const validText = (value: string, max: number) => value.trim().length > 0 && val
 
 const FEATURE_LEAD_RUN_PREFIX = "feature-lead";
 
+/**
+ * A snapshot's workflow as its lead follows it. One from an older peer, or stored before
+ * workflows lost their lead role, names a lead role; text someone edited there leads too.
+ */
+const snapshotWorkflow = ({ workflow, roles }: WorkflowSnapshot) => {
+  const lead = roles.find((role) => role.id === workflow.leadRoleId)?.instructions.trim() ?? "";
+  return lead === "" || lead === FEATURE_LEAD_INSTRUCTIONS || workflow.instructions.includes(lead)
+    ? workflow
+    : { ...workflow, instructions: `${lead}\n\n${workflow.instructions}` };
+};
+
 /** How a child's report to its parent's lead opens, by what happened. */
 const REPORT_HEADLINES = {
   finished: "Child feature finished",
@@ -704,8 +715,9 @@ export const FeatureServiceLive = Layer.effect(
       const started = yield* startedLeadRun(feature);
       const snapshot = yield* featureSnapshot(feature.id);
       const workflow =
-        snapshot?.workflow ??
-        (yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID));
+        snapshot === null
+          ? yield* requireWorkflow(feature.workflowId ?? FEATURE_DELIVERY_WORKFLOW_ID)
+          : snapshotWorkflow(snapshot);
       const memberId =
         started?.memberId ??
         (yield* ensureLead(feature.id, feature.projectId, Object.values(feature.crewAssignments)))

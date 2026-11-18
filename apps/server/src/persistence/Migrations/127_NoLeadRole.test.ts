@@ -23,14 +23,21 @@ const setUp = (featureManager: string) =>
     `;
     yield* role("role:feature-manager", featureManager);
     yield* role("role:planner", "Plan it.");
-    const workflow = (id: string, lead: string, crew: ReadonlyArray<string>) => sql`
+    const workflow = (
+      id: string,
+      lead: string,
+      crew: ReadonlyArray<string>,
+      instructions = `Run ${id}.`,
+    ) => sql`
       INSERT INTO workflows (
         id, name, instructions, lead_role_id, crew_role_ids_json, revision, created_at, updated_at
-      ) VALUES (${id}, ${id}, ${`Run ${id}.`}, ${lead}, ${JSON.stringify(crew)}, 1,
+      ) VALUES (${id}, ${id}, ${instructions}, ${lead}, ${JSON.stringify(crew)}, 1,
         '2026-11-01', '2026-11-01')
     `;
     yield* workflow("workflow:feature-delivery", "role:feature-manager", ["role:planner"]);
     yield* workflow("workflow:planned", "role:planner", ["role:feature-manager", "role:planner"]);
+    // Merged, it would pass the instructions limit, so it stays as it was.
+    yield* workflow("workflow:long", "role:feature-manager", [], "x".repeat(15_990));
     // A lead started before: its member and run stay, so the feature keeps running.
     yield* sql`
       INSERT INTO crew_members (
@@ -59,6 +66,7 @@ it.effect("moves an edited lead role into each workflow it led, then drops the r
           "Lead with care. Always ask before pushing.\n\nRun workflow:feature-delivery.",
         crew: '["role:planner"]',
       },
+      { id: "workflow:long", instructions: "x".repeat(15_990), crew: "[]" },
       {
         id: "workflow:planned",
         instructions: "Plan it.\n\nRun workflow:planned.",

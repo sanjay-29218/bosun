@@ -2,10 +2,9 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 
 /*
- * Workflows lose their lead role: a feature's own thread leads it, from the built-in lead text
- * and the workflow's instructions. A lead role someone edited moves into each workflow it led,
- * so those features are led as before; the Feature manager role goes. Started leads keep their
- * runs and members.
+ * Workflows lose their lead role. A lead role someone edited moves into each workflow it led,
+ * unless together they'd pass the 16,000-character instructions limit. The Feature manager role
+ * goes; started leads keep their runs and members.
  */
 const FEATURE_MANAGER = "role:feature-manager";
 const STOCK_LEAD =
@@ -38,9 +37,11 @@ export default Effect.gen(function* () {
   `;
   for (const workflow of led) {
     const lead = workflow.lead?.trim() ?? "";
+    const merged = `${lead}\n\n${workflow.instructions}`;
     if (lead === "" || lead === STOCK_LEAD || workflow.instructions.includes(lead)) continue;
+    if (merged.length > 16_000) continue;
     yield* sql`
-      UPDATE workflows SET instructions = ${`${lead}\n\n${workflow.instructions}`},
+      UPDATE workflows SET instructions = ${merged},
         revision = revision + 1, updated_at = ${now}
       WHERE id = ${workflow.id}
     `;
