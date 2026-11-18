@@ -851,7 +851,9 @@ export const CrewServiceLive = Layer.effect(
               yield* store.deleteWorkflow(workflow.id);
             }
           }
-          const sentRoles = new Set(copy.roles.map((role) => role.id));
+          const sentRoles = new Set(
+            copy.roles.map((role) => role.id).filter((id) => id !== OLDER_PEER_LEAD_ROLE_ID),
+          );
           // A role this machine's other workflows still use stays, as its own.
           const stillUsed = new Set(
             (yield* store.listWorkflows())

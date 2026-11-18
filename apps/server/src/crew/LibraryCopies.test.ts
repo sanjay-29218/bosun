@@ -33,6 +33,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { CrewTestOrchestration } from "./CrewRuntime.testkit.ts";
 import { CrewService } from "./CrewService.ts";
+import { CrewStore } from "./CrewStore.ts";
 import { type LibraryError, LibraryCopies, layer as LibraryCopiesLayer } from "./LibraryCopies.ts";
 import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
@@ -121,7 +122,11 @@ const machine = (environmentId: EnvironmentId, label: string, network: Network) 
     const crew = Context.get(context, CrewService);
     yield* crew.ensureDefaults(modelSelection);
     network.receivers.set(environmentId, crew);
-    return { crew, copies: Context.get(context, LibraryCopies) };
+    return {
+      crew,
+      store: Context.get(context, CrewStore),
+      copies: Context.get(context, LibraryCopies),
+    };
   });
 
 /** The laptop links the box; the box doesn't link back unless a test says so. */
@@ -279,6 +284,14 @@ describe("LibraryCopies", () => {
         modelSelection,
         enabled: true,
       };
+      // A copy received before this machine skipped it goes at the next set.
+      yield* box.store.insertRole({
+        ...featureManager,
+        managedFrom: laptopOwner,
+        revision: 1,
+        createdAt: "2026-11-01T00:00:00.000Z",
+        updatedAt: "2026-11-01T00:00:00.000Z",
+      });
       yield* box.crew.applyLibraryCopy({
         owner: laptopOwner,
         workflows: [
