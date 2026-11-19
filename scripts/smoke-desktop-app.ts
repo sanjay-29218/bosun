@@ -84,14 +84,8 @@ try {
       settle,
       { timeout: STEP_TIMEOUT_MS },
     );
-    const message = page.getByText(THREAD_MESSAGE);
     await thread.click();
-    const opened = await message.waitFor({ timeout: 5_000 }).then(
-      () => true,
-      () => false,
-    );
-    if (!opened) await thread.click();
-    await message.waitFor({ timeout: STEP_TIMEOUT_MS });
+    await page.getByText(THREAD_MESSAGE).waitFor({ timeout: STEP_TIMEOUT_MS });
   } catch (error) {
     NodeFS.mkdirSync(artifactsDir, { recursive: true });
     await page
