@@ -1,12 +1,11 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  FEATURE_STATUS_LABELS,
   featureCardKey,
-  featureFinished,
   featureRef,
   threadNeedsYouKind,
   threadsByFeature,
   type EnvironmentFeatureCard,
+  type WorkRowStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import { buildCrewRoster, type CrewRosterEntry } from "@t3tools/client-runtime/state/crew-roster";
 import { workGroupLead, type WorkGroup } from "@t3tools/client-runtime/state/work-groups";
@@ -25,7 +24,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { WorkingDuration } from "../features/FeatureCard";
-import { featureWork } from "../features/workStatus";
+import { type WORK_LOOK, featureWork } from "../features/workStatus";
 import { useFeatureBoard } from "../features/useFeatureBoard";
 import { CrewRosterHereMark, CrewRosterIcon, CrewRosterStatus } from "./CrewRosterIcon";
 
@@ -63,7 +62,9 @@ function CrewSection(props: {
     ? board.cards.find((card) => card.featureId === own.parentFeatureId)
     : undefined;
   const threads = threadsByFeature(shells);
-  const finished = own ? featureFinished(own, threads.get(featureCardKey(own)) ?? []) : false;
+  const ownWork = own ? featureWork(own, threads.get(featureCardKey(own)) ?? []) : null;
+  // A lead that stopped reads as its feature does on the board once the work is up for review.
+  const leadLook = ownWork?.status === "review" || ownWork?.status === "done" ? ownWork.look : null;
   const children = (
     feature ? board.cards.filter((card) => card.parentFeatureId === feature.id) : []
   )
@@ -100,11 +101,11 @@ function CrewSection(props: {
         {roster.map((entry) => (
           <CrewRow
             key={entry.key}
-            entry={
-              // A lead that reported its feature finished isn't waiting.
-              entry.kind === "lead" && entry.tone === "waiting" && finished
-                ? { ...entry, status: FEATURE_STATUS_LABELS.done, tone: "done" }
-                : entry
+            entry={entry}
+            look={
+              entry.kind === "lead" && (entry.tone === "waiting" || entry.tone === "done")
+                ? leadLook
+                : null
             }
             environmentId={thread.environmentId}
             here={entry.threadId === thread.id}
@@ -166,6 +167,8 @@ function CrewSection(props: {
 /** One of the crew, with how long it has run when it's working. */
 function CrewRow(props: {
   readonly entry: CrewRosterEntry;
+  /** The feature's own status, shown in place of the entry's. */
+  readonly look: (typeof WORK_LOOK)[WorkRowStatus] | null;
   readonly environmentId: EnvironmentId;
   readonly here: boolean;
   readonly onOpen: () => void;
@@ -182,12 +185,20 @@ function CrewRow(props: {
       onClick={props.onOpen}
     >
       {props.here ? <CrewRosterHereMark /> : null}
-      <CrewRosterIcon tone={entry.tone} />
+      {props.look ? (
+        <props.look.icon aria-hidden className={cn("size-3.5 shrink-0", props.look.className)} />
+      ) : (
+        <CrewRosterIcon tone={entry.tone} />
+      )}
       <span className="min-w-0 flex-1 truncate text-start">
         {entry.name}
         {entry.kind === "lead" ? <span className="text-muted-foreground"> · lead</span> : null}
       </span>
-      <CrewRosterStatus entry={entry} />
+      {props.look ? (
+        <span className={cn("shrink-0 text-xs", props.look.className)}>{props.look.label}</span>
+      ) : (
+        <CrewRosterStatus entry={entry} />
+      )}
       {startedAt ? (
         <span className="shrink-0 text-xs text-info-foreground tabular-nums">
           · <WorkingDuration startedAt={startedAt} />

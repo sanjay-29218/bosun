@@ -1,6 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  WORK_GROUP_LABELS,
   chatWorkGroup,
   featureCardKey,
   featureRef,
@@ -76,7 +75,7 @@ export const GROUP_LOOK: Record<WorkGroupId, (typeof WORK_LOOK)[WorkRowStatus]> 
   "needs-input": WORK_LOOK["needs-input"],
   working: WORK_LOOK.working,
   review: WORK_LOOK.review,
-  done: { ...WORK_LOOK.done, label: WORK_GROUP_LABELS.done },
+  done: WORK_LOOK.done,
 };
 
 /** A group's shaded band: icon, label, count, and what it adds on the right. */

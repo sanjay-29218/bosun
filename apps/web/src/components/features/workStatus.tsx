@@ -46,7 +46,7 @@ export const WORK_LOOK: Record<
   },
   review: { label: WORK_ROW_LABELS.review, icon: EyeIcon, className: "text-success-foreground" },
   done: {
-    label: "Merged",
+    label: WORK_ROW_LABELS.done,
     icon: PullRequestGlyph.merged,
     className: PULL_REQUEST_STATE_PRESENTATION.merged.toneClassName,
   },
