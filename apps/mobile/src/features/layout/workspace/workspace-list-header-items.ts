@@ -2,8 +2,10 @@ import type {
   NativeStackHeaderItem,
   NativeStackHeaderItemMenu,
 } from "@react-navigation/native-stack";
+import { msg } from "gt-react-native";
 
 import type { AppBarMenuItem } from "../../../components/ui/AppBar.types";
+import { m, type MessageResolver } from "../../../i18n/messages";
 import {
   threadListViewToggleButton,
   type BotSwitcherMenu,
@@ -43,8 +45,9 @@ function toNativeHeaderMenuItems(items: ReadonlyArray<AppBarMenuItem>): NativeHe
 function createThreadListHeaderItems(input: {
   readonly botSwitcher?: BotSwitcherMenu | null;
   readonly viewToggle?: ThreadListViewToggle | null;
+  readonly resolve: MessageResolver;
 }): NativeStackHeaderItem[] {
-  const { botSwitcher, viewToggle } = input;
+  const { botSwitcher, viewToggle, resolve } = input;
   const toggle = viewToggle ? threadListViewToggleButton(viewToggle.view) : null;
   return [
     ...(botSwitcher
@@ -57,7 +60,7 @@ function createThreadListHeaderItems(input: {
               ? { badge: { value: botSwitcher.elsewhereNeedsYou } }
               : {}),
             menu: {
-              title: "Bots",
+              title: resolve(msg("Bots")),
               items: botSwitcher.items.map((item) => ({
                 type: "action" as const,
                 label: item.title,
@@ -94,9 +97,11 @@ export function createWorkspaceListHeaderItems(input: {
   readonly onOpenSettings?: () => void;
   readonly botSwitcher?: BotSwitcherMenu | null;
   readonly viewToggle?: ThreadListViewToggle | null;
+  readonly resolve?: MessageResolver;
 }): NativeStackHeaderItem[] {
+  const resolve = input.resolve ?? m;
   return [
-    ...createThreadListHeaderItems(input),
+    ...createThreadListHeaderItems({ ...input, resolve }),
     withNativeGlassHeaderItem({
       type: "menu",
       axisBehavior: "horizontalOnly",
@@ -113,8 +118,8 @@ export function createWorkspaceListHeaderItems(input: {
           withNativeGlassHeaderItem({
             type: "button",
             axisBehavior: "horizontalOnly",
-            label: "Settings",
-            accessibilityLabel: "Open settings",
+            label: resolve(msg("Settings")),
+            accessibilityLabel: resolve(msg("Open settings")),
             icon: sfSymbolIcon("gearshape"),
             onPress: input.onOpenSettings,
           }),

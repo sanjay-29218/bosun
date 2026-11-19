@@ -10,11 +10,13 @@ import {
   type OrchestrationV2Subagent,
   type ThreadId,
 } from "@t3tools/contracts";
-import { deriveSubagentElapsedMs, formatDuration } from "@t3tools/shared/orchestrationTiming";
+import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
+import { formatDuration } from "@t3tools/shared/orchestrationTimingCopy";
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 import * as Haptics from "expo-haptics";
+import { T, useGT, useMessages } from "gt-react-native";
 import { useMemo } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -51,18 +53,20 @@ export function ThreadAgentsSheet({ route }: StaticScreenProps<AgentsTarget>) {
   const navigation = useNavigation();
   const openInspector = useOpenThreadInspector();
   const insets = useSafeAreaInsets();
+  const gt = useGT();
+  const messages = useMessages();
   const turn = useThreadTurnSubagents(target);
   const subagents = turn?.subagents ?? [];
   const hasLiveAgent = (turn?.liveCount ?? 0) > 0;
   const workflowGroups = useMemo(
     () =>
       new Map(
-        deriveWorkflowGroups(projectedSubagentsToRuntime(subagents)).map((group) => [
+        deriveWorkflowGroups(projectedSubagentsToRuntime(subagents), messages).map((group) => [
           group.workflow.id,
           group,
         ]),
       ),
-    [subagents],
+    [messages, subagents],
   );
 
   const openChildThread = (child: { environmentId: EnvironmentId; threadId: ThreadId }) => {
@@ -95,7 +99,7 @@ export function ThreadAgentsSheet({ route }: StaticScreenProps<AgentsTarget>) {
     >
       {subagents.length === 0 ? (
         <Text className="pt-6 text-center text-sm text-foreground-muted">
-          No agents in this turn.
+          <T>No agents in this turn.</T>
         </Text>
       ) : (
         subagents.map((subagent) => {
@@ -127,7 +131,7 @@ export function ThreadAgentsSheet({ route }: StaticScreenProps<AgentsTarget>) {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <SheetHeader title="Agents" onClose={() => navigation.goBack()} />
+      <SheetHeader title={gt("Agents")} onClose={() => navigation.goBack()} />
       <ScreenContent>{content}</ScreenContent>
     </View>
   );
@@ -140,6 +144,7 @@ function AgentRow(props: {
   readonly onOpen: (child: { environmentId: EnvironmentId; threadId: ThreadId }) => void;
 }) {
   const { subagent } = props;
+  const gt = useGT();
   const { presentationById } = useEnvironments();
   const target = subagentThreadTarget(subagent, props.environmentId, (id) =>
     presentationById.has(id),
@@ -163,10 +168,14 @@ function AgentRow(props: {
         className="min-w-0 flex-1"
         accessibilityHint={
           subagent.remoteChild !== undefined
-            ? `Runs on ${subagent.remoteChild.label}. Connect to it to open its thread.`
+            ? gt("Runs on {label}. Connect to it to open its thread.", {
+                label: subagent.remoteChild.label,
+              })
             : subagent.pendingRemote !== undefined
-              ? `Runs on ${subagent.pendingRemote.label}. It starts when ${subagent.pendingRemote.label} is back.`
-              : "Provider-managed agent. Its work appears in the transcript."
+              ? gt("Runs on {label}. It starts when {label} is back.", {
+                  label: subagent.pendingRemote.label,
+                })
+              : gt("Provider-managed agent. Its work appears in the transcript.")
         }
       >
         {row}
@@ -174,7 +183,7 @@ function AgentRow(props: {
     ) : (
       <Pressable
         accessibilityRole="link"
-        accessibilityHint="Opens this agent's thread"
+        accessibilityHint={gt("Opens this agent's thread")}
         onPress={() => props.onOpen(target)}
         className="min-w-0 flex-1 active:opacity-70"
       >
@@ -206,6 +215,7 @@ function useSubagentElapsed(
 ): string | null {
   const running = isOrchestrationV2WorkActive(subagent.status);
   const nowMs = useVisibleSecondClock(tickSeconds && running);
+  const messages = useMessages();
   const elapsedMs = deriveSubagentElapsedMs(
     {
       status: subagent.status,
@@ -214,5 +224,5 @@ function useSubagentElapsed(
     },
     nowMs,
   );
-  return elapsedMs === null || elapsedMs === 0 ? null : formatDuration(elapsedMs);
+  return elapsedMs === null || elapsedMs === 0 ? null : formatDuration(elapsedMs, messages);
 }
