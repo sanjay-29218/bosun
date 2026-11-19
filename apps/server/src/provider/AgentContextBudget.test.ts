@@ -253,7 +253,7 @@ it.effect("every crew role and a plain thread reach every tool, with no grants",
       threadScope(projectHeadquartersThreadId(ProjectId.make("context-budget"))),
     );
     expect(names(manager)).toEqual(all);
-    // A Feature manager, or any crew role's thread, gets the same but the manager's own tools.
+    // A feature's lead, or any crew role's thread, gets the same but the manager's own tools.
     const standingOnly: ReadonlySet<string> = new Set(MANAGER_INSTRUCTIONS_TOOLS);
     const withoutStanding = all.filter((name) => !standingOnly.has(name));
     for (const crew of ["bot-run:feature-lead:x", "bot-run:builder-run"]) {

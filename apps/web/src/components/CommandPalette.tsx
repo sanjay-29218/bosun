@@ -306,7 +306,11 @@ import {
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../state/botRail";
-import { useSelectRailProjects, useSwitchBotMainView } from "./sidebar/mainAppLocation";
+import {
+  useRailDestination,
+  useSelectRailProjects,
+  useSwitchBotMainView,
+} from "./sidebar/mainAppLocation";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -597,6 +601,7 @@ function OpenCommandPaletteDialog(props: {
   const openBotHeadquarters = useOpenBotHeadquarters();
   const switchBotMainView = useSwitchBotMainView();
   const selectRailProjects = useSelectRailProjects();
+  const showsProjects = useRailDestination() === "bots" && activeRailBot === null;
   const multipleBots = railBots.length > 1;
   const botRailCollapsed = useUiStateStore((store) => store.botRailCollapsed);
   const showBotRail = useShowBotRail();
@@ -2068,7 +2073,7 @@ function OpenCommandPaletteDialog(props: {
       value: "rail:projects",
       searchTerms: ["projects", "all projects", "switch"],
       title: gt("Show all projects"),
-      description: activeRailBot === null ? gt("Current") : gt("Every project and its threads"),
+      description: showsProjects ? gt("Current") : gt("Every project and its threads"),
       icon: <FoldersIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         await selectRailProjects();
