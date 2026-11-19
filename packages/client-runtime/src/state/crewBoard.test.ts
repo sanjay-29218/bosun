@@ -368,6 +368,11 @@ describe("work groups", () => {
     const queued = featureWorkStatus(card("f", { leadThreadId: null }), []);
     expect(queued.status).toBe("not-started");
     expect(WORK_ROW_LABELS[queued.status]).toBe("Not started");
+    // Closed before anyone started it, it still never started.
+    expect(featureWorkStatus(card("f", { leadThreadId: null, status: "closed" }), []).status).toBe(
+      "not-started",
+    );
+    expect(WORK_ROW_LABELS.done).toBe("Done");
   });
 
   it("files chats by their PR, and leaves features not started out of Work", () => {

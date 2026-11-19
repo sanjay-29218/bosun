@@ -273,11 +273,10 @@ export function featureWorkStatus<Shell extends BoardThreadShell & Partial<PullR
   readonly thread: Shell | null;
 } {
   const group = featureWorkGroup(card, threads);
+  if (card.leadThreadId === null) return { group, status: "not-started", thread: null };
   const progress = featureProgress(card, threads);
   const status =
-    progress.status === "not-started" ||
-    progress.status === "failed" ||
-    (group === "working" && progress.status === "waiting")
+    progress.status === "failed" || (group === "working" && progress.status === "waiting")
       ? progress.status
       : group;
   return { group, status, thread: progress.thread };
