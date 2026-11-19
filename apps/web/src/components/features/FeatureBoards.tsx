@@ -33,11 +33,11 @@ import {
   UnstartedFeatureRow,
   WorkChatRow,
   WorkFeatureRow,
+  featureWork,
   onRowListKeyDown,
   type RowPlace,
 } from "./BoardRows";
 import { ChatCard, FeatureCard, FeatureParkControls, TodoCard } from "./FeatureCard";
-import { featureWork } from "./workStatus";
 import { FeatureChildList } from "./FeatureChildList";
 import { FeatureNow } from "./FeatureNow";
 import type { BoardWorkflow } from "./startFromBoard";
@@ -381,8 +381,9 @@ function WorkCards(props: {
           <FeatureCard
             key={featureCardKey(card)}
             card={card}
+            threads={handlers.threadsFor(card)}
             project={handlers.projectFor(card)}
-            work={featureWork(card, handlers.threadsFor(card))}
+            pullRequest={featureWork(card, handlers).pullRequest}
             settled={shelf !== null}
             draggable={shelf === null}
             onOpen={handlers.onOpen}
@@ -533,7 +534,7 @@ function milestoneProgress(
       return (
         feature !== null &&
         feature.leadThreadId !== null &&
-        featureWork(feature, handlers.threadsFor(feature)).group === "review"
+        featureWork(feature, handlers).group === "review"
       );
     }).length;
   const total = milestone.openIssues + milestone.closedIssues;

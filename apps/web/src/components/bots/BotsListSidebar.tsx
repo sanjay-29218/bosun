@@ -362,9 +362,7 @@ function ListRow({
           ) : mark !== null && mark.needsYou > 0 ? (
             <span className="shrink-0 rounded-sm bg-warning px-1 text-2xs leading-4 font-semibold text-black tabular-nums">
               {mark.needsYou}
-              <span className="sr-only">
-                {mark.needsYou === 1 ? " needs input" : " need input"}
-              </span>
+              <span className="sr-only"> need you</span>
             </span>
           ) : null}
           <span className="min-w-0 truncate text-xs text-muted-foreground">{subtitle}</span>

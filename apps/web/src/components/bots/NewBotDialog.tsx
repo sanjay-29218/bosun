@@ -26,7 +26,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { EditorField } from "../settings/EditorField";
+import { EditorField } from "../settings/CrewAgentFields";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { BotAvatarPicker, BotColorPicker } from "./BotLook";

@@ -52,7 +52,7 @@ import { Skeleton } from "../ui/skeleton";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
-import { featureWork } from "./workStatus";
+import { featureStatus } from "./FeatureCard";
 import { readFileAsDataUrl } from "../../lib/imageCompression";
 import { cn } from "../../lib/utils";
 import {
@@ -316,13 +316,13 @@ function FeatureChip(props: { readonly feature: EnvironmentFeatureCard | null })
   const shells = useQuietThreadShells();
   const { feature } = props;
   if (!feature) return <Chip>No feature yet</Chip>;
-  const status = featureWork(
+  const { status } = featureStatus(
     feature,
     shells.filter(
       (shell) =>
         shell.environmentId === feature.environmentId && shell.feature?.id === feature.featureId,
     ),
-  ).look;
+  );
   const StatusIcon = status.icon;
   const threadId = feature.leadThreadId;
   return (

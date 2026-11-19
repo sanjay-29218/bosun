@@ -1,12 +1,16 @@
 import {
   FEATURE_CARD_ACTION_LABELS,
+  FEATURE_STATUS_LABELS,
   featureCardQuickActions,
+  featureProgress,
   featureRef,
   threadBoardColumn,
   threadPullRequest,
+  type WorkPullRequest,
   type EnvironmentFeatureCard,
   type FeatureCardActionId,
-  type WorkRowStatus,
+  type FeatureColumn,
+  type FeatureStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import { issueRef, type EnvironmentIssue } from "@t3tools/client-runtime/state/issue-board";
 import {
@@ -26,6 +30,7 @@ import {
   NotebookTextIcon,
   PlayIcon,
   Undo2Icon,
+  type LucideIcon,
 } from "lucide-react";
 import {
   memo,
@@ -42,6 +47,7 @@ import { useNowSecond } from "../../hooks/useNowSecond";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import { formatRelativeTime } from "../../timestampFormat";
+import { STATUS_LOOK } from "../crew/CrewRosterIcon";
 import { FeatureIssueIcon } from "../crew/FeatureIssueIcon";
 import { PartOf } from "./IssueStructure";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -55,9 +61,35 @@ import { Tooltip, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
 import { CloseTodoButton } from "./todoState";
-import { PrChip } from "./BoardRows";
-import { WORK_LOOK, WorkIcon, featureWork } from "./workStatus";
+import { PrChip, WorkIcon, featureWork } from "./BoardRows";
 import { Spinner } from "../ui/spinner";
+
+interface FeatureStatusLook {
+  readonly label: string;
+  readonly className: string;
+  readonly icon: LucideIcon;
+}
+
+const statusLook = (status: FeatureStatus): FeatureStatusLook => ({
+  label: FEATURE_STATUS_LABELS[status],
+  ...STATUS_LOOK[status],
+});
+
+/**
+ * Where a feature stands, from its lead's and crew's threads, and the thread that puts it there:
+ * the one waiting on you, else the one running.
+ */
+export function featureStatus(
+  card: EnvironmentFeatureCard,
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+): {
+  readonly column: FeatureColumn;
+  readonly status: FeatureStatusLook;
+  readonly thread: EnvironmentThreadShell | null;
+} {
+  const progress = featureProgress(card, threads);
+  return { ...progress, status: statusLook(progress.status) };
+}
 
 // Self-ticking like the sidebar's, so a working card re-renders only this label each second.
 export function WorkingDuration(props: { readonly startedAt: string }) {
@@ -268,12 +300,12 @@ export const chatSince = (shell: EnvironmentThreadShell) =>
   shell.latestRun?.completedAt ?? shell.updatedAt;
 
 /** The words a chat shows for its column, or null in Done, which shows its time instead. */
-function chatStatus(shell: EnvironmentThreadShell): (typeof WORK_LOOK)[WorkRowStatus] | null {
+function chatStatus(shell: EnvironmentThreadShell): FeatureStatusLook | null {
   switch (threadBoardColumn(shell)) {
     case "needs-you":
-      return WORK_LOOK["needs-input"];
+      return statusLook("needs-input");
     case "working":
-      return WORK_LOOK.working;
+      return statusLook("working");
     case "done":
       return null;
   }
@@ -347,6 +379,8 @@ export const ChatCard = memo(function ChatCard(props: {
 
 export const FeatureCard = memo(function FeatureCard(props: {
   readonly card: EnvironmentFeatureCard;
+  /** The feature's lead's and crew's threads. */
+  readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly project: EnvironmentProject | null;
   /** In the Settled shelf: receded, with Un-settle in place of Settle. */
   readonly settled: boolean;
@@ -364,8 +398,9 @@ export const FeatureCard = memo(function FeatureCard(props: {
   readonly subfeatures?: ReactNode;
   /** Where it stands now, in its hover card. */
   readonly now?: ReactNode;
-  /** Its Work group, status and pull request, as its row in the list reads. */
-  readonly work: ReturnType<typeof featureWork>;
+  /** Its issue's parent and sub-issue progress. */
+  /** Its pull request, with its state. */
+  readonly pullRequest: WorkPullRequest | null;
   readonly onDragStart?: (card: EnvironmentFeatureCard, event: DragEvent) => void;
 }) {
   const { card } = props;
@@ -373,21 +408,21 @@ export const FeatureCard = memo(function FeatureCard(props: {
   const shell = useThreadShell(
     card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
-  const { pullRequest, thread } = props.work;
-  const notStarted = props.work.status === "not-started";
+  const pullRequest = props.pullRequest;
+  const { column, status, thread } = featureStatus(card, props.threads);
   const workingSince =
-    props.work.status === "working" && thread ? resolveThreadWorkingStartedAt(thread) : null;
+    column === "working" && thread ? resolveThreadWorkingStartedAt(thread) : null;
   const actions = featureCardQuickActions(card);
-  const { look } = props.work;
+  const StatusIcon = status.icon;
   const statusLabel =
-    props.work.group === "done" || notStarted ? (
+    column === "done" || column === "todo" ? (
       <span className="text-secondary-label">
         <RelativeTime timestamp={card.updatedAt} />
       </span>
     ) : (
-      <span className={cn("inline-flex shrink-0 items-center gap-1 font-medium", look.className)}>
-        <look.icon aria-hidden className="size-4 shrink-0" />
-        {look.label}
+      <span className={cn("inline-flex shrink-0 items-center gap-1 font-medium", status.className)}>
+        <StatusIcon aria-hidden className="size-4 shrink-0" />
+        {status.label}
         {workingSince ? <WorkingDuration startedAt={workingSince} /> : null}
       </span>
     );
@@ -411,7 +446,7 @@ export const FeatureCard = memo(function FeatureCard(props: {
         }}
         className={cn(
           cardClassName,
-          notStarted ? "border-dashed" : "border-border/70 hover:border-border",
+          column === "todo" ? "border-dashed" : "border-border/70 hover:border-border",
           props.settled && "opacity-70 hover:opacity-100",
         )}
       >
@@ -483,7 +518,7 @@ export const TodoCard = memo(function TodoCard(props: {
   const { issue, handlers } = props;
   const feature = handlers.featureFor(issue);
   const started = feature !== null && feature.leadThreadId !== null;
-  const work = started ? featureWork(feature, handlers.threadsFor(feature)) : null;
+  const work = started ? featureWork(feature, handlers) : null;
   const labels = issue.labels.slice(0, 2);
   return (
     <div className={cn(cardClassName, started ? "border-border/70" : "border-dashed")}>

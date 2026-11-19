@@ -21,7 +21,7 @@ import { rolesEnvironment } from "../../state/roles";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { EditorField } from "../settings/EditorField";
+import { EditorField } from "../settings/CrewAgentFields";
 import { SettingsModelPicker } from "../settings/SettingsModelPicker";
 import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";

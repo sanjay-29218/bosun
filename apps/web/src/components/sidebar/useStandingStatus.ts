@@ -19,6 +19,6 @@ export function useStandingStatus(ref: Parameters<typeof useThreadShell>[0]) {
     waiting,
     working,
     done,
-    status: waiting ? "needs input" : working ? "working" : done ? "done" : null,
+    status: waiting ? "needs you" : working ? "working" : done ? "done" : null,
   };
 }

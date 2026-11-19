@@ -8,7 +8,6 @@ import {
   withBotAvatarSilhouette,
 } from "@t3tools/client-runtime/bot-avatar";
 import type { BotAvatar as BotAvatarParts, ProjectIconColor } from "@t3tools/contracts";
-import { useMessages } from "gt-react";
 import { CheckIcon, DicesIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -136,7 +135,6 @@ export function BotColorPicker({
   readonly value: ProjectIconColor;
   readonly onChange: (color: ProjectIconColor) => void;
 }) {
-  const m = useMessages();
   return (
     <div role="radiogroup" aria-label="Color" className="flex flex-wrap gap-1.5">
       {PROJECT_ICON_COLORS.map((option) => {
@@ -147,7 +145,7 @@ export function BotColorPicker({
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={m(option.label)}
+            aria-label={option.label}
             className={cn(
               "grid size-6 place-items-center rounded-full text-white outline-none hover:opacity-85 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground",
               option.swatchClassName,

@@ -31,7 +31,6 @@ vi.mock(import("@effect/atom-react"), async (original) => ({
 
 vi.mock(import("../../state/entities"), () => ({
   useQuietThreadShell: (() => null) as never,
-  useQuietThreadShells: (() => []) as never,
   useQuietThreadProjection: ((ref: unknown) =>
     ref === null ? null : { projection: state.projection }) as never,
   useThreadRelationshipShells: (() =>
@@ -41,10 +40,6 @@ vi.mock(import("../../state/entities"), () => ({
   useProjects: (() => []) as never,
   useHiddenThreadKeys: (() => new Set()) as never,
   useAnyEnvironmentHiding: (() => false) as never,
-}));
-// The board's hook imports entities this file replaces; no row here leads a feature.
-vi.mock(import("../features/useFeatureBoard"), () => ({
-  useFeatureBoard: (() => ({ cards: [] })) as never,
 }));
 vi.mock(import("../../state/environments"), () => ({
   useEnvironment: (() => null) as never,

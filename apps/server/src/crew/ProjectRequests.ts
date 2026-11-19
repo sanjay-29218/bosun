@@ -664,7 +664,7 @@ const make = Effect.gen(function* () {
         yield* inbox.post({
           threadId: settings.threadId,
           key: `manager-retired:${retired.threadId}`,
-          text: `${name} had a second project manager on ${retired.environmentLabel}. It is retired now: its thread ${retired.threadId} is archived there, and its open requests went back to their senders. You are this project's only manager. You also work on its copy on ${retired.environmentLabel}.`,
+          text: `${name} had a second project manager on ${retired.environmentLabel}. It is retired now: its thread ${retired.threadId} is archived there, and its open requests went back to their senders. You are this project's only manager. You also work on its copy on ${retired.environmentLabel} when Project settings → Project manager → Can work on allows it.`,
         });
       }
     }

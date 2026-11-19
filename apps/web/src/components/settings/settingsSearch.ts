@@ -1462,7 +1462,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "roles",
     title: msg("Roles"),
     to: "/settings/roles",
-    searchTerms: [msg("library crew roles planner designer builder reviewer qa starter")],
+    searchTerms: [
+      msg("library crew roles feature manager planner designer builder reviewer qa starter"),
+    ],
   },
   {
     id: "secret-providers",

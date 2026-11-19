@@ -8,7 +8,7 @@ import { CheckIcon, CopyIcon, FolderOpenIcon } from "lucide-react";
 import { useOpenInPreferredEditor } from "../../editorPreferences";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useServerConfigs } from "../../state/entities";
-import { EditorField } from "../settings/EditorField";
+import { EditorField } from "../settings/CrewAgentFields";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 

@@ -32,7 +32,6 @@ import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/
 import { crewChangeNotifier } from "./CrewChanges.ts";
 import { CrewService, type CrewServiceError } from "./CrewService.ts";
 import type { Role, Workflow } from "./CrewStore.ts";
-import { OLDER_PEER_LEAD_ROLE_ID } from "./olderPeerLead.ts";
 
 type Kind = "workflow" | "role";
 export type LibraryError = CrewServiceError | PersistenceSqlError;
@@ -168,8 +167,6 @@ const make = Effect.gen(function* () {
         id: workflow.id,
         name: workflow.name,
         instructions: workflow.instructions,
-        // An older machine leads it with its own built-in Feature manager.
-        leadRoleId: OLDER_PEER_LEAD_ROLE_ID,
         crewRoleIds: workflow.crewRoleIds,
         revision: workflow.revision,
       })),

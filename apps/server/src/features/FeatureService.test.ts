@@ -541,22 +541,6 @@ describe("feature lead and crew", () => {
         expect((yield* userTexts(leadThreadId))[0]).toContain(
           "Workflow: Feature delivery\nNever push without asking.\n\nPlan, then build.",
         );
-        // The built-in text a newer machine sends older ones leads with nothing extra.
-        yield* features.create({
-          id: "stock-snapshot",
-          projectId,
-          title: "Stock",
-          brief: "New request",
-          workspace: "local",
-          workflowSnapshot: {
-            ...snapshot,
-            roles: [{ ...snapshot.roles[0]!, instructions: FEATURE_LEAD_INSTRUCTIONS }],
-          },
-        });
-        const stock = yield* features.start("stock-snapshot", projectId);
-        expect((yield* userTexts(stock.leadThreadId))[0]).toContain(
-          "Workflow: Feature delivery\nPlan, then build.",
-        );
       }),
     ),
   );

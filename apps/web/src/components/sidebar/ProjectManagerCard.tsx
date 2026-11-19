@@ -87,7 +87,7 @@ const ProjectManagerCard = memo(function ProjectManagerCard({
           <span className="flex min-w-0 items-center gap-1.5">
             {waiting ? (
               <span className="shrink-0 rounded-full bg-warning/15 px-1.5 text-2xs leading-4 font-medium text-warning-foreground">
-                Needs input
+                Needs you
               </span>
             ) : working ? (
               <span className="flex shrink-0 items-center gap-1 rounded-full bg-info/15 px-1.5 text-2xs leading-4 font-medium text-info-foreground">

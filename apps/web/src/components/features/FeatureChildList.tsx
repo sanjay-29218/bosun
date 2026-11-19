@@ -8,8 +8,7 @@ import {
 import { cn } from "../../lib/utils";
 import { useThreadShell } from "../../state/entities";
 import type { FeatureBoardHandlers } from "./FeatureBoards";
-import { WithThreadDetails } from "./FeatureCard";
-import { featureWork } from "./workStatus";
+import { WithThreadDetails, featureStatus } from "./FeatureCard";
 import { FeatureNow } from "./FeatureNow";
 
 /** A parent's child features, each opening its own lead, under the parent's card. */
@@ -36,7 +35,7 @@ function FeatureChildLine(props: {
   const lead = useThreadShell(
     card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
-  const status = featureWork(card, handlers.threadsFor(card)).look;
+  const { status } = featureStatus(card, handlers.threadsFor(card));
   const StatusIcon = status.icon;
   const ref = featureRef(card);
   return (

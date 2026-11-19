@@ -43,7 +43,7 @@ import {
 } from "../ui/menu";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { featureWork } from "./workStatus";
+import { featureStatus } from "./FeatureCard";
 import type { TodoOwner } from "./todoDialogs";
 
 const chipClassName =
@@ -447,14 +447,14 @@ function SubIssueRow(props: {
   );
   const pullRequest = lead?.linkedPullRequest ?? lead?.branchPullRequest ?? null;
   const status = feature
-    ? featureWork(
+    ? featureStatus(
         feature,
         props.shells.filter(
           (shell) =>
             shell.environmentId === feature.environmentId &&
             shell.feature?.id === feature.featureId,
         ),
-      ).look
+      ).status
     : null;
   const StatusIcon = status?.icon;
   return (

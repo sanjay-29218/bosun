@@ -27,7 +27,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import { CrewService } from "../crew/CrewService.ts";
-import { OLDER_PEER_LEAD_ROLE_ID, olderPeerLeadRole } from "../crew/olderPeerLead.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { FeatureService } from "../features/FeatureService.ts";
 import { NoticeInbox } from "../features/NoticeInbox.ts";
@@ -462,9 +461,7 @@ const make = Effect.gen(function* () {
    * The workflow a feature for a request runs on, sent by value: Feature delivery at its
    * revision here, with its enabled crew roles. Nothing when it's gone.
    */
-  const workflowSnapshot = Effect.fn("BotReach.workflowSnapshot")(function* (
-    modelSelection: ModelSelection,
-  ) {
+  const workflowSnapshot = Effect.fn("BotReach.workflowSnapshot")(function* () {
     const workflow = yield* crew
       .getWorkflow(FEATURE_DELIVERY_WORKFLOW_ID)
       .pipe(Effect.mapError(unavailable));
@@ -477,27 +474,23 @@ const make = Effect.gen(function* () {
         id: workflow.id,
         name: workflow.name,
         instructions: workflow.instructions,
-        leadRoleId: OLDER_PEER_LEAD_ROLE_ID,
         crewRoleIds: workflow.crewRoleIds,
         revision: workflow.revision,
       },
-      roles: [
-        olderPeerLeadRole(modelSelection),
-        ...roles.flatMap((role) =>
-          role !== null && role.enabled
-            ? [
-                {
-                  id: role.id,
-                  name: role.name,
-                  instructions: role.instructions,
-                  modelSelection: role.modelSelection,
-                  // Older peers require it.
-                  runtimeMode: "full-access" as const,
-                },
-              ]
-            : [],
-        ),
-      ],
+      roles: roles.flatMap((role) =>
+        role !== null && role.enabled
+          ? [
+              {
+                id: role.id,
+                name: role.name,
+                instructions: role.instructions,
+                modelSelection: role.modelSelection,
+                // Older peers require it.
+                runtimeMode: "full-access" as const,
+              },
+            ]
+          : [],
+      ),
     };
     return snapshot;
   });
@@ -585,7 +578,7 @@ const make = Effect.gen(function* () {
     yield* links
       .resolve(environmentId)
       .pipe(Effect.catch((error) => (error.reason === "unreachable" ? unreachable : Effect.void)));
-    const workflow = cleanup ? undefined : yield* workflowSnapshot(input.modelSelection);
+    const workflow = cleanup ? undefined : yield* workflowSnapshot();
     const self = yield* here;
     return yield* forwarding
       .call(scope, LinkBotTask, environmentId, {

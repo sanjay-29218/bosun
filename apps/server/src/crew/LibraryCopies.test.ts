@@ -18,22 +18,17 @@ import {
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
-import {
-  type LibraryCopySet,
-  LibraryCopySet as LibraryCopySetSchema,
-} from "../mcp/toolkits/bots/linkTools.ts";
+import type { LibraryCopySet } from "../mcp/toolkits/bots/linkTools.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import { CrewTestOrchestration } from "./CrewRuntime.testkit.ts";
 import { CrewService } from "./CrewService.ts";
-import { CrewStore } from "./CrewStore.ts";
 import { type LibraryError, LibraryCopies, layer as LibraryCopiesLayer } from "./LibraryCopies.ts";
 import { CrewRuntimeLive } from "./runtimeLayer.ts";
 
@@ -49,8 +44,6 @@ interface Network {
   readonly links: Map<EnvironmentId, Set<EnvironmentId>>;
   /** Machines with Linked environments turned off. */
   readonly betaOff: Set<EnvironmentId>;
-  /** Every set sent, as it went over the wire. */
-  readonly sent: Array<unknown>;
 }
 
 /** Like the real link: an `orchestration_error` while the machine is off. */
@@ -63,7 +56,6 @@ const fakeForwarding = (network: Network) =>
           new OrchestratorMcpFailure({ code: "orchestration_error", message: "Not answering." }),
         );
       }
-      network.sent.push(params);
       return receiver.applyLibraryCopy(params as LibraryCopySet).pipe(
         Effect.map((refused) => ({ refused })),
         Effect.mapError(
@@ -122,11 +114,7 @@ const machine = (environmentId: EnvironmentId, label: string, network: Network) 
     const crew = Context.get(context, CrewService);
     yield* crew.ensureDefaults(modelSelection);
     network.receivers.set(environmentId, crew);
-    return {
-      crew,
-      store: Context.get(context, CrewStore),
-      copies: Context.get(context, LibraryCopies),
-    };
+    return { crew, copies: Context.get(context, LibraryCopies) };
   });
 
 /** The laptop links the box; the box doesn't link back unless a test says so. */
@@ -136,7 +124,6 @@ const twoMachines = Effect.gen(function* () {
     offline: new Set(),
     links: new Map([[laptopId, new Set([boxId])]]),
     betaOff: new Set(),
-    sent: [],
   };
   const laptop = yield* machine(laptopId, "Laptop", network);
   const box = yield* machine(boxId, "Box", network);
@@ -155,19 +142,6 @@ const writer = {
   instructions: "Write release notes.",
   modelSelection,
 };
-
-/** A set as a machine from before workflows lost their lead role reads it: each names one. */
-const decodeOlderLibraryCopySet = Schema.decodeUnknownSync(
-  Schema.Struct({
-    ...LibraryCopySetSchema.fields,
-    workflows: Schema.Array(
-      Schema.Struct({
-        ...LibraryCopySetSchema.fields.workflows.value.fields,
-        leadRoleId: Schema.String,
-      }),
-    ),
-  }),
-);
 
 const copiesOf = (copies: LibraryCopies["Service"], kind: "workflow" | "role", id: string) => {
   const items: Effect.Effect<
@@ -196,19 +170,11 @@ describe("LibraryCopies", () => {
     "a linked machine gets every workflow and role, read-only there, and edits follow",
     () =>
       Effect.gen(function* () {
-        const { network, laptop, box } = yield* twoMachines;
+        const { laptop, box } = yield* twoMachines;
         yield* laptop.copies.createRole(writer);
         yield* laptop.copies.createWorkflow(release);
         yield* changeDelivery(laptop);
         yield* laptop.copies.push;
-        // An older machine reads it too, and leads each workflow with its own Feature manager.
-        for (const sent of network.sent) {
-          const older = decodeOlderLibraryCopySet(sent);
-          expect(new Set(older.workflows.map((workflow) => workflow.leadRoleId))).toEqual(
-            new Set(["role:feature-manager"]),
-          );
-        }
-        expect(network.sent).not.toHaveLength(0);
 
         expect(yield* box.crew.getWorkflow(release.id)).toMatchObject({
           instructions: release.instructions,
@@ -272,41 +238,6 @@ describe("LibraryCopies", () => {
         yield* laptop.copies.push;
         expect(yield* box.crew.getWorkflow(release.id)).toBeNull();
       }),
-  );
-
-  it.effect("a set from an older machine brings no Feature manager back", () =>
-    Effect.gen(function* () {
-      const { box } = yield* twoMachines;
-      const featureManager = {
-        id: "role:feature-manager",
-        name: "Feature manager",
-        instructions: "Lead it.",
-        modelSelection,
-        enabled: true,
-      };
-      // A copy received before this machine skipped it goes at the next set.
-      yield* box.store.insertRole({
-        ...featureManager,
-        managedFrom: laptopOwner,
-        revision: 1,
-        createdAt: "2026-11-01T00:00:00.000Z",
-        updatedAt: "2026-11-01T00:00:00.000Z",
-      });
-      yield* box.crew.applyLibraryCopy({
-        owner: laptopOwner,
-        workflows: [
-          {
-            ...release,
-            leadRoleId: featureManager.id,
-            crewRoleIds: [featureManager.id, "role:writer"],
-            revision: 1,
-          },
-        ],
-        roles: [featureManager, { ...writer, enabled: true }],
-      });
-      expect(yield* box.crew.getRole(featureManager.id)).toBeNull();
-      expect((yield* box.crew.getWorkflow(release.id))?.crewRoleIds).toEqual(["role:writer"]);
-    }),
   );
 
   it.effect("a machine that was off gets the copies once it answers", () =>
