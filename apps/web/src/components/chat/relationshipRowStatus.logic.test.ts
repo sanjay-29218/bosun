@@ -87,8 +87,16 @@ describe("relationshipRowStatus for a feature's lead", () => {
     expect(row("review")).toBe("ready_for_review");
     expect(row("done")).toBe("completed");
     expect(row("waiting")).toBe("waiting");
-    // Before its board card loads, it never claims Done.
-    expect(row(null)).toBe("waiting");
+    // With no board card (loading, failed, or none), it reads its own row and never claims Done.
+    expect(row(null)).toBe("ready_for_review");
+    expect(
+      relationshipRowStatus({
+        featureLead: lead(),
+        featureStatus: null,
+        asking: false,
+        runStatus: null,
+      }),
+    ).toBe("waiting");
   });
 });
 

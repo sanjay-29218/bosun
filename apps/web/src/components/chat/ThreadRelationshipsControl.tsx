@@ -11,6 +11,7 @@ import {
   featureCardKey,
   featureWorkStatus,
   threadsByFeature,
+  type WorkRowStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -49,6 +50,7 @@ import {
   type OrchestrationV2DelegatedFrom,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadShell,
+  type ProjectId,
   type ServerProvider,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -504,6 +506,36 @@ function DelegatedFromRow(props: {
   );
 }
 
+type FeatureStatusOf = (leadThreadId: ThreadId) => WorkRowStatus | null;
+const noFeatureStatus: FeatureStatusOf = () => null;
+
+/**
+ * Where each feature-lead row's feature stands on the board. Mounted only for a panel that lists
+ * feature leads, so other threads don't subscribe to every thread shell and board.
+ */
+function FeatureLeadStatuses(props: {
+  readonly environmentId: EnvironmentId;
+  readonly projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }>;
+  readonly children: (featureStatusOf: FeatureStatusOf) => ReactNode;
+}) {
+  const board = useFeatureBoard(props.projects);
+  const shells = useQuietThreadShells();
+  const threads = board.cards.length > 0 ? threadsByFeature(shells) : null;
+  const featureStatusOf: FeatureStatusOf = (leadThreadId) => {
+    const card = board.cards.find(
+      (candidate) =>
+        candidate.environmentId === props.environmentId && candidate.leadThreadId === leadThreadId,
+    );
+    return card && threads
+      ? featureWorkStatus(card, threads.get(featureCardKey(card)) ?? []).status
+      : null;
+  };
+  return props.children(featureStatusOf);
+}
+
 export function ThreadRelationshipsPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -631,7 +663,7 @@ export function ThreadRelationshipsPanel(props: {
         ? row
         : { ...row, edge: { ...row.edge, status: workflowGroup.workflow.status } };
     });
-  // A feature lead's row reads as its feature does on the board, so it needs the board's card.
+  // A feature lead's row reads as its feature does on the board; only these rows need the board.
   const featureLeadProjects = [
     ...new Set(
       relationshipRows.flatMap(({ threadId, edge }) => {
@@ -644,18 +676,6 @@ export function ThreadRelationshipsPanel(props: {
       }),
     ),
   ].map((projectId) => ({ environmentId: props.environmentId, projectId }));
-  const featureBoard = useFeatureBoard(featureLeadProjects);
-  const quietShells = useQuietThreadShells();
-  const featureThreads = featureBoard.cards.length > 0 ? threadsByFeature(quietShells) : null;
-  const featureStatusOf = (leadThreadId: ThreadId) => {
-    const card = featureBoard.cards.find(
-      (candidate) =>
-        candidate.environmentId === props.environmentId && candidate.leadThreadId === leadThreadId,
-    );
-    return card && featureThreads
-      ? featureWorkStatus(card, featureThreads.get(featureCardKey(card)) ?? []).status
-      : null;
-  };
   const canMerge = mergeTargetThreadId !== null && latestMergeBackRun !== null;
   const unlistedThreadIds = relationshipRows
     .filter(
@@ -864,7 +884,10 @@ export function ThreadRelationshipsPanel(props: {
         ? null
         : (graph.nodes.get(mergeTargetThreadId)?.thread?.title ?? null);
 
-  const renderRelationshipRow = ({ threadId, edge }: ThreadRelationshipWalkRow) => {
+  const renderRelationshipRow = (
+    { threadId, edge }: ThreadRelationshipWalkRow,
+    featureStatusOf: FeatureStatusOf,
+  ) => {
     const node = graph.nodes.get(threadId);
     const isSubagent = edge.kind === "subagent";
     const isMergeTarget = threadId === mergeTargetThreadId;
@@ -1147,7 +1170,7 @@ export function ThreadRelationshipsPanel(props: {
     );
   };
 
-  return (
+  const panel = (featureStatusOf: FeatureStatusOf) => (
     <>
       {lineageVisible ? (
         <ThreadDetailsSection
@@ -1219,7 +1242,7 @@ export function ThreadRelationshipsPanel(props: {
                       anyInstanceBadge={hasInstanceBadge(providerEntries)}
                     />
                   ) : (
-                    renderRelationshipRow(row)
+                    renderRelationshipRow(row, featureStatusOf)
                   ),
                 )
               }
@@ -1239,10 +1262,17 @@ export function ThreadRelationshipsPanel(props: {
             rows={sideChats}
             expanded
           >
-            {(visibleRows) => visibleRows.map(renderRelationshipRow)}
+            {(visibleRows) => visibleRows.map((row) => renderRelationshipRow(row, featureStatusOf))}
           </ThreadLineageGroup>
         </ThreadDetailsSection>
       ) : null}
     </>
+  );
+  return featureLeadProjects.length > 0 ? (
+    <FeatureLeadStatuses environmentId={props.environmentId} projects={featureLeadProjects}>
+      {panel}
+    </FeatureLeadStatuses>
+  ) : (
+    panel(noFeatureStatus)
   );
 }

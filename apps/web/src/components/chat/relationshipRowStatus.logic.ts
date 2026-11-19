@@ -19,7 +19,7 @@ export function threadAsksPerson(
  */
 export function relationshipRowStatus(row: {
   readonly featureLead: Parameters<typeof resolveSidebarThreadStatus>[0] | undefined;
-  /** The lead's feature's status, from `featureWorkStatus`; null until its board card loads. */
+  /** The lead's feature's status, from `featureWorkStatus`; null without its board card. */
   readonly featureStatus?: WorkRowStatus | null;
   readonly asking: boolean;
   readonly runStatus: string | null;
@@ -34,11 +34,13 @@ export function relationshipRowStatus(row: {
     case "failed":
     case "limited":
       return "failed";
+    case "ready":
+      // Without its board card, a lead that finished its turn is up for review, never Done.
+      return row.featureStatus == null ? "ready_for_review" : boardStatus(row.featureStatus);
     default:
-      return row.featureStatus === "review"
-        ? "ready_for_review"
-        : row.featureStatus === "done"
-          ? "completed"
-          : "waiting";
+      return row.featureStatus == null ? "waiting" : boardStatus(row.featureStatus);
   }
 }
+
+const boardStatus = (status: WorkRowStatus) =>
+  status === "review" ? "ready_for_review" : status === "done" ? "completed" : "waiting";
