@@ -64,8 +64,34 @@ try {
     const thread = page.locator("li[data-thread-item]", { hasText: THREAD_TITLE });
     await thread.waitFor({ timeout: STEP_TIMEOUT_MS });
     step = "opening the thread";
+    // A click that lands while the row's hover controls fade in is dropped, so hover until they show.
+    await thread.hover();
+    const settle = await thread
+      .getByRole("button", { name: "Settle thread" })
+      .first()
+      .elementHandle();
+    await page.waitForFunction(
+      (control) => {
+        for (
+          let node: Element | null = control;
+          node && node.tagName !== "LI";
+          node = node.parentElement
+        ) {
+          if (getComputedStyle(node).opacity !== "1") return false;
+        }
+        return control !== null;
+      },
+      settle,
+      { timeout: STEP_TIMEOUT_MS },
+    );
+    const message = page.getByText(THREAD_MESSAGE);
     await thread.click();
-    await page.getByText(THREAD_MESSAGE).waitFor({ timeout: STEP_TIMEOUT_MS });
+    const opened = await message.waitFor({ timeout: 5_000 }).then(
+      () => true,
+      () => false,
+    );
+    if (!opened) await thread.click();
+    await message.waitFor({ timeout: STEP_TIMEOUT_MS });
   } catch (error) {
     NodeFS.mkdirSync(artifactsDir, { recursive: true });
     await page
