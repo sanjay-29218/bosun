@@ -5,7 +5,7 @@ import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
-import { relationshipRowStatus } from "./relationshipRowStatus.logic";
+import { relationshipRowStatus, threadAsksPerson } from "./relationshipRowStatus.logic";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -838,11 +838,14 @@ export function ThreadRelationshipsPanel(props: {
     const isMergeTarget = threadId === mergeTargetThreadId;
     const isParent = isParentThreadRelationship(edge, props.threadId);
     const finished = finishedRowIds.has(threadId);
-    const shell = node?.thread ? presentThreadShell(props.environmentId, node.thread) : undefined;
-    const featureLead = edge.kind === "feature" && !isParent ? shell : undefined;
+    // Only a feature lead needs its full shell; other rows read their pending request alone.
+    const featureLead =
+      edge.kind === "feature" && !isParent && node?.thread
+        ? presentThreadShell(props.environmentId, node.thread)
+        : undefined;
     const rowStatus = relationshipRowStatus({
-      shell,
-      featureLead: featureLead !== undefined,
+      featureLead,
+      asking: threadAsksPerson(node?.thread),
       runStatus:
         (isParent && threadId === parentRef?.threadId
           ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
