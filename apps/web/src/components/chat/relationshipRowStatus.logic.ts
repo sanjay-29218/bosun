@@ -3,6 +3,21 @@ import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
 
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 
+/**
+ * Whether a Lineage row's thread is a feature's lead, wherever the row sits (a crew member's
+ * parent row too), so it reads as its feature does on the board. Crew members name a member; the
+ * lead's own subagents, forks and side chats carry its feature tag but sit under it in lineage.
+ */
+export function isFeatureLeadThread(
+  thread:
+    | Pick<OrchestrationV2ThreadShell, "feature" | "crewRequest" | "lineage">
+    | null
+    | undefined,
+): boolean {
+  if (!thread?.feature || thread.feature.member || thread.crewRequest) return false;
+  return thread.lineage.relationshipToParent === null && thread.lineage.sideChat !== true;
+}
+
 /** Whether a Lineage row's thread waits on the person's approval or answer. */
 export function threadAsksPerson(
   thread: Partial<Pick<OrchestrationV2ThreadShell, "pendingRuntimeRequest">> | null | undefined,

@@ -5,7 +5,11 @@ import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
-import { relationshipRowStatus, threadAsksPerson } from "./relationshipRowStatus.logic";
+import {
+  isFeatureLeadThread,
+  relationshipRowStatus,
+  threadAsksPerson,
+} from "./relationshipRowStatus.logic";
 import { useFeatureBoard } from "../features/useFeatureBoard";
 import {
   featureCardKey,
@@ -666,13 +670,9 @@ export function ThreadRelationshipsPanel(props: {
   // A feature lead's row reads as its feature does on the board; only these rows need the board.
   const featureLeadProjects = [
     ...new Set(
-      relationshipRows.flatMap(({ threadId, edge }) => {
+      relationshipRows.flatMap(({ threadId }) => {
         const thread = graph.nodes.get(threadId)?.thread;
-        return edge.kind === "feature" &&
-          !isParentThreadRelationship(edge, props.threadId) &&
-          thread
-          ? [thread.projectId]
-          : [];
+        return thread && isFeatureLeadThread(thread) ? [thread.projectId] : [];
       }),
     ),
   ].map((projectId) => ({ environmentId: props.environmentId, projectId }));
@@ -895,7 +895,7 @@ export function ThreadRelationshipsPanel(props: {
     const finished = finishedRowIds.has(threadId);
     // Only a feature lead needs its full shell; other rows read their pending request alone.
     const featureLead =
-      edge.kind === "feature" && !isParent && node?.thread
+      node?.thread && isFeatureLeadThread(node.thread)
         ? presentThreadShell(props.environmentId, node.thread)
         : undefined;
     const rowStatus = relationshipRowStatus({

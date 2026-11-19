@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { relationshipRowStatus, threadAsksPerson } from "./relationshipRowStatus.logic";
+import {
+  isFeatureLeadThread,
+  relationshipRowStatus,
+  threadAsksPerson,
+} from "./relationshipRowStatus.logic";
 
 const runtime = (status: "running" | "idle" | "failed") =>
   ({ status, updatedAt: "2026-11-18T00:00:00.000Z" }) as never;
@@ -97,6 +101,31 @@ describe("relationshipRowStatus for a feature's lead", () => {
         runStatus: null,
       }),
     ).toBe("waiting");
+  });
+});
+
+describe("isFeatureLeadThread", () => {
+  const thread = (fields: object) =>
+    ({
+      feature: { id: "f" },
+      crewRequest: null,
+      lineage: { relationshipToParent: null, parentThreadId: null, rootThreadId: "t" },
+      ...fields,
+    }) as never;
+  it("finds a feature's lead wherever its row sits, a crew member's parent row included", () => {
+    // A crew member's Lineage lists its lead as the parent row: still the lead, read from the board.
+    expect(isFeatureLeadThread(thread({}))).toBe(true);
+    expect(isFeatureLeadThread(thread({ feature: { id: "f", member: "Reviewer" } }))).toBe(false);
+    for (const lineage of [
+      { relationshipToParent: "subagent", parentThreadId: "lead", rootThreadId: "lead" },
+      { relationshipToParent: "fork", parentThreadId: "lead", rootThreadId: "lead" },
+      { relationshipToParent: null, parentThreadId: "lead", rootThreadId: "lead", sideChat: true },
+    ]) {
+      expect(isFeatureLeadThread(thread({ lineage }))).toBe(false);
+    }
+    expect(isFeatureLeadThread(thread({ feature: null }))).toBe(false);
+    expect(isFeatureLeadThread(thread({ crewRequest: { id: "r" } }))).toBe(false);
+    expect(isFeatureLeadThread(null)).toBe(false);
   });
 });
 
