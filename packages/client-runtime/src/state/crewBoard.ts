@@ -246,6 +246,42 @@ export function featureWorkGroup(
   return "working";
 }
 
+/**
+ * What every surface says a feature is: its Work group, with Working split into Waiting and
+ * Failed, or Not started.
+ */
+export type WorkRowStatus = WorkGroupId | "waiting" | "failed" | "not-started";
+
+export const WORK_ROW_LABELS: Record<WorkRowStatus, string> = {
+  ...WORK_GROUP_LABELS,
+  waiting: FEATURE_STATUS_LABELS.waiting,
+  failed: FEATURE_STATUS_LABELS.failed,
+  "not-started": FEATURE_STATUS_LABELS["not-started"],
+};
+
+/**
+ * A feature's Work group and what every surface says it is. Done means merged, so a lead that
+ * reported the feature finished reads Ready for review until its PR merges. Count by `status`:
+ * a feature nobody started has no Work group of its own.
+ */
+export function featureWorkStatus<Shell extends BoardThreadShell & Partial<PullRequestShell>>(
+  card: Pick<FeatureBoardCard, "status" | "leadThreadId" | "parentFeatureId" | "report">,
+  threads: ReadonlyArray<Shell>,
+): {
+  readonly group: WorkGroupId;
+  readonly status: WorkRowStatus;
+  readonly thread: Shell | null;
+} {
+  const group = featureWorkGroup(card, threads);
+  if (card.leadThreadId === null) return { group, status: "not-started", thread: null };
+  const progress = featureProgress(card, threads);
+  const status =
+    progress.status === "failed" || (group === "working" && progress.status === "waiting")
+      ? progress.status
+      : group;
+  return { group, status, thread: progress.thread };
+}
+
 /** Chats follow the same PR groups; completed work without a merged PR can be settled. */
 export function chatWorkGroup(shell: BoardThreadShell & Partial<PullRequestShell>): WorkGroupId {
   const column = threadBoardColumn(shell);

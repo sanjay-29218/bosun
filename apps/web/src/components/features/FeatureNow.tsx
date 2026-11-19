@@ -1,12 +1,11 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  FEATURE_STATUS_LABELS,
+  WORK_ROW_LABELS,
   featureCardKey,
   featureFinished,
-  featureProgress,
   featureRef,
   type EnvironmentFeatureCard,
-  type FeatureStatus,
+  type WorkRowStatus,
 } from "@t3tools/client-runtime/state/crew-board";
 import { buildCrewRoster } from "@t3tools/client-runtime/state/crew-roster";
 import {
@@ -19,8 +18,9 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { useWorkGroup } from "../../state/workGroup";
 import { CrewRosterIcon } from "../crew/CrewRosterIcon";
-import { RelativeTime, WorkingDuration, featureStatus } from "./FeatureCard";
+import { RelativeTime, WorkingDuration } from "./FeatureCard";
 import { parentNow } from "./featureNow.logic";
+import { WorkIcon, featureWork } from "./workStatus";
 
 type Threads = (card: EnvironmentFeatureCard) => ReadonlyArray<EnvironmentThreadShell>;
 
@@ -65,7 +65,7 @@ export function FeatureNow(props: {
 
 function NowLine(props: {
   readonly tone: keyof typeof TONE_SURFACE;
-  readonly icon: FeatureStatus;
+  readonly icon: WorkRowStatus;
   readonly label: string;
   readonly since?: ReactNode;
   readonly children?: ReactNode;
@@ -73,7 +73,7 @@ function NowLine(props: {
   return (
     <div className={cn("-mx-1 rounded-md px-2 py-1.5", TONE_SURFACE[props.tone])}>
       <div className="flex min-w-0 items-center gap-1.5 font-medium">
-        <CrewRosterIcon tone={props.icon} />
+        <WorkIcon status={props.icon} className="size-3.5" />
         <span className="min-w-0 truncate">{props.label}</span>
         {props.since ? (
           <span className="ms-auto shrink-0 font-normal opacity-80">{props.since}</span>
@@ -93,8 +93,7 @@ function FeatureCrewNow(props: {
     card.leadThreadId ? scopeThreadRef(card.environmentId, card.leadThreadId) : null,
   );
   const roster = group ? buildCrewRoster(group).filter((entry) => entry.kind === "member") : [];
-  const { column, status, thread } = featureProgress(card, props.threads);
-  const label = FEATURE_STATUS_LABELS[status];
+  const { status, thread } = featureWork(card, props.threads);
   // A lead waiting because one of its crew asks names that member.
   const asker =
     thread && thread.feature?.member === undefined && thread.pendingSubagentRequest
@@ -122,7 +121,7 @@ function FeatureCrewNow(props: {
         ))}
       </div>
     ) : null;
-  switch (column) {
+  switch (status) {
     case "working": {
       const startedAt = thread ? resolveThreadWorkingStartedAt(thread) : null;
       return (
@@ -136,39 +135,48 @@ function FeatureCrewNow(props: {
         </NowLine>
       );
     }
-    case "needs-you":
-      return thread !== null ? (
+    case "needs-input":
+      return (
         <NowLine
           tone="waiting"
           icon="needs-input"
-          label={askLabel(thread, who)}
+          label={thread ? askLabel(thread, who) : WORK_ROW_LABELS["needs-input"]}
           since={waitedSince(thread)}
         >
           {chain}
         </NowLine>
-      ) : (
-        <NowLine
-          tone="quiet"
-          icon={status}
-          label={
-            status === "done"
-              ? "Done: the lead reported it finished"
-              : status === "failed"
-                ? "Failed: the lead's turn failed"
-                : STOPPED
-          }
-        >
-          {chain}
-        </NowLine>
       );
+    case "waiting":
+    case "failed":
+    case "review":
     case "done":
       return (
-        <NowLine tone="quiet" icon="done" label={label}>
+        <NowLine tone="quiet" icon={status} label={settledLabel(card, props.threads, status)}>
           {chain}
         </NowLine>
       );
-    case "todo":
-      return <NowLine tone="quiet" icon="not-started" label={label} />;
+    case "not-started":
+      return <NowLine tone="quiet" icon="not-started" label={WORK_ROW_LABELS["not-started"]} />;
+  }
+}
+
+/** What a feature that isn't running or asking says about where it stopped. */
+function settledLabel(
+  card: EnvironmentFeatureCard,
+  threads: ReadonlyArray<EnvironmentThreadShell>,
+  status: "waiting" | "failed" | "review" | "done",
+) {
+  switch (status) {
+    case "waiting":
+      return STOPPED;
+    case "failed":
+      return "Failed: the lead's turn failed";
+    case "review":
+      return featureFinished(card, threads)
+        ? "Ready for review: the lead reported it finished"
+        : WORK_ROW_LABELS.review;
+    case "done":
+      return "Done: its pull request merged";
   }
 }
 
@@ -178,21 +186,22 @@ function ParentNow(props: {
   readonly threadsFor: Threads;
 }) {
   // The parent's own threads, without the children's the board merges in.
-  const own = featureStatus(
-    props.card,
-    props.threadsFor(props.card).filter((thread) => thread.feature?.id === props.card.featureId),
-  );
+  const ownThreads = props
+    .threadsFor(props.card)
+    .filter((thread) => thread.feature?.id === props.card.featureId);
+  const own = featureWork(props.card, ownThreads);
   const rows = props.cards.map((card) => ({
     card,
-    ...featureStatus(card, props.threadsFor(card)),
+    ...featureWork(card, props.threadsFor(card)),
   }));
   const now = parentNow(
-    { column: own.column, asks: own.column === "needs-you" && own.thread !== null },
-    rows.map((row) => row.column),
+    { status: own.status, asks: own.status === "needs-input" && own.thread !== null },
+    rows.map((row) => row.status),
   );
   const summary = [
     now.needYou > 0 ? `${now.needYou} need${now.needYou === 1 ? "s" : ""} input` : null,
     now.working > 0 ? `${now.working} working` : null,
+    now.review > 0 ? `${now.review} ready for review` : null,
     `${now.done} of ${now.total} done`,
   ]
     .filter(Boolean)
@@ -204,7 +213,7 @@ function ParentNow(props: {
     "own-asks": {
       tone: "waiting",
       icon: "needs-input",
-      label: own.thread ? askLabel(own.thread, ownWho) : FEATURE_STATUS_LABELS["needs-input"],
+      label: own.thread ? askLabel(own.thread, ownWho) : WORK_ROW_LABELS["needs-input"],
       since: waitedSince(own.thread),
     },
     "children-need-you": { tone: "waiting", icon: "needs-input", label: summary, since: null },
@@ -215,12 +224,15 @@ function ParentNow(props: {
       since: ownStartedAt ? <WorkingDuration startedAt={ownStartedAt} /> : null,
     },
     "children-working": { tone: "working", icon: "working", label: summary, since: null },
-    "own-turn": featureFinished(
-      props.card,
-      props.threadsFor(props.card).filter((thread) => thread.feature?.id === props.card.featureId),
-    )
-      ? { tone: "quiet", icon: "done", label: "Done: the lead reported it finished", since: null }
-      : { tone: "quiet", icon: "waiting", label: STOPPED, since: null },
+    "own-turn": {
+      tone: "quiet",
+      icon: own.status === "failed" || own.status === "review" ? own.status : "waiting",
+      label:
+        own.status === "failed" || own.status === "review"
+          ? settledLabel(props.card, ownThreads, own.status)
+          : STOPPED,
+      since: null,
+    },
     settled: {
       tone: "quiet",
       icon: now.done === now.total ? "done" : "waiting",
@@ -234,10 +246,10 @@ function ParentNow(props: {
     <NowLine tone={lead.tone} icon={lead.icon} label={lead.label} since={lead.since}>
       {ownHeadline ? <div className="mt-0.5 text-2xs opacity-80">{summary}</div> : null}
       <div className="mt-1 grid gap-0.5 text-2xs text-foreground/80">
-        {rows.map(({ card, column, status, thread }) => {
+        {rows.map(({ card, status: rowStatus, look: status, thread }) => {
           const StatusIcon = status.icon;
           const startedAt =
-            column === "working" && thread ? resolveThreadWorkingStartedAt(thread) : null;
+            rowStatus === "working" && thread ? resolveThreadWorkingStartedAt(thread) : null;
           return (
             <div key={featureCardKey(card)} className="flex min-w-0 items-center gap-1.5">
               <StatusIcon aria-hidden className={cn("size-3 shrink-0", status.className)} />
@@ -248,9 +260,9 @@ function ParentNow(props: {
                   <>
                     {crewName(thread)} · <WorkingDuration startedAt={startedAt} />
                   </>
-                ) : column === "needs-you" ? (
+                ) : rowStatus === "done" || rowStatus === "not-started" ? null : (
                   status.label
-                ) : null}
+                )}
               </span>
             </div>
           );

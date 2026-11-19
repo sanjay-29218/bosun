@@ -548,7 +548,7 @@ function ListRowPreview({
         </span>
       ) : mark === "needs-you" ? (
         <span className="shrink-0 rounded-sm bg-warning px-1 text-2xs leading-4 font-semibold text-black">
-          Needs you
+          Needs input
         </span>
       ) : null}
       <span className="min-w-0 truncate text-xs text-muted-foreground">{preview}</span>

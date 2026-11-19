@@ -4,22 +4,22 @@ import {
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
-  CircleDotIcon,
   CircleIcon,
+  CirclePauseIcon,
   MessageCircleQuestionIcon,
   type LucideIcon,
 } from "lucide-react";
 
 import { cn } from "../../lib/utils";
 
-/** How each status word looks, the same on crew rows, feature cards and board rows. */
-export const STATUS_LOOK: Record<
+/** How a crew row's status looks; words it shares with features use their icons (`WORK_LOOK`). */
+const STATUS_LOOK: Record<
   FeatureStatus,
   { readonly className: string; readonly icon: LucideIcon }
 > = {
   working: { className: "text-info-foreground", icon: CircleDashedIcon },
   "needs-input": { className: "text-warning-foreground", icon: MessageCircleQuestionIcon },
-  waiting: { className: "text-muted-foreground", icon: CircleDotIcon },
+  waiting: { className: "text-muted-foreground", icon: CirclePauseIcon },
   done: { className: "text-success-foreground", icon: CircleCheckIcon },
   failed: { className: "text-error-foreground", icon: CircleAlertIcon },
   "not-started": { className: "text-muted-foreground", icon: CircleIcon },

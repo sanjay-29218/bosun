@@ -1,8 +1,8 @@
-import type { FeatureColumn } from "@t3tools/client-runtime/state/crew-board";
+import type { WorkRowStatus } from "@t3tools/client-runtime/state/crew-board";
 
-/** A feature's column, and whether one of its threads is asking the person something. */
+/** A feature's status, and whether one of its threads is asking the person something. */
 export interface NowState {
-  readonly column: FeatureColumn;
+  readonly status: WorkRowStatus;
   readonly asks: boolean;
 }
 
@@ -19,21 +19,28 @@ export type ParentHeadline =
  * lead's question or a child's, then work running in it or its children. Its own lead stopping
  * is normal while children run, so that reads as the person's turn only once they're done.
  */
-export function parentNow(own: NowState, children: ReadonlyArray<FeatureColumn>) {
-  const needYou = children.filter((column) => column === "needs-you").length;
-  const working = children.filter((column) => column === "working").length;
-  const done = children.filter((column) => column === "done").length;
+export function parentNow(own: NowState, children: ReadonlyArray<WorkRowStatus>) {
+  const count = (status: WorkRowStatus) => children.filter((child) => child === status).length;
+  const needYou = count("needs-input");
+  const working = count("working");
   const headline: ParentHeadline =
-    own.column === "needs-you" && own.asks
+    own.status === "needs-input" && own.asks
       ? "own-asks"
       : needYou > 0
         ? "children-need-you"
-        : own.column === "working"
+        : own.status === "working"
           ? "own-working"
           : working > 0
             ? "children-working"
-            : own.column === "needs-you"
-              ? "own-turn"
-              : "settled";
-  return { headline, needYou, working, done, total: children.length };
+            : own.status === "done" || own.status === "not-started"
+              ? "settled"
+              : "own-turn";
+  return {
+    headline,
+    needYou,
+    working,
+    review: count("review"),
+    done: count("done"),
+    total: children.length,
+  };
 }
