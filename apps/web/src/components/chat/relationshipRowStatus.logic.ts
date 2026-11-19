@@ -1,3 +1,4 @@
+import type { WorkRowStatus } from "@t3tools/client-runtime/state/crew-board";
 import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
 
 import { resolveSidebarThreadStatus } from "../Sidebar.logic";
@@ -11,12 +12,15 @@ export function threadAsksPerson(
 }
 
 /**
- * A Lineage row's status. A feature lead reads as its sidebar row does, so one whose crew works
- * waits; any other thread asking the person reads Needs input even while its run runs; the rest
- * take their run's status.
+ * A Lineage row's status. A feature lead reads as its sidebar row does while it works, asks or
+ * fails; once stopped it reads as its feature does on the board (`featureStatus`), so Done only
+ * once merged. Any other thread asking the person reads Needs input even while its run runs; the
+ * rest take their run's status.
  */
 export function relationshipRowStatus(row: {
   readonly featureLead: Parameters<typeof resolveSidebarThreadStatus>[0] | undefined;
+  /** The lead's feature's status, from `featureWorkStatus`; null until its board card loads. */
+  readonly featureStatus?: WorkRowStatus | null;
   readonly asking: boolean;
   readonly runStatus: string | null;
 }): string | null {
@@ -30,9 +34,11 @@ export function relationshipRowStatus(row: {
     case "failed":
     case "limited":
       return "failed";
-    case "ready":
-      return "completed";
     default:
-      return "waiting";
+      return row.featureStatus === "review"
+        ? "ready_for_review"
+        : row.featureStatus === "done"
+          ? "completed"
+          : "waiting";
   }
 }

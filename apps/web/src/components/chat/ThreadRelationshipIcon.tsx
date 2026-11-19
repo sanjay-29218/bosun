@@ -24,6 +24,8 @@ export function threadRelationshipStatusLabel(status: string | null): string {
       return "Waiting";
     case "needs_input":
       return "Needs input";
+    case "ready_for_review":
+      return "Ready for review";
     case "completed":
       return "Done";
     case "failed":
@@ -100,7 +102,7 @@ export function ThreadRelationshipIcon({
               ? "bg-warning"
               : status === "failed" || status === "error"
                 ? "bg-destructive"
-                : status === "completed"
+                : status === "completed" || status === "ready_for_review"
                   ? "bg-success"
                   : "bg-muted-foreground/45",
         )}

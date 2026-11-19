@@ -74,6 +74,24 @@ describe("relationshipRowStatus", () => {
   });
 });
 
+describe("relationshipRowStatus for a feature's lead", () => {
+  it("reads a stopped lead as its feature does: Ready for review until merged, then Done", () => {
+    const finished = lead({ runtime: null });
+    const row = (featureStatus: "review" | "done" | "waiting" | null) =>
+      relationshipRowStatus({
+        featureLead: finished,
+        featureStatus,
+        asking: false,
+        runStatus: null,
+      });
+    expect(row("review")).toBe("ready_for_review");
+    expect(row("done")).toBe("completed");
+    expect(row("waiting")).toBe("waiting");
+    // Before its board card loads, it never claims Done.
+    expect(row(null)).toBe("waiting");
+  });
+});
+
 describe("threadAsksPerson", () => {
   it("counts approvals and questions, not an auth refresh or a thread with none", () => {
     expect(threadAsksPerson(request("user_input"))).toBe(true);
