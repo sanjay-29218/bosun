@@ -583,7 +583,7 @@ const BotListRow = memo(function BotListRow({
       <button
         type="button"
         aria-current={active ? "page" : undefined}
-        aria-label={[bot.name, summary.mark === "needs-you" ? "needs you" : summary.mark]
+        aria-label={[bot.name, summary.mark === "needs-you" ? "needs input" : summary.mark]
           .filter(Boolean)
           .join(", ")}
         className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"

@@ -371,7 +371,7 @@ describe("nestChildFeatureGroups", () => {
     expect(inbox.isWorking(epic)).toBe(false);
     expect(inbox.returnedAt(epic)).toBeGreaterThan(1e15);
     expect(childFeatureSummary(group, (row) => row.id === "child").label).toBe(
-      "2 children · 1 needs you",
+      "2 children · 1 needs input",
     );
     expect(childFeatureFinished(group.childFeatures![1]!)).toBe(true);
     expect(routeChildFeature(group, "local:child")?.primary.id).toBe("child");
@@ -408,7 +408,8 @@ describe("nestChildFeatureGroups", () => {
   it.each([
     { running: [], waiting: [], label: "2 children" },
     { running: ["b"], waiting: [], label: "2 children · 1 running" },
-    { running: ["a", "b"], waiting: ["a"], label: "2 children · 1 needs you · 1 running" },
+    { running: ["a", "b"], waiting: ["a"], label: "2 children · 1 needs input · 1 running" },
+    { running: [], waiting: ["a", "b"], label: "2 children · 2 need input" },
   ])("summarizes children as $label", ({ running, waiting, label }) => {
     const nested = nest([
       shell("epic", "0", tag("epic")),
