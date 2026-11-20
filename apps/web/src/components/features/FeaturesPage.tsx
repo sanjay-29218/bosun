@@ -61,7 +61,7 @@ import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import { shortcutLabelForCommand } from "../../keybindings";
 import { readLocalApi } from "../../localApi";
 import { isModelPickerOpen } from "../../modelPickerVisibility";
-import { useBotRailProjectKeys } from "../../state/botRail";
+import { useBotRailProjectKeys, useVisibleActiveLogicalBot } from "../../state/botRail";
 import { useEnvironments } from "../../state/environments";
 import {
   olderSettledScopes,
@@ -159,6 +159,7 @@ export function FeaturesPage(props: {
   const allProjects = useProjects();
   // The board follows the bot rail like the sidebar does.
   const railProjectKeys = useBotRailProjectKeys();
+  const railBot = useVisibleActiveLogicalBot();
   const projects = allProjects
     .filter(
       (project) =>
@@ -836,7 +837,10 @@ export function FeaturesPage(props: {
   if (projects.length === 0) {
     body = (
       <p className="py-10 text-center text-sm text-muted-foreground">
-        Connect an environment that runs features to see them.
+        {railBot !== null &&
+        allProjects.some((project) => featureEnvironmentIds.has(project.environmentId))
+          ? `${railBot.name} owns no projects. Pick Projects in the rail to see every project.`
+          : "Connect an environment that runs features to see them."}
       </p>
     );
   } else if (empty && filtered) {

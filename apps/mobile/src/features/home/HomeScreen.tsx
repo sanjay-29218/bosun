@@ -663,7 +663,10 @@ export function HomeScreen(props: HomeScreenProps) {
         "this environment");
   const emptyState = deriveHomeEmptyState(props.catalogState, props.projects.length, m);
 
-  if (!hasAnyThreads) {
+  // A picked bot keeps its row once environments are ready, even with nothing to list.
+  const showsBotWithoutThreads =
+    props.botHeader != null && !emptyState.loading && !emptyState.showsAddEnvironment;
+  if (!hasAnyThreads && !showsBotWithoutThreads) {
     return (
       <View className={containerClassName}>
         <ScreenContent surface={sidebarSurface ? "drawer" : "screen"}>
@@ -785,6 +788,7 @@ export function HomeScreen(props: HomeScreenProps) {
   if (Platform.OS === "android" && threadListV2Items.length === 0) {
     return (
       <ScreenContent surface="screen">
+        {v2ListHeader}
         <View
           className="flex-1 items-center justify-center px-4"
           style={{ paddingBottom: insets.bottom }}

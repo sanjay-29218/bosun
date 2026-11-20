@@ -223,42 +223,32 @@ export function createProjectOwnerResolver(bots: ReadonlyArray<LogicalBot>) {
 }
 
 /**
- * `${environmentId}:${projectId}` keys of the projects `bot` shows: the ones it owns, and those
- * with no bot on a machine it may work on. A machine without bots (`botEnvironmentIds` leaves
- * it out) has no bot to show its projects, so every bot does. A project whose owner the rail
- * doesn't list (not loaded yet, or its machine is offline) shows under no bot.
+ * `${environmentId}:${projectId}` keys of the projects `bot` owns, here or on another
+ * environment. A project with no owner, or one whose owner the rail doesn't list (not loaded
+ * yet, or its machine is offline), shows under no bot; the Projects place lists it.
  */
 export function logicalBotProjectKeys(
   bot: LogicalBot,
   bots: ReadonlyArray<LogicalBot>,
   projects: ReadonlyArray<OwnedProject & { readonly id: string }>,
-  botEnvironmentIds: ReadonlySet<EnvironmentId>,
 ): Set<string> {
-  const resolve = createLogicalBotResolver(bots);
-  const keys = new Set<string>();
-  for (const project of projects) {
-    const owner = projectOwner(project);
-    const shown =
-      owner === null
-        ? !botEnvironmentIds.has(project.environmentId) ||
-          logicalBotWorksOn(bot, project.environmentId)
-        : resolve(owner.environmentId, owner.botId) === bot.key;
-    if (shown) keys.add(`${project.environmentId}:${project.id}`);
-  }
-  return keys;
+  const resolve = createProjectOwnerResolver(bots);
+  return new Set(
+    projects
+      .filter((project) => resolve(project) === bot.key)
+      .map((project) => `${project.environmentId}:${project.id}`),
+  );
 }
 
 /**
- * Keys the thread list shows for the rail's pick, or null when nothing narrows it. Owners are
- * read from every bot, pinned or not; projects the list is scoped to always show, such as a
- * picked manager's whose bot isn't pinned.
+ * Keys the thread list shows for the rail's pick, or null when nothing narrows it. A picked bot
+ * shows only what it owns, read from every bot, pinned or not; projects the list is scoped to
+ * always show, such as a picked manager's whose bot isn't pinned.
  */
 export function railProjectKeys(input: {
   readonly active: LogicalBot | null;
-  readonly pinnedBots: ReadonlyArray<LogicalBot>;
   readonly allBots: ReadonlyArray<LogicalBot>;
   readonly projects: ReadonlyArray<OwnedProject & { readonly id: string }>;
-  readonly botEnvironmentIds: ReadonlySet<EnvironmentId>;
   readonly environmentFilter: ReadonlySet<EnvironmentId> | null;
   /** The projects the thread list is scoped to, if any. */
   readonly scopedProjects?: ReadonlyArray<{
@@ -267,16 +257,15 @@ export function railProjectKeys(input: {
   }>;
 }): Set<string> | null {
   const { active, environmentFilter } = input;
-  const filterByBot = active !== null && input.pinnedBots.length > 1;
-  if (!filterByBot && environmentFilter === null) return null;
+  if (active === null && environmentFilter === null) return null;
   const inEnvironment =
     environmentFilter === null
       ? input.projects
       : input.projects.filter((project) => environmentFilter.has(project.environmentId));
-  if (!filterByBot) {
+  if (active === null) {
     return new Set(inEnvironment.map((project) => `${project.environmentId}:${project.id}`));
   }
-  const keys = logicalBotProjectKeys(active, input.allBots, inEnvironment, input.botEnvironmentIds);
+  const keys = logicalBotProjectKeys(active, input.allBots, inEnvironment);
   for (const project of input.scopedProjects ?? []) {
     if (environmentFilter === null || environmentFilter.has(project.environmentId)) {
       keys.add(`${project.environmentId}:${project.id}`);

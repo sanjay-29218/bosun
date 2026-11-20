@@ -67,7 +67,7 @@ export function HomeRouteScreen() {
   const allThreads = useLaunchingThreads(
     useAtomValueWhileVisible(steadyNavigationThreadShellsAtom, visible),
   );
-  // The list shows the active bot's projects; with one bot it shows everything.
+  // The list shows the projects the active bot owns; Projects shows everything.
   const activeBot = useActiveBot();
   useRefreshBotsWhileOpen();
   const botProjectKeys = activeBot.projectKeys;
@@ -126,9 +126,8 @@ export function HomeRouteScreen() {
             activeBot.active,
             activeBot.bots,
             allProjects.filter((project) => !project.isScratch),
-            activeBot.botEnvironmentIds,
           ).size,
-    [activeBot.active, activeBot.botEnvironmentIds, activeBot.bots, allProjects],
+    [activeBot.active, activeBot.bots, allProjects],
   );
   const botHeader = activeBot.active ? (
     <BotHeaderRow
