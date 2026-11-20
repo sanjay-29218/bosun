@@ -1,21 +1,22 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
-import { useCallback, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import type { ThreadListView, ThreadListViewToggle } from "./thread-list-chrome";
 
 /** Saves the List / Board view for `viewKey` (a logical bot key, or "all"). */
 export function useSetThreadListView() {
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const registry = useContext(RegistryContext);
   return useCallback(
     (viewKey: string, view: ThreadListView) =>
-      savePreferences({
+      void runAtomCommand(registry, saveMobilePreferences, {
         transform: (current) => ({
           threadListViewByBot: { ...current.threadListViewByBot, [viewKey]: view },
         }),
       }),
-    [savePreferences],
+    [registry],
   );
 }
 

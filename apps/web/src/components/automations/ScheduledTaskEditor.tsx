@@ -36,6 +36,7 @@ import {
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
 import { scheduleTimeZoneLabel } from "@t3tools/client-runtime/scheduled-task-time-zone";
+import { scheduledTaskWorktreeBaseRef } from "@t3tools/client-runtime/scheduled-task-worktree";
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   MAX_WEBHOOK_FILTERS,
@@ -69,7 +70,7 @@ import {
 import { useProjects, useThreadShell, useVisibleThreadShells } from "../../state/entities";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { botsEnvironment } from "../../state/bots";
-import { useThreadSearch } from "../../state/queries";
+import { usePaginatedBranches, useThreadSearch } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
 import { ProjectManagerAvatar, useProjectManagerIcon } from "../bots/ProjectManagerIcon";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
@@ -182,7 +183,7 @@ const EMPTY_DRAFT: DraftState = {
   threadId: "",
   threadMode: "new_thread",
   workspaceMode: "worktree",
-  baseRef: "main",
+  baseRef: "",
   startFromOrigin: true,
   existingWorktreePath: "",
   modelKey: "",
@@ -1099,6 +1100,19 @@ export function ScheduledTaskEditorForm({
     environment?.serverConfig?.environment.capabilities.scheduledTaskProjectManagers === true
       ? projects.filter((project) => project.isScratch !== true && project.isBotHome !== true)
       : [];
+  const automaticBaseRef = draft.workspaceMode === "worktree" && !draft.baseRef.trim();
+  const automaticBaseRefs = usePaginatedBranches({
+    environmentId,
+    cwd: automaticBaseRef ? (selectedProject?.workspaceRoot ?? null) : null,
+    query: "",
+  });
+  const worktreeBaseRef = scheduledTaskWorktreeBaseRef(draft.baseRef, automaticBaseRefs.refs);
+  // Until the project's refs load, the automatic base would save as `main`. A failed lookup falls back to it.
+  const automaticBaseRefLoading =
+    automaticBaseRef &&
+    selectedProject !== undefined &&
+    automaticBaseRefs.data === null &&
+    automaticBaseRefs.error === null;
   const instanceEntries = providerInstanceEntriesFor(
     providers,
     settings,
@@ -1156,7 +1170,8 @@ export function ScheduledTaskEditorForm({
       saving ||
       editingTaskMissing ||
       !connected ||
-      tasksQuery.data === null
+      tasksQuery.data === null ||
+      automaticBaseRefLoading
     )
       return;
     // A bot or manager task runs on its own model; the stored one only seeds a later switch to a thread.
@@ -1231,7 +1246,7 @@ export function ScheduledTaskEditorForm({
           ? { type: "existing_worktree", worktreePath: draft.existingWorktreePath.trim() }
           : {
               type: "worktree",
-              baseRef: draft.baseRef.trim() || "main",
+              baseRef: worktreeBaseRef,
               startFromOrigin: draft.startFromOrigin,
             };
     const input: ScheduledTaskUpsertInput = {
@@ -1293,7 +1308,7 @@ export function ScheduledTaskEditorForm({
                 projectId: defaultScheduledTaskProjectId(projectsOn(next.environmentId)),
                 modelKey: "",
                 baseModelSelection: null,
-                baseRef: "main",
+                baseRef: "",
                 startFromOrigin: true,
                 existingWorktreePath: "",
               }));
@@ -1553,7 +1568,7 @@ export function ScheduledTaskEditorForm({
               id="scheduled-task-base-ref"
               environmentId={environmentId}
               cwd={selectedProject?.workspaceRoot ?? null}
-              value={draft.baseRef}
+              value={automaticBaseRefLoading ? "" : worktreeBaseRef}
               onValueChange={(baseRef) => setDraft((current) => ({ ...current, baseRef }))}
               startFromOrigin={draft.startFromOrigin}
               onStartFromOriginChange={(startFromOrigin) =>
@@ -2060,6 +2075,7 @@ export function ScheduledTaskEditorForm({
             editingTaskMissing ||
             !connected ||
             !tasksQuery.data ||
+            automaticBaseRefLoading ||
             (draft.enabled && draft.scheduleMode === "webhook" && webhookDenial !== undefined)
           }
           onClick={() => void submit()}

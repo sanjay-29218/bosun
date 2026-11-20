@@ -24,6 +24,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as ModelManifest from "../provider/ModelManifest.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
@@ -223,6 +224,7 @@ export const makeCrewTestOrchestration = (
     Layer.provide(ServerConfigLayer),
     Layer.provideMerge(ServerSettings.layerTest()),
     Layer.provide(TestProviderInstanceRegistry),
+    Layer.provide(ModelManifest.layerTest),
     Layer.provideMerge(gitWorkflowTestLayer(options.createWorktree)),
     Layer.provide(ProjectServiceTestLayer),
     Layer.provide(PlatformTestLayer),

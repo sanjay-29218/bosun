@@ -227,7 +227,12 @@ function UpdateSlot({
     return <SidebarMenuItem className={className}>{children}</SidebarMenuItem>;
   }
   return (
-    <div className={cn("flex w-full", collapsed ? "justify-center" : "flex-col px-2")}>
+    <div
+      className={cn(
+        "flex w-full",
+        collapsed ? "justify-center" : "@container/sidebar-update flex-col px-2",
+      )}
+    >
       {children}
     </div>
   );
@@ -494,7 +499,11 @@ function SidebarUpdateControl({
           ? { status: "downloading", percent: state.downloadPercent }
           : { status: "waiting" };
     return (
-      <UpdateSlot placement={placement} collapsed={collapsed} className="ml-auto flex flex-1">
+      <UpdateSlot
+        placement={placement}
+        collapsed={collapsed}
+        className="@container/sidebar-update ml-auto flex min-w-8 flex-1"
+      >
         <SidebarUpdateCapsule
           compact={placement === "rail" && collapsed}
           side={popupSide}

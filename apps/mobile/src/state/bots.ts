@@ -1,4 +1,5 @@
-import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import {
   botListEnvironmentIds,
   buildConnectedLogicalBots,
@@ -21,7 +22,7 @@ import { AppState } from "react-native";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "./preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "./preferences";
 import { connectedEnvironmentIdsAtom } from "./presentation";
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom } from "./server";
@@ -248,7 +249,12 @@ export function useActiveBot(): ActiveBot {
   const managersKey = useAtomValue(pinnedManagersKeyAtom);
   const projects = useAtomValue(environmentProjects.projectsAtom);
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const registry = useContext(RegistryContext);
+  const savePreferences = useCallback(
+    (update: Parameters<(typeof saveMobilePreferences)["run"]>[1]) =>
+      void runAtomCommand(registry, saveMobilePreferences, update),
+    [registry],
+  );
   const remembered = AsyncResult.isSuccess(preferences)
     ? (preferences.value.activeBotIdByEnvironmentId ?? EMPTY_ACTIVE_BOTS)
     : EMPTY_ACTIVE_BOTS;

@@ -136,6 +136,9 @@ vi.mock("../../state/query", () => ({
   }),
 }));
 vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => mocks.upsert }));
+vi.mock("../../state/queries", () => ({
+  usePaginatedBranches: () => ({ refs: [], data: null, error: null }),
+}));
 
 import { appAtomRegistry } from "../../state/atom-registry";
 import { editDraft } from "./scheduledTaskDraft";
