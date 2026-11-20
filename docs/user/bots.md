@@ -34,10 +34,10 @@ on a machine that isn't answering shows **Offline**; requests to it wait. Projec
 machine that runs T3 Code without Bosun, or that's linked below **Full access**, are listed but
 can't be added until you install Bosun there or link it again with Full access. You can also change
 a project's bot in **Settings → Project → Bot**, or pick **No bot**: a project with no bot still has
-its project manager, which runs on the project's default model (else the environment's). In the
-thread list it shows under every bot whose machine is linked to its machine, and a project on a machine that
-runs T3 Code without Bosun shows under every bot. **Projects** always lists it. Its project manager, pinned in the rail or listed
-under **Bots**, opens from anywhere. A bot can only be deleted once it owns no projects (its
+its project manager, which runs on the project's default model (else the environment's). Picking
+a bot shows only the projects it owns, so a project with no bot shows under no bot; **Projects**
+always lists it. Its project manager, pinned in the rail or listed under **Bots**, opens from
+anywhere. A bot can only be deleted once it owns no projects (its
 home folder doesn't count, and stays behind on Delete): remove each first.
 Deleting a bot also deletes the automations that run as it.
 

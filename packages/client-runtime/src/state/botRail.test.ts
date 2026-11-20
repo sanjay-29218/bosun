@@ -24,7 +24,6 @@ import {
   countNeedsYouByLogicalBot,
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
-  logicalBotHome,
   logicalBotProjectKeys,
   logicalBotProjectLists,
   projectBotId,
@@ -217,44 +216,50 @@ describe("railProjectKeys", () => {
     { environmentId: local, id: "loose", botId: null },
   ];
 
-  it("keeps an unpinned bot's projects its own, and shows its machine's no-bot projects", () => {
+  it("shows only the projects the picked bot owns, never an unpinned bot's or an unowned one", () => {
+    expect([
+      ...railProjectKeys({ active: pinned[0]!, allBots: all, projects, environmentFilter: null })!,
+    ]).toEqual(["local:a"]);
+  });
+
+  it("shows no project for a bot that owns none, even when it's the only one pinned", () => {
+    expect([
+      ...railProjectKeys({ active: pinned[1]!, allBots: all, projects, environmentFilter: null })!,
+    ]).toEqual([]);
     expect([
       ...railProjectKeys({
         active: pinned[0]!,
-        pinnedBots: pinned,
-        allBots: all,
+        allBots: [pinned[0]!],
         projects,
-        botEnvironmentIds: new Set([local]),
         environmentFilter: null,
       })!,
-    ]).toEqual(["local:a", "local:loose"]);
+    ]).toEqual(["local:a"]);
   });
 
   it("shows a project the list is scoped to even when its bot isn't pinned", () => {
     // Picking the pinned manager of Idle's project keeps the rail on A and scopes to it.
     const keys = railProjectKeys({
       active: pinned[0]!,
-      pinnedBots: pinned,
       allBots: all,
       projects,
-      botEnvironmentIds: new Set([local]),
       environmentFilter: null,
       scopedProjects: [{ environmentId: local, id: "idle" }],
     });
-    expect([...keys!]).toEqual(["local:a", "local:loose", "local:idle"]);
+    expect([...keys!]).toEqual(["local:a", "local:idle"]);
   });
 
-  it("doesn't scope with fewer than two pinned bots", () => {
+  it("narrows only by environment with Projects picked", () => {
     expect(
-      railProjectKeys({
-        active: pinned[0]!,
-        pinnedBots: pinned.slice(0, 1),
-        allBots: all,
-        projects,
-        botEnvironmentIds: new Set([local]),
-        environmentFilter: null,
-      }),
+      railProjectKeys({ active: null, allBots: all, projects, environmentFilter: null }),
     ).toBeNull();
+    expect([
+      ...railProjectKeys({
+        active: null,
+        allBots: all,
+        projects: [...projects, { environmentId: remote, id: "far", botId: null }],
+        environmentFilter: new Set([remote]),
+      })!,
+    ]).toEqual(["remote:far"]);
   });
 });
 
@@ -339,12 +344,7 @@ describe("buildLogicalBots with a repeated name", () => {
       ["bot-b"],
     ]);
     expect(
-      logicalBotProjectKeys(
-        bots[1]!,
-        bots,
-        [{ environmentId: local, id: "p", botId: "bot-b" }],
-        new Set([local]),
-      ),
+      logicalBotProjectKeys(bots[1]!, bots, [{ environmentId: local, id: "p", botId: "bot-b" }]),
     ).toEqual(new Set(["local:p"]));
   });
 });
@@ -400,21 +400,21 @@ describe("logicalBotProjectKeys", () => {
     { environmentId: local, id: "d", botId: "bot-unknown" },
   ];
 
-  const withBots = new Set([local, remote]);
-
-  it("selects the projects each entry owns, and its machine's projects with no bot", () => {
-    expect([...logicalBotProjectKeys(bots[1]!, bots, projects, withBots)]).toEqual(["local:a"]);
+  it("selects only the projects each entry owns", () => {
+    expect([...logicalBotProjectKeys(bots[1]!, bots, projects)]).toEqual(["local:a"]);
     // The same-named bot on remote is another entry, with its own project.
-    expect([...logicalBotProjectKeys(bots[4]!, bots, projects, withBots)]).toEqual([
-      "remote:b",
-      "remote:c",
-    ]);
-    expect([...logicalBotProjectKeys(bots[2]!, bots, projects, withBots)]).toEqual(["remote:c"]);
-    expect([...logicalBotProjectKeys(bots[0]!, bots, projects, withBots)]).toEqual([]);
+    expect([...logicalBotProjectKeys(bots[4]!, bots, projects)]).toEqual(["remote:b"]);
+    // remote:c has no owner, so it shows under no bot, not even one on its machine.
+    expect([...logicalBotProjectKeys(bots[2]!, bots, projects)]).toEqual([]);
+    expect([...logicalBotProjectKeys(bots[0]!, bots, projects)]).toEqual([]);
   });
 
-  it("never lists another machine's project under an unrelated bot, owner set or not", () => {
+  it("lists another machine's project only under the bot that owns it", () => {
     const vps = EnvironmentId.make("vps");
+    const vpsBots = [
+      ...bots,
+      ...buildLogicalBots([{ environmentId: vps, bots: [bot("bot-vps", "Ops", 0)] }]),
+    ];
     const linked = [
       { environmentId: vps, id: "omni" },
       { environmentId: vps, id: "owned-there", botId: "bot-vps" },
@@ -425,21 +425,23 @@ describe("logicalBotProjectKeys", () => {
         botId: null,
         remoteBot: { environmentId: vps, botId: "bot-vps", name: "Ops", homeLabel: "VPS" },
       },
+      {
+        environmentId: vps,
+        id: "lent",
+        botId: null,
+        remoteBot: { environmentId: local, botId: "bot-social", name: "Social", homeLabel: "Mac" },
+      },
     ];
-    const localBots = bots.filter((candidate) => logicalBotHome(candidate) === local);
-    // The VPS runs Bosun, but the rail lists none of its bots: an older Bosun, or still loading.
-    const vpsRunsBots = new Set([local, remote, vps]);
-    for (const entry of localBots) {
-      expect([...logicalBotProjectKeys(entry, bots, linked, vpsRunsBots)]).toEqual([]);
-    }
-    // A bot that may work on remote shows remote's projects with no bot, which it can take.
-    const permitted = { ...bots[1]!, linkedEnvironmentIds: [remote] };
-    expect([...logicalBotProjectKeys(permitted, bots, linked, vpsRunsBots)]).toEqual([
-      "remote:loose",
+    // Neither a machine link nor a machine without bots puts a project under a bot.
+    const permitted = { ...vpsBots[1]!, linkedEnvironmentIds: [remote, vps] };
+    expect([...logicalBotProjectKeys(permitted, vpsBots, linked)]).toEqual(["vps:lent"]);
+    expect([...logicalBotProjectKeys(vpsBots.at(-1)!, vpsBots, linked)]).toEqual([
+      "vps:owned-there",
+      "remote:given",
     ]);
-    // A T3 Code server has no bot to show its projects, so every bot does.
-    for (const entry of localBots) {
-      expect([...logicalBotProjectKeys(entry, bots, linked, withBots)]).toEqual(["vps:omni"]);
+    // Until the rail lists the VPS's bot, its projects show under no bot.
+    for (const entry of bots) {
+      expect(logicalBotProjectKeys(entry, bots, linked).has("remote:given")).toBe(false);
     }
   });
 
