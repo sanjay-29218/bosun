@@ -2,10 +2,21 @@ import { useAtomValue } from "@effect/atom-react";
 import { threadKey } from "@t3tools/client-runtime/state/entities";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
-import { resolveSidebarThreadStatus } from "../Sidebar.logic";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { SectionHeaderStatus } from "../ui/collapsible-section-header";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
+import {
+  isFeatureLeadThread,
+  relationshipRowStatus,
+  threadAsksPerson,
+} from "./relationshipRowStatus.logic";
+import { useFeatureBoard } from "../features/useFeatureBoard";
+import {
+  featureCardKey,
+  featureWorkStatus,
+  threadsByFeature,
+  type WorkRowStatus,
+} from "@t3tools/client-runtime/state/crew-board";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
@@ -13,10 +24,7 @@ import {
   projectedSubagentsToRuntime,
   type RuntimeSubagent,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import {
-  type EnvironmentThreadShell,
-  presentThreadShell,
-} from "@t3tools/client-runtime/state/shell";
+import { presentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
   formatSubagentDisplayTitle,
   subagentRunsOn,
@@ -46,6 +54,7 @@ import {
   type OrchestrationV2DelegatedFrom,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadShell,
+  type ProjectId,
   type ServerProvider,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -80,6 +89,7 @@ import {
   useThreadRelationshipShells,
   useHiddenThreadKeys,
   useAnyEnvironmentHiding,
+  useQuietThreadShells,
 } from "../../state/entities";
 import { useEnvironment, useEnvironmentProviders } from "../../state/environments";
 import { serverEnvironment } from "../../state/server";
@@ -230,21 +240,6 @@ function ThreadLineageGroup<Row extends LineageRow>(props: {
 }
 
 const FINISHED_STATUSES = ["completed", "failed", "error", "cancelled", "interrupted", "idle"];
-
-/** A feature lead's status as its sidebar row reads it: a lead whose crew is working waits. */
-function featureLeadStatus(lead: EnvironmentThreadShell): string {
-  switch (resolveSidebarThreadStatus(lead)) {
-    case "working":
-      return "running";
-    case "failed":
-    case "limited":
-      return "failed";
-    case "ready":
-      return "completed";
-    default:
-      return "waiting";
-  }
-}
 
 function relationshipHint(
   edge: ThreadRelationshipEdge,
@@ -553,6 +548,36 @@ function DelegatedFromRow(props: {
   );
 }
 
+type FeatureStatusOf = (leadThreadId: ThreadId) => WorkRowStatus | null;
+const noFeatureStatus: FeatureStatusOf = () => null;
+
+/**
+ * Where each feature-lead row's feature stands on the board. Mounted only for a panel that lists
+ * feature leads, so other threads don't subscribe to every thread shell and board.
+ */
+function FeatureLeadStatuses(props: {
+  readonly environmentId: EnvironmentId;
+  readonly projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+  }>;
+  readonly children: (featureStatusOf: FeatureStatusOf) => ReactNode;
+}) {
+  const board = useFeatureBoard(props.projects);
+  const shells = useQuietThreadShells();
+  const threads = board.cards.length > 0 ? threadsByFeature(shells) : null;
+  const featureStatusOf: FeatureStatusOf = (leadThreadId) => {
+    const card = board.cards.find(
+      (candidate) =>
+        candidate.environmentId === props.environmentId && candidate.leadThreadId === leadThreadId,
+    );
+    return card && threads
+      ? featureWorkStatus(card, threads.get(featureCardKey(card)) ?? []).status
+      : null;
+  };
+  return props.children(featureStatusOf);
+}
+
 export function ThreadRelationshipsPanel(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -682,6 +707,15 @@ export function ThreadRelationshipsPanel(props: {
         ? row
         : { ...row, edge: { ...row.edge, status: workflowGroup.workflow.status } };
     });
+  // A feature lead's row reads as its feature does on the board; only these rows need the board.
+  const featureLeadProjects = [
+    ...new Set(
+      relationshipRows.flatMap(({ threadId }) => {
+        const thread = graph.nodes.get(threadId)?.thread;
+        return thread && isFeatureLeadThread(thread) ? [thread.projectId] : [];
+      }),
+    ),
+  ].map((projectId) => ({ environmentId: props.environmentId, projectId }));
   const canMerge = mergeTargetThreadId !== null && latestMergeBackRun !== null;
   const unlistedThreadIds = relationshipRows
     .filter(
@@ -890,21 +924,29 @@ export function ThreadRelationshipsPanel(props: {
         ? null
         : (graph.nodes.get(mergeTargetThreadId)?.thread?.title ?? null);
 
-  const renderRelationshipRow = ({ threadId, edge }: ThreadRelationshipWalkRow) => {
+  const renderRelationshipRow = (
+    { threadId, edge }: ThreadRelationshipWalkRow,
+    featureStatusOf: FeatureStatusOf,
+  ) => {
     const node = graph.nodes.get(threadId);
     const isSubagent = edge.kind === "subagent";
     const isMergeTarget = threadId === mergeTargetThreadId;
     const isParent = isParentThreadRelationship(edge, props.threadId);
     const finished = finishedRowIds.has(threadId);
+    // Only a feature lead needs its full shell; other rows read their pending request alone.
     const featureLead =
-      edge.kind === "feature" && !isParent && node?.thread
+      node?.thread && isFeatureLeadThread(node.thread)
         ? presentThreadShell(props.environmentId, node.thread)
         : undefined;
-    const rowStatus = featureLead
-      ? featureLeadStatus(featureLead)
-      : ((isParent && threadId === parentRef?.threadId
+    const rowStatus = relationshipRowStatus({
+      featureLead,
+      featureStatus: featureLead ? featureStatusOf(threadId) : null,
+      asking: threadAsksPerson(node?.thread),
+      runStatus:
+        (isParent && threadId === parentRef?.threadId
           ? (node?.thread?.activityRunStatus ?? parentNativeStatus)
-          : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }));
+          : undefined) ?? threadRelationshipRowStatus(graph, { threadId, edge }),
+    });
     const RelationshipIcon = isParent
       ? CornerLeftUpIcon
       : isSubagent
@@ -1171,7 +1213,7 @@ export function ThreadRelationshipsPanel(props: {
     );
   };
 
-  return (
+  const panel = (featureStatusOf: FeatureStatusOf) => (
     <>
       {lineageVisible ? (
         <ThreadDetailsSection
@@ -1247,7 +1289,7 @@ export function ThreadRelationshipsPanel(props: {
                       anyInstanceBadge={hasInstanceBadge(providerEntries)}
                     />
                   ) : (
-                    renderRelationshipRow(row)
+                    renderRelationshipRow(row, featureStatusOf)
                   ),
                 )
               }
@@ -1271,10 +1313,17 @@ export function ThreadRelationshipsPanel(props: {
             rows={sideChats}
             expanded
           >
-            {(visibleRows) => visibleRows.map(renderRelationshipRow)}
+            {(visibleRows) => visibleRows.map((row) => renderRelationshipRow(row, featureStatusOf))}
           </ThreadLineageGroup>
         </ThreadDetailsSection>
       ) : null}
     </>
+  );
+  return featureLeadProjects.length > 0 ? (
+    <FeatureLeadStatuses environmentId={props.environmentId} projects={featureLeadProjects}>
+      {panel}
+    </FeatureLeadStatuses>
+  ) : (
+    panel(noFeatureStatus)
   );
 }

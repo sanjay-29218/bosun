@@ -37,7 +37,7 @@ export const BotHeaderRow = memo(function BotHeaderRow(props: {
   );
   const waiting = headquarters !== undefined && threadNeedsYouKind(headquarters) !== null;
   const working = headquarters !== undefined && !waiting && isThreadWorking(headquarters);
-  const status = waiting ? "needs you" : working ? "working" : null;
+  const status = waiting ? "needs input" : working ? "working" : null;
   const startNewSession = useAtomCommand(botsEnvironment.startNewSession, { reportFailure: false });
   const member = bot.members.find(
     (candidate) => candidate.environmentId === headquarters?.environmentId,

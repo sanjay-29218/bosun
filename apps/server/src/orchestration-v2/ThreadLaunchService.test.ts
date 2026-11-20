@@ -305,7 +305,6 @@ function makeHarness(options: HarnessOptions = {}) {
               botId: "bot-ops",
               remoteBot: null,
               remoteManager: null,
-              managerPermittedEnvironmentIds: null,
               managerPinned: false,
               faviconPath: null,
               projectIcon: null,

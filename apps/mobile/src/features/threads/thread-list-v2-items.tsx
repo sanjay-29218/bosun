@@ -796,7 +796,7 @@ function ThreadListV2WorkGroupLine(props: {
         <Pressable
           className="-m-2 shrink p-2"
           accessibilityRole="button"
-          accessibilityLabel={`Open ${waiting.label}, which needs you`}
+          accessibilityLabel={`Open ${waiting.label}, which needs input`}
           onPress={() => props.onSelectThread(waiting.thread)}
           style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
         >
@@ -809,7 +809,7 @@ function ThreadListV2WorkGroupLine(props: {
             )}
             numberOfLines={1}
           >
-            {waiting.label} needs you
+            {waiting.label} needs input
           </Text>
         </Pressable>
       ) : null}

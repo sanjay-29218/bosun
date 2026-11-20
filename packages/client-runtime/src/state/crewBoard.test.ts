@@ -20,6 +20,8 @@ import {
   featureOpenThreadId,
   featureProgress,
   featureWorkGroup,
+  featureWorkStatus,
+  WORK_ROW_LABELS,
   groupFeaturesByWork,
   featureRef,
   groupFeaturesByColumn,
@@ -348,6 +350,29 @@ describe("work groups", () => {
     ["a running closed feature", { runtime: runtime("running") }, { status: "closed" }, "working"],
   ] as const)("files %s under %s", (_, fields, overrides, group) => {
     expect(featureWorkGroup(card("f", overrides as never), [lead(fields)])).toBe(group);
+  });
+
+  it("says Done only for merged work; a finished feature without one is Ready for review", () => {
+    const report = { outcome: "finished" as const, runId: "run-1" };
+    const statusOf = (fields: object, overrides: object = {}) =>
+      featureWorkStatus(card("f", overrides as never), [lead(fields)]).status;
+    expect(statusOf({}, { report })).toBe("review");
+    expect(statusOf({ pullRequests: [pr("merged")] }, { report })).toBe("done");
+    expect(statusOf({})).toBe("waiting");
+    expect(statusOf({ latestRun: { runId: "run-1", status: "failed" } })).toBe("failed");
+    expect(statusOf({ runtime: runtime("running") })).toBe("working");
+    expect(statusOf({ hasPendingUserInput: true })).toBe("needs-input");
+    // A child that reported finished hands its parent work to review, not merged work.
+    expect(statusOf({}, { report, parentFeatureId: "epic" })).toBe("review");
+    // A feature nobody started, such as an Epic's queued child, isn't working.
+    const queued = featureWorkStatus(card("f", { leadThreadId: null }), []);
+    expect(queued.status).toBe("not-started");
+    expect(WORK_ROW_LABELS[queued.status]).toBe("Not started");
+    // Closed before anyone started it, it still never started.
+    expect(featureWorkStatus(card("f", { leadThreadId: null, status: "closed" }), []).status).toBe(
+      "not-started",
+    );
+    expect(WORK_ROW_LABELS.done).toBe("Done");
   });
 
   it("files chats by their PR, and leaves features not started out of Work", () => {

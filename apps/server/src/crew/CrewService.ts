@@ -54,6 +54,7 @@ import {
 import { crewChangeNotifier } from "./CrewChanges.ts";
 import { CrewThreadRuntime, type OpeningMessage } from "./CrewThreadRuntime.ts";
 import type { LinkedWorkflow } from "./linkedWorkflow.ts";
+import { OLDER_PEER_LEAD_ROLE_ID } from "./olderPeerLead.ts";
 import {
   EPIC_INSTRUCTIONS,
   FEATURE_DELIVERY_INSTRUCTIONS,
@@ -773,6 +774,7 @@ export const CrewServiceLive = Layer.effect(
       yield* store.transaction(
         Effect.gen(function* () {
           for (const sent of copy.roles) {
+            if (sent.id === OLDER_PEER_LEAD_ROLE_ID) continue;
             const fields = {
               name: sent.name,
               instructions: sent.instructions,
@@ -808,7 +810,7 @@ export const CrewServiceLive = Layer.effect(
             const fields = {
               name: sent.name,
               instructions: sent.instructions,
-              crewRoleIds: sent.crewRoleIds,
+              crewRoleIds: sent.crewRoleIds.filter((id) => id !== OLDER_PEER_LEAD_ROLE_ID),
               managedFrom: owner,
             };
             const existing = yield* store.getWorkflow(sent.id);
@@ -849,7 +851,9 @@ export const CrewServiceLive = Layer.effect(
               yield* store.deleteWorkflow(workflow.id);
             }
           }
-          const sentRoles = new Set(copy.roles.map((role) => role.id));
+          const sentRoles = new Set(
+            copy.roles.map((role) => role.id).filter((id) => id !== OLDER_PEER_LEAD_ROLE_ID),
+          );
           // A role this machine's other workflows still use stays, as its own.
           const stillUsed = new Set(
             (yield* store.listWorkflows())

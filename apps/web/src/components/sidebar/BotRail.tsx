@@ -548,7 +548,7 @@ function ListRowPreview({
         </span>
       ) : mark === "needs-you" ? (
         <span className="shrink-0 rounded-sm bg-warning px-1 text-2xs leading-4 font-semibold text-black">
-          Needs you
+          Needs input
         </span>
       ) : null}
       <span className="min-w-0 truncate text-xs text-muted-foreground">{preview}</span>
@@ -583,7 +583,7 @@ const BotListRow = memo(function BotListRow({
       <button
         type="button"
         aria-current={active ? "page" : undefined}
-        aria-label={[bot.name, summary.mark === "needs-you" ? "needs you" : summary.mark]
+        aria-label={[bot.name, summary.mark === "needs-you" ? "needs input" : summary.mark]
           .filter(Boolean)
           .join(", ")}
         className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"

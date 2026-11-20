@@ -300,7 +300,7 @@ export function childFeatureSummary<T extends WorkGroupThread & NeedsYouShell>(
   const total = children.length;
   const label = [
     `${total} ${total === 1 ? "child" : "children"}`,
-    ...(needsYou > 0 ? [`${needsYou} needs you`] : []),
+    ...(needsYou > 0 ? [`${needsYou} ${needsYou === 1 ? "needs" : "need"} input`] : []),
     ...(running > 0 ? [`${running} running`] : []),
   ].join(" · ");
   return { total, running, needsYou, label, compactLabel: String(total) };

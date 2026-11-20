@@ -1530,7 +1530,7 @@ const finishOnBox = (thread: BoxThread, reply: string) =>
     Effect.andThen(Deferred.succeed(thread.finished, undefined)),
   );
 
-it.effect("a bot's headquarters hands a project there to its Feature manager, once per key", () =>
+it.effect("a bot's headquarters hands a project there a request, once per key", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const thread = yield* makeBoxThread;
