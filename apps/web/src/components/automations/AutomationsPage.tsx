@@ -38,6 +38,7 @@ import {
   ScheduledTaskEditorForm,
 } from "./ScheduledTaskEditor";
 import { scheduleLabel, type AutomationsSearch } from "./scheduledTaskEditor.logic";
+import { useClientSettings } from "../../hooks/useSettings";
 
 const RECENT_RUN_LIMIT = 10;
 
@@ -225,12 +226,13 @@ const LAST_RUN_BADGE = {
 } as const;
 
 function TaskStatus({ task }: { readonly task: ScheduledTask }) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const badge = task.lastRunStatus === "never" ? null : LAST_RUN_BADGE[task.lastRunStatus];
   return (
     <div className="space-y-1 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span>
-          {scheduleLabel(task.schedule)} ·{" "}
+          {scheduleLabel(task.schedule, timestampFormat)} ·{" "}
           {!task.enabled ? (
             (automationPausedLabel(task) ?? "Paused")
           ) : task.schedule.type === "webhook" ? (

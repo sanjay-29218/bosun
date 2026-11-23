@@ -23,6 +23,7 @@ import { SidebarHeaderIconButton } from "../sidebar/SidebarThreadHeader";
 import { SidebarContent, SidebarGroup, useSidebar } from "../ui/sidebar";
 import { ScheduledRelativeLabel } from "./ScheduledTaskEditor";
 import { scheduleLabel } from "./scheduledTaskEditor.logic";
+import { useClientSettings } from "../../hooks/useSettings";
 
 /**
  * The sidebar column on the Automations destination: every shown environment's scheduled
@@ -147,6 +148,7 @@ const AutomationRow = memo(function AutomationRow({
   readonly onOpen: () => void;
 }) {
   const { task } = entry;
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const status = running
     ? "Running now"
     : task.blockedByPolicy !== undefined
@@ -186,7 +188,7 @@ const AutomationRow = memo(function AutomationRow({
         </span>
         <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <span className="truncate">
-            {scheduleLabel(task.schedule)}
+            {scheduleLabel(task.schedule, timestampFormat)}
             {status === null ? null : status === "next" ? (
               <>
                 {" · next "}

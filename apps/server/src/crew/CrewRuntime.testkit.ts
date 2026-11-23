@@ -39,6 +39,7 @@ import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexA
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
+import { layerNoTaskFolders } from "../orchestration-v2/ProviderTurnStartService.testkit.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 const PlatformTestLayer = Layer.merge(
   NodeServices.layer,
@@ -220,6 +221,7 @@ export const makeCrewTestOrchestration = (
   ).pipe(
     Layer.provide(McpSessionRegistryTestkit.layer),
     Layer.provide(McpProviderSessions.layer),
+    Layer.provide(layerNoTaskFolders),
     Layer.provide(CheckpointStoreTestLayer),
     Layer.provide(ServerConfigLayer),
     Layer.provideMerge(ServerSettings.layerTest()),

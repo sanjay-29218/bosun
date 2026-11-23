@@ -229,13 +229,13 @@ const handlers = {
   ),
   t3_environment_unlink: McpToolAccess.writesEnvironment(({ environmentId }) =>
     Effect.gen(function* () {
-      const removed = yield* unlinkEnvironment(environmentId).pipe(
+      const result = yield* unlinkEnvironment(environmentId).pipe(
         Effect.mapError(
           (error) =>
             new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message }),
         ),
       );
-      return { environmentId, removed };
+      return { environmentId, ...result };
     }),
   ),
   t3_thread_interrupt: McpToolAccess.writesThreads(

@@ -11,6 +11,7 @@ import {
 import { MANAGER_INSTRUCTIONS_TOOLS } from "../mcp/toolkits/crew/managerInstructionsTools.ts";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Context from "effect/Context";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { McpSchema, McpServer } from "effect/ai";
@@ -34,6 +35,7 @@ import { DeviceService } from "../device/DeviceService.ts";
 import { ServerEnvironment } from "../environment/ServerEnvironment.ts";
 import { GitManager } from "../git/GitManager.ts";
 import { GitWorkflowService } from "../git/GitWorkflowService.ts";
+import { TaskFolders } from "../workspace/TaskFolders.ts";
 import * as McpHttpServer from "../mcp/McpHttpServer.ts";
 import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import { PreviewAutomationBroker } from "../mcp/PreviewAutomationBroker.ts";
@@ -52,6 +54,7 @@ import { PeerLinkRequests } from "../peer/PeerLinkRequests.ts";
 import { PeerLinks } from "../peer/PeerLinks.ts";
 import { RemoteDelegation } from "../peer/RemoteDelegation.ts";
 import { PreviewManager } from "../preview/Manager.ts";
+import { Workflows } from "../workflows/Workflows.ts";
 import { PreviewBrowser } from "../preview/PreviewBrowser.ts";
 import { ManagedProjectFolders } from "../project/ManagedProjectFolders.ts";
 import { ProjectCloneTracker } from "../project/ProjectCloneTracker.ts";
@@ -62,6 +65,8 @@ import { PullRequestReviewGuideService } from "../pullRequest/PullRequestReviewG
 import { PullRequestService } from "../pullRequest/PullRequestService.ts";
 import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { SecretRequests } from "../secrets/SecretRequests.ts";
+import { FeedbackStore } from "../feedback/FeedbackStore.ts";
+import { AnalyticsService } from "../telemetry/AnalyticsService.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
@@ -74,12 +79,14 @@ import budget from "./agentContextBudget.json" with { type: "json" };
 
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
+  Layer.mock(AnalyticsService)({}),
   Layer.mock(AssetSigner)({}),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),
   Layer.mock(EnvironmentThemeService)({}),
   Layer.mock(GitVcsDriver)({}),
   Layer.mock(GitWorkflowService)({}),
+  Layer.mock(TaskFolders)({}),
   Layer.mock(IssueService)({}),
   Layer.mock(ManagedProjectFolders)({ namedProjectsRoot: "" }),
   Layer.mock(McpProviderSessions)({}),
@@ -92,6 +99,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(PreviewAutomationBroker)({}),
   Layer.mock(PreviewBrowser)({}),
   Layer.mock(PreviewManager)({}),
+  Layer.mock(Workflows)({}),
   Layer.mock(ProjectCloneTracker)({}),
   Layer.mock(ProjectService)({}),
   Layer.mock(ProjectSetupScriptRunner)({}),
@@ -103,6 +111,8 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(RemoteDelegation)({}),
   Layer.mock(ScheduledTaskService)({}),
   Layer.mock(SecretRequests)({}),
+  Layer.mock(FeedbackStore)({}),
+  NodeSqliteClient.layer({ filename: ":memory:" }),
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-agent-context-budget-" }),
   Layer.mock(ServerEnvironment)({}),
   Layer.mock(ServerSecretStore)({}),
@@ -240,8 +250,12 @@ it.effect("every crew role and a plain thread reach every tool, with no grants",
     const names = (tools: McpServer.McpServer["Service"]["tools"]) =>
       tools.map(({ tool }) => tool.name);
     // Only linked environments use the link tools, and only a feature's crew member asks the
-    // person in its own thread.
+    // person in its own thread. These scopes have agent feedback off, no background wait, and
+    // t3_workflow serves only clients outside a thread.
     const notListed = new Set([
+      "t3_feedback",
+      "t3_background_wait",
+      "t3_workflow",
       "t3_bot_link_projects",
       "t3_bot_link_task",
       "t3_bot_link_notices",

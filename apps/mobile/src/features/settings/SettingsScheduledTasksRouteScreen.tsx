@@ -914,6 +914,7 @@ function TaskForm({
       schedule,
       enabled: draft.enabled,
       threadId: draft.threadId,
+      ...(draft.threadId === null && draft.task?.threadId != null ? { unbindThread: true } : {}),
       ...(offersThreadModes ? { threadMode: draft.threadMode } : {}),
       // Tasks have no mode picker; a mode above the administrator's ceiling is refused.
       runtimeMode:
@@ -1332,6 +1333,7 @@ function TaskForm({
                   display={Platform.OS === "ios" ? "spinner" : "default"}
                   onDismiss={() => setTimePickerOpen(false)}
                   onValueChange={(_, selected) => {
+                    if (Platform.OS === "android") setTimePickerOpen(false);
                     const timeOfDay = `${String(selected.getHours()).padStart(2, "0")}:${String(selected.getMinutes()).padStart(2, "0")}`;
                     setDraft((current) => ({
                       ...current,

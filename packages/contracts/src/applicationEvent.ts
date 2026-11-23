@@ -18,6 +18,7 @@ import {
   ProjectRemoteBot,
   ProjectRemoteManager,
   ProjectScript,
+  ProjectTrackedFolders,
   StoredProjectIcon,
 } from "./project.ts";
 
@@ -50,6 +51,7 @@ export const ApplicationProjectCreatedPayload = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   /** The bot that owns the project; null for none. Absent on events from before bots. */
   botId: Schema.optional(Schema.NullOr(Schema.String)),
+  trackedFolders: Schema.optional(ProjectTrackedFolders),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -74,6 +76,7 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   managerPinned: Schema.optional(Schema.Boolean),
   /** Where the manager lives; null brings it here. */
   remoteManager: Schema.optional(Schema.NullOr(ProjectRemoteManager)),
+  trackedFolders: Schema.optional(ProjectTrackedFolders),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   updatedAt: IsoDateTime,

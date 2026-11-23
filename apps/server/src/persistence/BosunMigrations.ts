@@ -1,6 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Migrator from "effect/sql/Migrator";
 import * as SqlClient from "effect/sql/SqlClient";
+// A cycle, read only at run time: upstream's manifest decides which ledger rows are its own.
+import { migrationManifest } from "./Migrations.ts";
 
 import Bots from "./Migrations/055_Bots.ts";
 import BotHandoffs from "./Migrations/056_BotHandoffs.ts";
@@ -191,6 +193,7 @@ const tableExists = Effect.fn("BosunMigrations.tableExists")(function* (name: st
   return rows.length > 0;
 });
 
+// Upstream reuses names (its 110_Workflows), so a row of its own manifest is never Bosun's.
 const legacyRows = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   if (!(yield* tableExists("effect_sql_migrations"))) return [];
@@ -202,7 +205,11 @@ const legacyRows = Effect.gen(function* () {
     SELECT migration_id AS migrationId, name, created_at AS createdAt
     FROM effect_sql_migrations WHERE migration_id >= 55
   `;
-  return rows.filter((row) => legacyNames.has(row.name));
+  return rows.filter(
+    (row) =>
+      legacyNames.has(row.name) &&
+      !migrationManifest.some(([id, name]) => id === row.migrationId && name === row.name),
+  );
 });
 
 // Reads first: a current database must take no write lock, so CLI startup never contends

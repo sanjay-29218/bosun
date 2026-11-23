@@ -3,7 +3,6 @@ import {
   type LibraryCopy,
   type LibraryOwner,
   type OrchestratorMcpFailure,
-  type PeerLinkError,
   type RoleConfig,
   type RoleCreateInput,
   type RoleUpdateInput,
@@ -79,7 +78,7 @@ export class LibraryCopies extends Context.Service<
      * Removes this machine's copies from `environmentId` while it answers, then unlinks it. A
      * machine that doesn't answer keeps them; it is unlinked either way.
      */
-    readonly unlink: (environmentId: EnvironmentId) => Effect.Effect<boolean, PeerLinkError>;
+    readonly unlink: PeerLinks.PeerLinks["Service"]["unlink"];
     /** Sends each linked machine the set when it changed since that machine last took one. */
     readonly push: Effect.Effect<void>;
     /** Pushes after every save, and each minute for machines that were off. */

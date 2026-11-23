@@ -7,6 +7,7 @@ import {
   ProjectRemoteBot,
   ProjectRemoteManager,
   ProjectScript,
+  ProjectTrackedFolders,
   ReceivedProjectIcon,
 } from "./project.ts";
 
@@ -33,6 +34,8 @@ export const OrchestrationProjectShell = Schema.Struct({
   managerPinned: Schema.optional(Schema.Boolean),
   /** Set when the project's manager lives on another environment; absent or null: here. */
   remoteManager: Schema.optional(Schema.NullOr(ProjectRemoteManager)),
+  // Absent from older servers; that means a single-folder project.
+  trackedFolders: Schema.optional(ProjectTrackedFolders),
   // Pinned projects lead project pickers; archived ones leave them. Optional so older servers decode.
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)),

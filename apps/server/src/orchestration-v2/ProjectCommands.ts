@@ -8,6 +8,7 @@ import {
   type ProjectRemoteBot,
   type ProjectRemoteManager,
   type ProjectScript,
+  type ProjectTrackedFolder,
   SCRIPT_RUN_COMMAND_PATTERN,
   type ThreadEnvMode,
 } from "@t3tools/contracts";
@@ -27,6 +28,7 @@ export interface ProjectCreateCommand {
   readonly scripts?: ReadonlyArray<ProjectScript>;
   /** The owning bot, none when omitted or null; the caller has checked it exists. */
   readonly botId?: string | null;
+  readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
 }
 
 export interface ProjectMetaUpdateCommand {
@@ -41,6 +43,7 @@ export interface ProjectMetaUpdateCommand {
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
+  readonly trackedFolders?: ReadonlyArray<ProjectTrackedFolder>;
   /** Moves the project to this bot, or to none when null; the caller has checked it exists. */
   readonly botId?: string | null;
   /** Moves the project to a bot on another environment, which clears `botId`. */
@@ -177,6 +180,9 @@ export function planProjectCommand(input: {
           projectIcon: null,
           scripts: command.scripts ?? [],
           botId: command.botId ?? null,
+          ...(command.trackedFolders === undefined || command.trackedFolders.length === 0
+            ? {}
+            : { trackedFolders: command.trackedFolders }),
           createdAt: occurredAt,
           updatedAt: occurredAt,
         },
@@ -228,6 +234,9 @@ export function planProjectCommand(input: {
           ...(command.remoteBot === undefined ? {} : { remoteBot: command.remoteBot }),
           ...(command.managerPinned === undefined ? {} : { managerPinned: command.managerPinned }),
           ...(command.remoteManager === undefined ? {} : { remoteManager: command.remoteManager }),
+          ...(command.trackedFolders === undefined
+            ? {}
+            : { trackedFolders: command.trackedFolders }),
           // Repeating a pin or archive keeps the original time.
           ...(command.pinned === undefined
             ? {}

@@ -100,6 +100,10 @@ export function SidebarUpdateCapsule({
   const failed = machines.some(({ status }) => status === "failed");
   const settled = !hasActiveMachine && run.localVersion === null;
   const restartSeconds = restartSecondsLeft(run, now);
+  const expandedControlClassName =
+    restartSeconds === null
+      ? "@min-[5rem]/sidebar-update:block"
+      : "@min-[12rem]/sidebar-update:block";
 
   const actionLabel =
     view.action === "later" ? gt("Later") : view.action === "retry" ? gt("Retry") : gt("Dismiss");
@@ -135,7 +139,10 @@ export function SidebarUpdateCapsule({
       ) : (
         <div
           className={cn(
-            "relative ml-auto flex h-8 w-8 shrink-0 items-center rounded-full bg-sidebar-control-surface text-sidebar-foreground @min-[12rem]/sidebar-update:w-full",
+            "relative ml-auto flex h-8 w-8 shrink-0 items-center justify-end rounded-full bg-sidebar-control-surface text-sidebar-foreground transition-[width] duration-200 ease-out motion-reduce:transition-none",
+            restartSeconds === null
+              ? "@min-[5rem]/sidebar-update:w-full"
+              : "@min-[12rem]/sidebar-update:w-full",
             view.tone === "slow" && "ring-1 ring-warning/40 ring-inset",
             view.tone === "failed" && "ring-1 ring-destructive/40 ring-inset",
           )}
@@ -149,7 +156,12 @@ export function SidebarUpdateCapsule({
               />
             }
           />
-          <span className="pointer-events-none relative hidden min-w-0 flex-1 truncate pl-3 text-xs @min-[12rem]/sidebar-update:block">
+          <span
+            className={cn(
+              "pointer-events-none relative hidden min-w-0 flex-1 truncate pl-3 text-xs transition-opacity duration-200 ease-out starting:opacity-0 motion-reduce:transition-none",
+              expandedControlClassName,
+            )}
+          >
             <span className={cn(view.tone === "failed" && "text-destructive")}>{view.label}</span>
             {view.slow ? (
               <span className="text-warning tabular-nums"> {view.slow.elapsed}</span>
@@ -158,7 +170,10 @@ export function SidebarUpdateCapsule({
           {view.action !== null ? (
             <button
               type="button"
-              className="relative hidden shrink-0 cursor-pointer pr-3 pl-1.5 text-xs underline decoration-muted-foreground/60 underline-offset-3 hover:decoration-current @min-[12rem]/sidebar-update:block"
+              className={cn(
+                "relative hidden shrink-0 cursor-pointer pr-3 pl-1.5 text-xs underline decoration-muted-foreground/60 underline-offset-3 hover:decoration-current transition-opacity duration-200 ease-out starting:opacity-0 motion-reduce:transition-none",
+                expandedControlClassName,
+              )}
               onClick={runAction}
             >
               {actionLabel}
@@ -167,7 +182,10 @@ export function SidebarUpdateCapsule({
           <span
             className={cn(
               "pointer-events-none relative grid size-8 shrink-0 place-items-center",
-              view.action !== null && "@min-[12rem]/sidebar-update:hidden",
+              view.action !== null &&
+                (restartSeconds === null
+                  ? "@min-[5rem]/sidebar-update:hidden"
+                  : "@min-[12rem]/sidebar-update:hidden"),
               restartSeconds !== null &&
                 "rounded-full text-xs font-medium tabular-nums ring-1 ring-current/22 ring-inset",
             )}

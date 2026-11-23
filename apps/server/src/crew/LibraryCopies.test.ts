@@ -81,7 +81,7 @@ const fakeLinks = (network: Network, environmentId: EnvironmentId) => {
     list: Effect.sync(() =>
       [...linked()].map((id) => ({ environmentId: id }) as unknown as PeerLinkSummary),
     ),
-    unlink: (id) => Effect.sync(() => linked().delete(id)),
+    unlink: (id) => Effect.sync(() => ({ removed: linked().delete(id), endedThere: false })),
   });
 };
 
@@ -376,7 +376,7 @@ describe("LibraryCopies", () => {
         crewRoleIds: ["role:writer"],
       });
 
-      expect(yield* laptop.copies.unlink(boxId)).toBe(true);
+      expect((yield* laptop.copies.unlink(boxId)).removed).toBe(true);
       expect(network.links.get(laptopId)?.has(boxId)).toBe(false);
       expect(yield* box.crew.getWorkflow(release.id)).toBeNull();
       expect(yield* box.crew.getRole("role:editor")).toBeNull();

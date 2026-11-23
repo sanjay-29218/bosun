@@ -58,6 +58,7 @@ import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { ProjectBotSection } from "./ProjectBotSettings";
 import { ProjectManagerSection } from "./ProjectManagerSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { ProjectRepositoriesSettings } from "./ProjectRepositoriesSettings";
 import {
   defaultProjectIcon,
   hasDefaultProjectIcon,
@@ -721,6 +722,7 @@ function ProjectDetail({
                 .bots === true,
           )}
         />
+        <ProjectRepositoriesSettings members={group.memberProjects} />
         {checkoutChoices}
         <SettingsSection title={gt("Danger")}>
           <SettingsRow

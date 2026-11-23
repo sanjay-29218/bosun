@@ -27,11 +27,15 @@ it.effect("upgrades a feature database with Crew queue storage, then drops the e
       INSERT INTO workflow_executions (feature_id, bindings_json) VALUES ('feature-one', '{}')
     `;
     yield* runMigrations();
-    // 093 removed the workflow engine and its storage.
+    // 093 removed the workflow engine and its storage; upstream's own workflow_* tables stay.
     assert.deepStrictEqual(
       yield* sql`
         SELECT name FROM sqlite_master
-        WHERE type = 'table' AND (name GLOB 'workflow_*' OR name IN ('feature_workflows', 'crew_stage_threads'))
+        WHERE type = 'table' AND name IN (
+          'crew_stage_threads', 'workflow_stage_handoffs', 'workflow_executions',
+          'workflow_step_events', 'feature_workflows', 'workflow_definition_revisions',
+          'workflow_definition_heads'
+        )
       `,
       [],
     );

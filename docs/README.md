@@ -11,6 +11,7 @@
 - [Project settings](./user/project-settings.md)
 - [Bots and roles](./user/bots.md)
 - [Features](./user/features.md)
+- [Projects with several repositories](./user/multi-repo-projects.md)
 - [Appearance and themes](./user/appearance.md)
 - [Keyboard shortcuts](./user/keybindings.md)
 - [Voice input](./user/voice-input.md)

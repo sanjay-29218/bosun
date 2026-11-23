@@ -16,6 +16,7 @@ import { scheduleLabel } from "../automations/scheduledTaskEditor.logic";
 import { AUTOMATIONS_PATH } from "../sidebar/mainAppLocation";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
+import { useClientSettings } from "../../hooks/useSettings";
 
 /**
  * On a bot's headquarters or a project manager's thread, the automations that run as it; each
@@ -28,6 +29,7 @@ export function ThreadBotAutomationsSection(props: {
   const botId = headquartersBotId(props.threadId);
   const managerProjectId = headquartersProjectId(props.threadId);
   const tasks = useEnvironmentScheduledTasks(props.environmentId);
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
   const navigate = useNavigate();
   const environment = useEnvironment(props.environmentId);
   const canSave = useAtomValue(
@@ -64,7 +66,7 @@ export function ThreadBotAutomationsSection(props: {
             <span className="min-w-0 flex-1 truncate text-start">{task.title}</span>
             <span className="shrink-0 truncate text-xs text-muted-foreground">
               {task.enabled
-                ? scheduleLabel(task.schedule)
+                ? scheduleLabel(task.schedule, timestampFormat)
                 : (automationPausedLabel(task) ?? "Paused")}
             </span>
           </ThreadDetailsControl>
