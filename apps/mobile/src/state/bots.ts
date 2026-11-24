@@ -220,12 +220,10 @@ export interface ActiveBot {
   readonly managers: ReadonlyArray<PinnedManager>;
   readonly needsYou: ReadonlyMap<string, number>;
   /**
-   * `environmentId:projectId` keys of the active bot's projects, or null to show every
-   * project (one bot, or none yet).
+   * `environmentId:projectId` keys of the projects the active bot owns, or null to show every
+   * project (Projects picked, or no bot).
    */
   readonly projectKeys: ReadonlySet<string> | null;
-  /** The environments that run bots, which `logicalBotProjectKeys` reads. */
-  readonly botEnvironmentIds: ReadonlySet<EnvironmentId>;
   /** Where List / Board is remembered: the active bot, or "all" with one bot or none. */
   readonly viewKey: string;
   readonly select: (bot: LogicalBot) => void;
@@ -301,13 +299,9 @@ export function useActiveBot(): ActiveBot {
     [needsYouKey],
   );
   const switching = bots.length > 1 && active !== null;
-  const botEnvironments = useMemo(
-    () => new Set(botEnvironmentIds(environmentKey)),
-    [environmentKey],
-  );
   const projectKeys = useMemo(
-    () => (switching ? logicalBotProjectKeys(active, bots, projects, botEnvironments) : null),
-    [active, botEnvironments, bots, projects, switching],
+    () => (active === null ? null : logicalBotProjectKeys(active, bots, projects)),
+    [active, bots, projects],
   );
   const select = useCallback(
     (bot: LogicalBot) =>
@@ -331,21 +325,10 @@ export function useActiveBot(): ActiveBot {
       managers,
       needsYou,
       projectKeys,
-      botEnvironmentIds: botEnvironments,
       viewKey: switching ? active.key : "all",
       select,
       showProjects,
     }),
-    [
-      active,
-      botEnvironments,
-      bots,
-      managers,
-      needsYou,
-      projectKeys,
-      select,
-      showProjects,
-      switching,
-    ],
+    [active, bots, managers, needsYou, projectKeys, select, showProjects, switching],
   );
 }

@@ -151,7 +151,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
   const allProjects = useProjects();
   const allThreads = useLaunchingThreads(useAtomValue(steadyNavigationThreadShellsAtom));
   const { startNewTask } = useAdaptiveWorkspaceLayout();
-  // The list shows the active bot's projects; with one bot it shows everything.
+  // The list shows the projects the active bot owns; Projects shows everything.
   const activeBot = useActiveBot();
   useRefreshBotsWhileOpen();
   const botProjectKeys = activeBot.projectKeys;
@@ -191,9 +191,8 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             activeBot.active,
             activeBot.bots,
             allProjects.filter((project) => !project.isScratch),
-            activeBot.botEnvironmentIds,
           ).size,
-    [activeBot.active, activeBot.botEnvironmentIds, activeBot.bots, allProjects],
+    [activeBot.active, activeBot.bots, allProjects],
   );
   const botSwitcher = useMemo(
     () =>

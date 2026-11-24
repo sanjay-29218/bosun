@@ -11,7 +11,7 @@ import { useState, type KeyboardEvent } from "react";
 
 import { formatShortcutLabel } from "../../keybindings";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
-import { useBotRailProjectKeys } from "../../state/botRail";
+import { useBotRailProjectKeys, useEnvironmentFilter } from "../../state/botRail";
 import { useProjects } from "../../state/entities";
 import { featuresEnvironment } from "../../state/features";
 import { useEnvironmentQuery } from "../../state/query";
@@ -65,26 +65,30 @@ const projectKey = (project: { readonly environmentId: EnvironmentId; readonly i
 export function NewTodoDialogHost() {
   const target = useAtomValue(newTodoDialogAtom);
   const featureEnvironmentIds = useFeatureEnvironmentIds();
+  const environmentFilter = useEnvironmentFilter();
+  // Offers every project, since a picked bot may own none; the default is one of its own.
   const railProjectKeys = useBotRailProjectKeys();
   const projects = useProjects()
     .filter(
       (project) =>
         featureEnvironmentIds.has(project.environmentId) &&
-        (railProjectKeys === null || railProjectKeys.has(projectKey(project))),
+        (environmentFilter === null || environmentFilter.has(project.environmentId)),
     )
     .toSorted((a, b) => a.title.localeCompare(b.title));
   if (target === null) return null;
-  return <NewTodoDialog target={target} projects={projects} />;
+  const initial = target.project;
+  const defaultKey = initial
+    ? `${initial.environmentId}:${initial.projectId}`
+    : (projects.map(projectKey).find((key) => railProjectKeys?.has(key) ?? true) ?? null);
+  return <NewTodoDialog target={target} projects={projects} defaultKey={defaultKey} />;
 }
 
 function NewTodoDialog(props: {
   readonly target: NewTodoTarget;
   readonly projects: ReadonlyArray<EnvironmentProject>;
+  readonly defaultKey: string | null;
 }) {
-  const initial = props.target.project;
-  const [selectedKey, setSelectedKey] = useState(
-    initial ? `${initial.environmentId}:${initial.projectId}` : null,
-  );
+  const [selectedKey, setSelectedKey] = useState(props.defaultKey);
   const project =
     props.projects.find((candidate) => projectKey(candidate) === selectedKey) ??
     props.projects[0] ??

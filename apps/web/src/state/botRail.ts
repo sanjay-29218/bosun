@@ -374,12 +374,9 @@ export function useHiddenNeedsYouCount(): number {
  * isn't narrowing to one bot. Pass it to `botRailShowsThread` with the project keys.
  */
 export function useBotRailHeadquartersKeys(): ReadonlySet<string> | null {
-  const bots = useVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
-  return active !== null && bots.length > 1
-    ? logicalBotHeadquartersKeys(active, environmentFilter)
-    : null;
+  return active === null ? null : logicalBotHeadquartersKeys(active, environmentFilter);
 }
 
 /**
@@ -387,12 +384,10 @@ export function useBotRailHeadquartersKeys(): ReadonlySet<string> | null {
  * active bot and environment filter, or null when nothing is filtered.
  */
 export function useBotRailProjectKeys(): ReadonlySet<string> | null {
-  const bots = useVisibleLogicalBots();
   const allBots = useAllVisibleLogicalBots();
   const active = useVisibleActiveLogicalBot();
   const environmentFilter = useEnvironmentFilter();
   const projects = useAtomValue(environmentProjects.projectsAtom);
-  const botEnvironmentIds = useBotEnvironmentIds();
   const scopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const groups = useSettingsProjectGroups();
   const scopedProjects = groups
@@ -400,10 +395,8 @@ export function useBotRailProjectKeys(): ReadonlySet<string> | null {
     .flatMap((group) => group.memberProjects);
   return railProjectKeys({
     active,
-    pinnedBots: bots,
     allBots,
     projects,
-    botEnvironmentIds: new Set(botEnvironmentIds),
     environmentFilter,
     scopedProjects,
   });
