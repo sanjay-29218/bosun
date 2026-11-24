@@ -192,8 +192,11 @@ export const makeCrewTestOrchestration = (
     /** The provider snapshots the environment reports; none by default. */
     readonly providers?: ReadonlyArray<ServerProvider>;
   } = {},
-) =>
-  Layer.mergeAll(
+) => {
+  const setupScripts = Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
+    runForThread: options.runSetup ?? (() => Effect.succeed({ status: "no-script" as const })),
+  });
+  return Layer.mergeAll(
     RuntimeLayer.layer,
     ProviderRegistryMock.layer(options.providers ?? []),
     ProjectStore.layer,
@@ -207,10 +210,7 @@ export const makeCrewTestOrchestration = (
           WorktreeSetupTracker.layer,
           Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
           Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
-          Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
-            runForThread:
-              options.runSetup ?? (() => Effect.succeed({ status: "no-script" as const })),
-          }),
+          setupScripts,
           Layer.mock(TextGeneration.TextGeneration)({}),
           ProviderRegistryMock.layer(),
           CrewTestManagedFolders.pipe(Layer.provide(ProjectStore.layer)),
@@ -229,8 +229,10 @@ export const makeCrewTestOrchestration = (
     Layer.provide(ModelManifest.layerTest),
     Layer.provideMerge(gitWorkflowTestLayer(options.createWorktree)),
     Layer.provide(ProjectServiceTestLayer),
+    Layer.provide(setupScripts),
     Layer.provide(PlatformTestLayer),
   );
+};
 
 export const CrewTestOrchestration = makeCrewTestOrchestration();
 

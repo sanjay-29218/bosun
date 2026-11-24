@@ -348,6 +348,12 @@ function RemoteSubagentRow(props: {
   const failed = status === "failed";
   const finished = FINISHED_STATUSES.includes(status);
   const waiting = remoteChild === undefined;
+  const timing = {
+    status,
+    startedAt: props.agent.startedAt ? DateTime.formatIso(props.agent.startedAt) : null,
+    completedAt: props.agent.completedAt ? DateTime.formatIso(props.agent.completedAt) : null,
+  };
+  const showElapsed = !failed && deriveSubagentElapsedMs(timing, 0) !== null;
   const title = relationshipThreadTitle({
     title: props.agent.title ?? gt("Subagent"),
     isSubagent: true,
@@ -402,7 +408,14 @@ function RemoteSubagentRow(props: {
                 on <Var>{label}</Var>
               </T>
             </span>
-            <span className="shrink-0">· {threadRelationshipStatusLabel(status, m)}</span>
+            <span className="shrink-0 tabular-nums">
+              ·{" "}
+              {showElapsed ? (
+                <AgentElapsed agent={timing} compact />
+              ) : (
+                threadRelationshipStatusLabel(status, m)
+              )}
+            </span>
           </span>
         </TooltipTrigger>
         <TooltipPopup side="left">

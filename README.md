@@ -224,7 +224,7 @@ From T3 Code:
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
 - [Run T3 Code as a background service](./docs/user/background-service.md)
 
-Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md)
+Building from source? Start at [docs/internals/01_architecture.md](./docs/internals/01_architecture.md)
 and read [`BOSUN.md`](./BOSUN.md) for Bosun's branch model and upstream sync.
 
 ### Install `vp`

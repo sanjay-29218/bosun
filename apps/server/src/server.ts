@@ -39,7 +39,6 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as HostPowerMonitor from "./background/HostPowerMonitor.ts";
-import * as NonBlockingSpawner from "./process/NonBlockingSpawner.ts";
 import * as KeepAwake from "./background/KeepAwake.ts";
 import * as ServerConfig from "./config.ts";
 import { withRootRequestSpans, withUntracedRequests } from "./http.ts";
@@ -54,6 +53,7 @@ import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import * as ProcessLauncher from "./process/ProcessLauncher.ts";
 import * as SpawnWorker from "./process/SpawnWorker.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
@@ -84,6 +84,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import * as OpenCodeRuntime from "@t3tools/provider-opencode/server/OpenCodeRuntime";
 import * as OpenCodeServerLedger from "@t3tools/provider-opencode/server/OpenCodeServerLedger";
 import * as ProviderHostLive from "./provider/ProviderHostLive.ts";
+import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import * as DocumentText from "./provider/DocumentText.ts";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
@@ -96,6 +97,7 @@ import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as SecretCheck from "./secrets/SecretCheck.ts";
 import * as SecretResolver from "./secrets/SecretResolver.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
+import * as ProviderHostPathWatcher from "./provider/ProviderHostPathWatcher.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
@@ -417,11 +419,11 @@ const layerHttpServer = Layer.unwrap(
 ).pipe(
   Layer.provide(ManagedPolicy.layer),
   // NodeHttpServer.layer also outputs NodeServices, whose spawner would shadow the wrapped one.
-  (layer) => NonBlockingSpawner.layer.pipe(Layer.provideMerge(layer)),
+  (layer) => ProcessLauncher.layerServer.pipe(Layer.provideMerge(layer)),
 );
 
 const layerPlatformServices = DocumentText.layer.pipe(
-  Layer.provideMerge(NonBlockingSpawner.layer),
+  Layer.provideMerge(ProcessLauncher.layerServer),
   Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, layerSpawner)),
 );
 
@@ -737,6 +739,7 @@ const layerServerRestart = Layer.effect(
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   AgentAwarenessRelay.layer,
+  ProviderHostPathWatcher.layer.pipe(Layer.provide(layerDesktopTelemetryReceiver)),
   HeldHooksWaker.layer,
   layerThreadSettlementWorker,
   layerIdleCompactionWorker,
@@ -910,6 +913,7 @@ const layerMakeRoutes = Layer.mergeAll(
       Layer.provide(ServerHttp.layerServerEnvironmentHttpApi),
       Layer.provide(WebhookRoute.layer.pipe(Layer.provide(RelayDeliveryProof.layer))),
       Layer.provide(AuthHttp.layerAuthenticatedAuth),
+      Layer.provide(ServerHttp.layerApiBodyLimit),
     ),
     ServerHttp.layerOtlpTracesProxyRoute,
     ServerHttp.layerAssetRoute,
@@ -951,52 +955,57 @@ const layerMakeRoutes = Layer.mergeAll(
       Effect.flatMap((copies) => ServerActivation.forkParked(copies.run)),
     ),
   ),
-).pipe(
-  Layer.provide(
-    PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
-  ),
-  // delegate_task to a linked environment, from /mcp and the follower above.
-  Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
-  // Workflows and roles copied to linked machines, for WebSocket, /mcp and the loop above.
-  Layer.provide(LibraryCopies.layer),
-  // A bot's projects and requests on linked environments, for /mcp and RemoteDelegation.
-  Layer.provide(BotReach.layer),
-  // Copying or moving a bot to a linked environment, for WebSocket and /mcp.
-  Layer.provide(BotTransfer.layer),
-  // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
-  Layer.provide(PeerLinkRequests.layer),
-  // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
-  Layer.provide(layerPullRequestService),
-  Layer.provide(layerThreadIssueService),
-  Layer.provide(layerIssueService),
-  // The same activity instance RunExecutionService reports to, by layer memoization.
-  Layer.provide(
-    ServerBrowser.layer.pipe(
-      Layer.provide(Layer.merge(DesktopBrowserChannel.layer, PreviewAgentActivity.layer)),
+)
+  .pipe(
+    Layer.provide(
+      PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),
     ),
-  ),
-  Layer.provide(PreviewBrowser.layer),
-  // Links to other environments, shared by clients (WebSocket) and agents (/mcp).
-  Layer.provide(
-    Layer.mergeAll(PeerForwarding.layer, PeerThreadRelay.layer, PeerClientPairing.layer).pipe(
-      Layer.provideMerge(PeerMcpClient.layer),
-      Layer.provideMerge(PeerLinks.layer),
+    // delegate_task to a linked environment, from /mcp and the follower above.
+    Layer.provide(RemoteDelegation.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+    // Workflows and roles copied to linked machines, for WebSocket, /mcp and the loop above.
+    Layer.provide(LibraryCopies.layer),
+    // A bot's projects and requests on linked environments, for /mcp and RemoteDelegation.
+    Layer.provide(BotReach.layer),
+    // Copying or moving a bot to a linked environment, for WebSocket and /mcp.
+    Layer.provide(BotTransfer.layer),
+    // Links agents ask for: shown in a thread from /mcp, answered over WebSocket.
+    Layer.provide(PeerLinkRequests.layer),
+    // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
+    Layer.provide(layerPullRequestService),
+    Layer.provide(layerThreadIssueService),
+    Layer.provide(layerIssueService),
+    // The same activity instance RunExecutionService reports to, by layer memoization.
+    Layer.provide(
+      ServerBrowser.layer.pipe(
+        Layer.provide(Layer.merge(DesktopBrowserChannel.layer, PreviewAgentActivity.layer)),
+      ),
     ),
-  ),
-  Layer.provide(
-    SpeechService.layer.pipe(
-      Layer.provide(layerServerSettings),
-      Layer.provide(SpeechModelStore.layer),
+    Layer.provide(PreviewBrowser.layer),
+    // Links to other environments, shared by clients (WebSocket) and agents (/mcp).
+    Layer.provide(
+      Layer.mergeAll(PeerForwarding.layer, PeerThreadRelay.layer, PeerClientPairing.layer).pipe(
+        Layer.provideMerge(PeerMcpClient.layer),
+        Layer.provideMerge(PeerLinks.layer),
+      ),
     ),
-  ),
-  Layer.provide(CloudSpeech.layer.pipe(Layer.provide(SecretResolver.layer))),
-  Layer.provide(layerServerSettings),
-  Layer.provide(PreviewAutomationBroker.layer),
-  Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
-  Layer.provide(layerCommandReadiness),
-  Layer.provide(ServerHttp.layerBrowserApiCors),
-  Layer.provide(ServerHttp.layerHttpCompression),
-);
+    Layer.provide(
+      SpeechService.layer.pipe(
+        Layer.provide(layerServerSettings),
+        Layer.provide(SpeechModelStore.layer),
+      ),
+    ),
+    Layer.provide(CloudSpeech.layer.pipe(Layer.provide(SecretResolver.layer))),
+    Layer.provide(layerServerSettings),
+    Layer.provide(PreviewAutomationBroker.layer),
+    Layer.provide(ServerSelfUpdate.layer.pipe(Layer.provide(layerDesktopAppUpdate))),
+  )
+  .pipe(
+    // pipe takes at most 20 steps.
+    Layer.provide(ProviderMaintenanceRunner.layer),
+    Layer.provide(layerCommandReadiness),
+    Layer.provide(ServerHttp.layerBrowserApiCors),
+    Layer.provide(ServerHttp.layerHttpCompression),
+  );
 
 const layerMakeServer = Layer.unwrap(
   Effect.gen(function* () {
@@ -1470,5 +1479,7 @@ const layerMakeServer = Layer.unwrap(
 
 export const runServer = Layer.launch(
   // For the layers above whose spawner requirement is not met by one of them.
-  layerMakeServer.pipe(Layer.provide(NonBlockingSpawner.layer.pipe(Layer.provide(layerSpawner)))),
+  layerMakeServer.pipe(
+    Layer.provide(ProcessLauncher.layerServer.pipe(Layer.provide(layerSpawner))),
+  ),
 );

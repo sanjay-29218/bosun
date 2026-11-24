@@ -8,6 +8,7 @@ import {
 } from "@t3tools/client-runtime/state/subagent-display";
 import {
   isActiveSubagentStatus,
+  promptTitle,
   type RuntimeSubagent,
   type SubagentWorkflowGroup,
 } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -22,8 +23,6 @@ import { resolveSelectableModel } from "@t3tools/shared/model";
 import { msg } from "gt-react-native";
 
 import { m, type MessageResolver } from "../../i18n/messages";
-
-const PROMPT_TITLE_LIMIT = 80;
 
 export type SubagentRowTone = "working" | "completed" | "failed" | "stopped";
 
@@ -83,9 +82,7 @@ function rowTitle(
   if (title) return formatSubagentDisplayTitle(title);
   const prompt = subagent.prompt.trim();
   if (prompt.length === 0) return resolve(msg("Subagent"));
-  return prompt.length > PROMPT_TITLE_LIMIT
-    ? `${prompt.slice(0, PROMPT_TITLE_LIMIT - 3)}...`
-    : prompt;
+  return promptTitle(prompt);
 }
 
 function rowTone(status: OrchestrationV2Subagent["status"]): SubagentRowTone {

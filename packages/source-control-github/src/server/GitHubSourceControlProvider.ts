@@ -356,6 +356,14 @@ class GitHubFailure extends Schema.TaggedError<GitHubFailure>()("GitHubFailure",
   cause: Schema.Defect(),
 }) {}
 
+class GitHubRepositoryLookupError extends Schema.TaggedError<GitHubRepositoryLookupError>()(
+  "GitHubRepositoryLookupError",
+  {
+    userFacingDetail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
+
 const failure = (detail: string, cause?: unknown) => new GitHubFailure({ detail, cause });
 const isGitHubFailure = Schema.is(GitHubFailure);
 
@@ -385,6 +393,7 @@ const refineRepositoryIdentity: NonNullable<
 
 const PULL_REQUEST_NOT_FOUND = "Pull request not found. Check the PR number or URL and try again.";
 const REPOSITORY_NOT_FOUND = "Repository not found. Check the owner and name and try again.";
+const isGitHubApiNotFoundError = Schema.is(GitHubRequestPolicy.GitHubApiNotFoundError);
 
 function fromGitHubApiError(
   error: GitHubRequestPolicy.GitHubApiError,
@@ -1818,8 +1827,27 @@ export const make = Effect.gen(function* () {
                 name: bareName,
               }
             : null);
-        if (locator === null) return yield* failure("Repositories are named owner/name.");
-        return repositoryCloneUrls(yield* readRepository(locator));
+        if (locator === null) {
+          const detail = "Repositories are named owner/name.";
+          return yield* failure(
+            detail,
+            new GitHubRepositoryLookupError({ userFacingDetail: detail }),
+          );
+        }
+        return repositoryCloneUrls(
+          yield* readRepository(locator).pipe(
+            Effect.mapError((error) => {
+              if (!isGitHubApiNotFoundError(error.cause)) return error;
+              const detail = SourceControlProvider.repositoryNotFoundDetail(
+                `${locator.owner}/${locator.name}`,
+              );
+              return failure(
+                detail,
+                new GitHubRepositoryLookupError({ userFacingDetail: detail, cause: error.cause }),
+              );
+            }),
+          ),
+        );
       },
       (effect, input) =>
         effect.pipe(

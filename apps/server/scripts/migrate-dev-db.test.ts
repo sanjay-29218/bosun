@@ -7,7 +7,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../src/persistence/Migrations.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
-import { runMigrateDevDb } from "./migrate-dev-db.ts";
+import { dropResumableFamilies, runMigrateDevDb } from "./migrate-dev-db.ts";
 
 const withDatabase = <A, E, R>(
   databasePath: string,
@@ -114,6 +114,8 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ["subagent-child", "project-kept", "completed", subagentPayload, "2026-08-05"],
         ["deleted-project-thread", "project-deleted", "completed", "{}", "2026-08-05"],
         ["home-thread", "project-home", "completed", "{}", "2026-08-06"],
+        // Finished, but startup recovery would deliver its unread steer and start a turn.
+        ["steer-thread", "project-kept", "completed", "{}", "2026-08-09"],
       ] as const;
       for (const [threadId, projectId, runStatus, payload, updatedAt] of threads) {
         yield* sql`INSERT INTO orchestration_v2_projection_threads
@@ -136,6 +138,10 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
           (id, project_id, title, brief, created_at, updated_at, status, crew_assignments_json)
           VALUES (${featureId}, 'project-kept', ${featureId}, 'Brief', '2026-08-01', '2026-08-01', 'open', '{}')`;
       }
+      yield* sql`INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, ordinal, type, status, updated_at, payload_json)
+        VALUES ('steer-item', 'steer-thread', 'run-steer-thread', 2, 'user_message', 'pending',
+          '2026-08-09', '{"inputIntent":"steer"}')`;
       // A V1 thread the server already imported must not trip the legacy guard.
       yield* sql`INSERT INTO projection_threads
         (thread_id, project_id, title, model_selection_json, runtime_mode, created_at, updated_at)
@@ -372,6 +378,79 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         handoffs.map((row) => row.id),
         ["handoff-run-kept"],
       );
+    }),
+  );
+
+  it.effect("drops resumable families from a seed in place, the pending steer included", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-resumable-" });
+      const sharedHome = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-home-" });
+      const database = yield* createFixtureSource(dir);
+
+      assert.equal(yield* dropResumableFamilies(database, { sharedHome }), 4);
+      const { threads, sessions } = yield* withDatabase(
+        database,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return {
+            threads: yield* sql<{ thread_id: string }>`
+              SELECT thread_id FROM orchestration_v2_projection_threads ORDER BY thread_id`,
+            sessions: yield* sql<{ provider_session_id: string }>`
+              SELECT provider_session_id FROM orchestration_v2_projection_provider_sessions`,
+          };
+        }),
+      );
+      assert.deepStrictEqual(
+        threads.map((row) => row.thread_id),
+        [
+          "archived-thread",
+          "deleted-project-thread",
+          "fork-thread",
+          "home-thread",
+          "settled-thread",
+          "stopped-thread",
+        ],
+      );
+      assert.deepStrictEqual(
+        sessions.map((row) => row.provider_session_id),
+        ["session-shared"],
+        "a session the kept stopped-thread still binds stays with it",
+      );
+      assert.equal(yield* dropResumableFamilies(database, { sharedHome }), 0);
+    }),
+  );
+
+  it.effect("refuses to drop from the shared database through a symlink or a hard link", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const sharedHome = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-shared-" });
+      const elsewhere = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-link-" });
+      const fixture = yield* createFixtureSource(sharedHome);
+      const live = path.join(sharedHome, "userdata", "statev2.sqlite");
+      yield* fs.makeDirectory(path.dirname(live), { recursive: true });
+      yield* fs.rename(fixture, live);
+      const symlink = path.join(elsewhere, "statev2.sqlite");
+      yield* fs.symlink(live, symlink);
+      // A hard link has its own path; only the file's identity gives it away.
+      const hardLink = path.join(elsewhere, "copy.sqlite");
+      yield* fs.link(live, hardLink);
+
+      for (const link of [symlink, hardLink]) {
+        const refused = yield* Effect.flip(dropResumableFamilies(link, { sharedHome }));
+        assert.equal(refused._tag, "MigrateDevDbSharedHomeError", link);
+      }
+      const threads = yield* withDatabase(
+        live,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const [row] = yield* sql<{ n: number }>`
+            SELECT COUNT(*) AS n FROM orchestration_v2_projection_threads`;
+          return Number(row?.n ?? 0);
+        }),
+      );
+      assert.equal(threads, 11, "the shared database is untouched");
     }),
   );
 
