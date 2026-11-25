@@ -81,6 +81,7 @@ import {
 } from "./webhookDedupe.ts";
 import { describeFailedWebhookFilter, findFailedWebhookFilter } from "./webhookFilter.ts";
 import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerification.ts";
+import { withLocalTracing } from "@t3tools/shared/relayTracing";
 
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 
@@ -1789,19 +1790,21 @@ export const layer = Layer.effect(
               const fromRef =
                 signature?.secretRef === undefined
                   ? undefined
-                  : yield* secretRequests
-                      // Asked for in the caller's project, which a bot task isn't filed in.
-                      .consume({
-                        ref: signature.secretRef,
-                        projectId: input.projectId ?? projectId,
-                      })
-                      .pipe(
-                        Effect.catch((error) =>
-                          replay
-                            ? Effect.void
-                            : Effect.fail(taskError(error.message, { taskId: id })),
-                        ),
-                      );
+                  : yield* (
+                      secretRequests
+                        // Asked for in the caller's project, which a bot task isn't filed in.
+                        .consume({
+                          ref: signature.secretRef,
+                          projectId: input.projectId ?? projectId,
+                        })
+                        .pipe(
+                          Effect.catch((error) =>
+                            replay
+                              ? Effect.void
+                              : Effect.fail(taskError(error.message, { taskId: id })),
+                          ),
+                        )
+                    );
               // A ref, when given, is the only source: a plain secret sent
               // alongside it must not replace what a replayed save stored.
               const provided = signature?.secretRef === undefined ? signature?.secret : fromRef;
@@ -2933,6 +2936,9 @@ export const layer = Layer.effect(
           yield* runWebhookDelivery(task, deliveryId, rendered.prompt).pipe(
             permit.withPermits(1),
             Effect.ensuring(release),
+            // A relay-delivered webhook is traced to the relay; the run it starts is local work
+            // whose spans carry workspace paths.
+            withLocalTracing,
             Effect.forkIn(serviceScope),
           );
           // Dispatch owns the accepted delivery now; retries must keep its claim.

@@ -459,7 +459,6 @@
   "bc24c300d53d61c5": "{host} n’a répondu sur aucune route enregistrée.",
   "b0dd3cd876937ca8": "Le profil de connexion {connectionId} n’est pas disponible.",
   "5ce46783e79ca9d1": "Les identifiants de connexion {connectionId} ne sont pas disponibles.",
-  "0bda0cac7f5acc20": "L’environnement connecté {actual} ne correspond pas à {expected}.",
   "ea0d3e4e51d5706f": "Les identifiants de l’environnement ne sont pas valides.",
   "7283ebfd16d09677": "Les identifiants de l’environnement n’accordent pas l’accès requis.",
   "d3e9a9cb543b4b7b": "L’environnement a rejeté la demande d’authentification.",
@@ -5627,5 +5626,35 @@
   "5d0c71caa8f328b0": "Effacer",
   "efe8657d62633cd4": "Effacer l’objectif",
   "3cdda4bfc05d6bf5": "S’exécute sur {label}. Connectez-vous-y pour ouvrir son fil.",
-  "0752b8ccc7dfba04": "S’exécute sur {label}"
+  "0752b8ccc7dfba04": "S’exécute sur {label}",
+  "b39d1428ec8b23f5": "Cette adresse exécute désormais une autre installation de T3 Code ({actual}, et non {expected}). Supprimez cette connexion et ajoutez-la à nouveau.",
+  "1cbfbcad9f0d04fe": "Reprise de la session de {provider}",
+  "796b81c4875c4feb": [
+    "L’app ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " a besoin d’un serveur ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " plus récent sur cet environnement. Mettez à jour le serveur pour l’utiliser."
+  ],
+  "d71048f4fb9cf44a": "En attente de synchronisation",
+  "fc9c3a00cfc18b55": "Tous les types",
+  "e4d1316c85ed7066": "Aucune question de ce type ne vous attend.",
+  "45a94c724845ec1d": "Autres",
+  "892f08d21b8e48a9": "Fusionner {layers} dans {base} avec {kind, select, squash {squash} merge {merge} rebase {rebase} fastForward {fast-forward} other {{method}}} dès que leurs conditions sont remplies. Cela peut se produire immédiatement.",
+  "89bf40eb2503b6c5": "Nouvel appareil connecté à {environment}",
+  "c94b5fe9ef372bc0": "{device} s’est connecté via {product}. Si ce n’était pas vous, supprimez-le dans Paramètres → Accès de T3 Code sur cet ordinateur.",
+  "bec67d0ed485f885": "{count, plural, one {{count} appareil s’est connecté} other {{count} appareils se sont connectés}} via {product}. Si ce n’était pas vous, supprimez-les dans Paramètres → Accès de T3 Code sur cet ordinateur.",
+  "18c30aa94d0a807f": "Diagnostic de connexion",
+  "eb287395a09cd288": "Envoyer les traces de connexion",
+  "6787f93bbf6ce0b6": "Aide l’équipe T3 Code à résoudre les problèmes de connexion. Les traces contiennent des durées, des types d’erreur, un identifiant de cette session de l’app et la version de l’app, jamais vos fils, prompts ni votre code. Modifiable dans Réglages > À propos de T3 Code > Diagnostic.",
+  "0b1e4aecbd38e0cf": "Quand l’app se connecte à un ordinateur via {product}, elle envoie à l’équipe T3 Code la durée de chaque étape, le type d’erreur, un identifiant de cette session de l’app et la version de l’app. Les traces n’incluent jamais vos fils, prompts ni votre code.",
+  "e0856d6a402ad821": "La politique de {organization} n’autorise pas les commandes de disposition des worktrees des projets."
 }

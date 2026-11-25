@@ -459,7 +459,6 @@
   "bc24c300d53d61c5": "{host} hat auf keiner gespeicherten Route geantwortet.",
   "b0dd3cd876937ca8": "Verbindungsprofil {connectionId} ist nicht verfügbar.",
   "5ce46783e79ca9d1": "Zugangsdaten der Verbindung {connectionId} sind nicht verfügbar.",
-  "0bda0cac7f5acc20": "Die verbundene Umgebung {actual} stimmt nicht mit {expected} überein.",
   "ea0d3e4e51d5706f": "Die Zugangsdaten der Umgebung sind ungültig.",
   "7283ebfd16d09677": "Die Zugangsdaten der Umgebung gewähren nicht den erforderlichen Zugriff.",
   "d3e9a9cb543b4b7b": "Die Umgebung hat die Authentifizierungsanfrage abgelehnt.",
@@ -5633,5 +5632,35 @@
   "5d0c71caa8f328b0": "Löschen",
   "efe8657d62633cd4": "Ziel löschen",
   "3cdda4bfc05d6bf5": "Läuft auf {label}. Verbinde dich damit, um seinen Thread zu öffnen.",
-  "0752b8ccc7dfba04": "Läuft auf {label}"
+  "0752b8ccc7dfba04": "Läuft auf {label}",
+  "b39d1428ec8b23f5": "Unter dieser Adresse läuft jetzt eine andere T3 Code-Installation ({actual}, nicht {expected}). Entferne diese Verbindung und füge sie erneut hinzu.",
+  "1cbfbcad9f0d04fe": "{provider}-Sitzung wird fortgesetzt",
+  "796b81c4875c4feb": [
+    "Die App ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " benötigt einen neueren ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    "-Server in dieser Umgebung. Aktualisiere den Server, um sie zu nutzen."
+  ],
+  "d71048f4fb9cf44a": "Wartet auf Synchronisierung",
+  "fc9c3a00cfc18b55": "Alle Arten",
+  "e4d1316c85ed7066": "Keine Fragen dieser Art warten auf dich.",
+  "45a94c724845ec1d": "Sonstige",
+  "892f08d21b8e48a9": "{layers} per {kind, select, squash {Squash} merge {Merge} rebase {Rebase} fastForward {Fast-Forward} other {{method}}} in {base} mergen, sobald die Anforderungen erfüllt sind. Das kann sofort passieren.",
+  "89bf40eb2503b6c5": "Neues Gerät bei {environment} angemeldet",
+  "c94b5fe9ef372bc0": "{device} hat sich über {product} verbunden. Warst du das nicht, entferne es in T3 Code auf diesem Computer unter Einstellungen → Zugriff.",
+  "bec67d0ed485f885": "{count, plural, one {{count} Gerät hat} other {{count} Geräte haben}} sich über {product} verbunden. Warst du das nicht, entferne sie in T3 Code auf diesem Computer unter Einstellungen → Zugriff.",
+  "18c30aa94d0a807f": "Verbindungsdiagnose",
+  "eb287395a09cd288": "Verbindungs-Traces senden",
+  "6787f93bbf6ce0b6": "Hilft dem T3 Code-Team, Verbindungsprobleme zu beheben. Traces enthalten Zeiten, Fehlertypen, eine ID für diese App-Sitzung und die App-Version, nie deine Threads, Prompts oder deinen Code. Du kannst das unter Einstellungen > Über T3 Code > Diagnose ändern.",
+  "0b1e4aecbd38e0cf": "Wenn die App über {product} eine Verbindung zu einem Computer herstellt, sendet sie dem T3 Code-Team, wie lange jeder Schritt gedauert hat, den Fehlertyp, eine ID für diese App-Sitzung und die App-Version. Traces enthalten nie deine Threads, Prompts oder deinen Code.",
+  "e0856d6a402ad821": "Die Richtlinie von {organization} erlaubt keine Worktree-Layout-Befehle von Projekten."
 }

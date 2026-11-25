@@ -59,6 +59,7 @@ import { ProjectBotSection } from "./ProjectBotSettings";
 import { ProjectManagerSection } from "./ProjectManagerSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { ProjectRepositoriesSettings } from "./ProjectRepositoriesSettings";
+import { ProjectWorktreeLayoutSettings } from "./ProjectWorktreeLayoutSettings";
 import {
   defaultProjectIcon,
   hasDefaultProjectIcon,
@@ -723,6 +724,7 @@ function ProjectDetail({
           )}
         />
         <ProjectRepositoriesSettings members={group.memberProjects} />
+        <ProjectWorktreeLayoutSettings members={group.memberProjects} />
         {checkoutChoices}
         <SettingsSection title={gt("Danger")}>
           <SettingsRow

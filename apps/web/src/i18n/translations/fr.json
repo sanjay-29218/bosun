@@ -446,7 +446,6 @@
   "bc24c300d53d61c5": "{host} n’a répondu sur aucune route enregistrée.",
   "b0dd3cd876937ca8": "Le profil de connexion {connectionId} n’est pas disponible.",
   "5ce46783e79ca9d1": "Les identifiants de connexion {connectionId} ne sont pas disponibles.",
-  "0bda0cac7f5acc20": "L’environnement connecté {actual} ne correspond pas à {expected}.",
   "ea0d3e4e51d5706f": "Les identifiants de l’environnement ne sont pas valides.",
   "7283ebfd16d09677": "Les identifiants de l’environnement n’accordent pas l’accès requis.",
   "d3e9a9cb543b4b7b": "L’environnement a rejeté la demande d’authentification.",
@@ -3791,8 +3790,6 @@
   "478e3b4551be4db3": "Afficher le texte extrait",
   "e7205ebfead1aafc": "Aperçu vidéo agrandi",
   "1bda77e861bb472f": "Aperçu d’image agrandi",
-  "eebe5b17e3c19a1c": "Retour, fermer l’aperçu vidéo",
-  "58fd0009a6eb7258": "Retour, fermer l’aperçu d’image",
   "47bae54b5f532ff3": "Média précédent",
   "fb9434aad2b5c0bb": "Impossible de charger cette image.",
   "26aee5d4e97bfb28": "Image indisponible. Le fichier a peut-être été déplacé ou supprimé.",
@@ -6794,27 +6791,6 @@
   "be3d1766bad18693": "Checks : {summary}",
   "425e4a3d6c5c2867": "{count, plural, one {{count} en échec} other {{count} en échec}}",
   "cb116c139cdace98": "Aucun check signalé",
-  "d84d09b4818c50b7": [
-    {
-      "t": "span",
-      "i": 1,
-      "c": [
-        {
-          "i": 2,
-          "k": "_gt_value_2",
-          "v": "v"
-        },
-        "/",
-        {
-          "i": 3,
-          "k": "_gt_value_3",
-          "v": "v"
-        }
-      ]
-    },
-    " ",
-    "checks"
-  ],
   "60b56e201607c7ec": "Les détails des checks ne sont plus à jour. Actualisez la pull request pour les mettre à jour.",
   "e74cd4e960cbb5e5": "Les lignes inchangées ne sont pas disponibles dans un fichier aux lignes tronquées.",
   "38d6169e04a9a4ce": "Impossible de charger plus de commentaires",
@@ -8880,7 +8856,6 @@
   "a9cdd8c7073be920": "Palette de commandes : afficher/masquer",
   "4e0943e8c7a465d1": "Sélecteur de fichiers : afficher/masquer",
   "df5fdcdf26a6b52a": "Recherche dans le projet : afficher/masquer",
-  "a8ff6d33b060736f": "Utilisation : ouvrir",
   "a513d51b71b95674": "Thème : sélectionner",
   "1ffd8427452372e1": "Apparence : alterner",
   "3a3bb4a7551a87cc": "Éditeur de thème : afficher/masquer",
@@ -11504,10 +11479,7 @@
       "v": "v"
     }
   ],
-  "f54364b854a07918": "Aucun hub configuré.",
   "4cf6a373a7535324": "{name} · Désactivé",
-  "1d1e9cda847bd398": "La clé de gestion du hub est supprimée de ce serveur. Ses comptes quittent la vue Limites ; le hub lui-même n’est pas touché. Ajoutez-le à nouveau avec l’URL et la clé pour les récupérer.",
-  "c9bee4f93481b77a": "Supprimer le hub",
   "0424112d5a0ecd71": "Auto",
   "3f0e1b77e45d53a9": "Appuyer pour basculer, maintenir pour parler",
   "45928549c050a1b4": "Maintenir",
@@ -12130,7 +12102,6 @@
   "f938bb483eb3d189": "redémarre en dernier",
   "9bca02be2b4d612a": "non connecté",
   "2dcc418b6a13b83c": "nécessite une mise à jour manuelle",
-  "5c8ebc36f84dee7a": "nécessite une version plus récente de l’app de bureau",
   "fa8faa732a2688ef": "sur le canal {channel}",
   "9b961309baafa09d": "pas d’autorisation",
   "9bafb2622c22d145": "déjà en cours de mise à jour",
@@ -12858,5 +12829,154 @@
   "8ebba639f92932c3": "Permet à d’autres appareils d’ouvrir les serveurs locaux de cette machine : onglets de navigateur chargés sur l’appareil, Ouvrir sur cet appareil et redirection de ports. Désactivé : les onglets du navigateur sont diffusés depuis cette machine.",
   "1c5266bf18d0ed24": "Autoriser le tunnel d’aperçu",
   "a4e6dee662edc3cf": "Tunnel d’aperçu",
-  "8ed7c2a2226f4663": "localhost loopback redirection de ports ouvrir sur cet appareil onglets navigateur diffusion sécurité port forwarding"
+  "8ed7c2a2226f4663": "localhost loopback redirection de ports ouvrir sur cet appareil onglets navigateur diffusion sécurité port forwarding",
+  "b39d1428ec8b23f5": "Cette adresse exécute désormais une autre installation de T3 Code ({actual}, et non {expected}). Supprimez cette connexion et ajoutez-la à nouveau.",
+  "1cbfbcad9f0d04fe": "Reprise de la session de {provider}",
+  "70bdebaa3d291d3b": "Fil indisponible",
+  "a351ebbdcf1a3f7a": "Ce fil se trouve dans un environnement auquel cette app n’est pas connectée.",
+  "fb633d54edaeb4b1": "Fermer l’aperçu vidéo",
+  "62d0c453f5803180": "Fermer l’aperçu d’image",
+  "796b81c4875c4feb": [
+    "L’app ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " a besoin d’un serveur ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " plus récent sur cet environnement. Mettez à jour le serveur pour l’utiliser."
+  ],
+  "76cf478e5674fd12": "{count, plural, one {{count} correspondance} other {{count} correspondances}}",
+  "fd63b391898889f9": "{count, plural, one {{count} en attente d’action} other {{count} en attente d’action}}",
+  "65300794c1edb929": "Jeton Bearer (facultatif)",
+  "0c026221dcd2820b": "Ajouter une source de quotas HTTP",
+  "d185c750156b2121": [
+    "Consultez les quotas depuis un point de terminaison sur ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "."
+  ],
+  "2324770ba91371ac": "URL du point de terminaison",
+  "e4e5b75bba51396c": "Jeton Bearer (facultatif)",
+  "7d7f65967cc821e3": "Largeur des aperçus HTML",
+  "70ce0af7f78d5957": "Permet aux aperçus HTML d’une discussion d’être plus larges que ses messages, qui restent centrés.",
+  "f2b119bf02ae2558": "Réinitialiser la largeur des aperçus HTML à la valeur par défaut",
+  "6287212fed0deec6": "Comme la discussion",
+  "dc8e85ea0364649c": "Comme la discussion (par défaut)",
+  "0ca6fd2b8fcab2c3": "Utilisation : Afficher ou masquer",
+  "39f64d971ba424b5": "Aucune source de suivi de l’utilisation configurée.",
+  "dbd877abdc2c7c81": "Source de quotas HTTP",
+  "c792e744936dbe1b": "Ajouter une source HTTP",
+  "4032a03ee5301037": "La connexion enregistrée et ses identifiants sont supprimés de cet environnement.",
+  "9d5c7430a7ff76cf": "large pleine largeur intégré page rendu graphique tableau de bord artefact centré",
+  "933dabf0700708af": "Nombre d’exécutions ignorées que chaque workflow conserve dans son historique. Les exécutions ignorées plus anciennes sont supprimées ; celles qui ont fait quelque chose sont toujours conservées.",
+  "f172d7e5deb24f75": "Rétablir la valeur par défaut des exécutions ignorées conservées",
+  "ba94015389f327bc": "Exécutions ignorées conservées",
+  "4b2669dcdb7d3776": "workflow historique rétention supprimer anciennes exécutions ignorées webhook history retention skipped runs",
+  "353b08f4363dbb2c": "En attente",
+  "374dac09151d4578": "En attente",
+  "a8f30f631e2b010e": "En attente de synchronisation avec son environnement",
+  "f13e08bd3614112e": "mettez à jour T3 Code sur cette machine",
+  "3c3348c36a2695af": "changez le canal de mise à jour sur cette machine",
+  "e65649675cb4cbaa": "désactivé",
+  "a1e7c08d9ef315c7": "chargement en cours",
+  "0e34c3076c08feb2": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": [
+        "↻ +",
+        {
+          "i": 2,
+          "k": "_gt_value_2",
+          "v": "v"
+        },
+        "%"
+      ]
+    },
+    " ",
+    "dans ",
+    {
+      "i": 3,
+      "k": "_gt_value_3",
+      "v": "v"
+    }
+  ],
+  "45a94c724845ec1d": "Autres",
+  "8eeb9cb07d7c59e1": "Type de question",
+  "e4d1316c85ed7066": "Aucune question de ce type ne vous attend.",
+  "e2131cbec8accfe3": "Tous les types",
+  "3b0f1659172107e4": "Tous les types",
+  "8a883c4fbc127b68": "Activation de la fusion automatique de la pile...",
+  "5fb2a26ae31e8983": "Impossible d’activer la fusion automatique de la pile",
+  "986d0dcbf4dd0098": "Fusion automatique de la pile activée",
+  "f3ed1f63c8a3eef2": "{host} fusionnera la pile jusqu’à #{number} dès que ses conditions seront remplies.",
+  "bd536a0a1754f6cb": "Impossible d’annuler la fusion automatique de la pile",
+  "bb90ac3b2f3a72d5": "L’hôte a refusé d’annuler la fusion automatique. Actualisez et réessayez.",
+  "9c28753c777c37b7": "{count, plural, one {Fusionner automatiquement {count} {term, select, mr {merge request} cr {demande de modification} other {pull request}} ?} other {Fusionner automatiquement {count} {term, select, mr {merge requests} cr {demandes de modification} other {pull requests}} ?}}",
+  "a86b49982e18784d": "Fusionner #{number} et ses couches non fusionnées inférieures dans {base} avec {method} dès que chacune remplit les conditions de {host}. Cela peut se produire immédiatement.",
+  "b1afda5c964deee4": [
+    "Fusion automatique de la pile (",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ")"
+  ],
+  "33d18dda74f6d7b3": "Annuler la fusion automatique de la pile",
+  "012c67c7f1a99e33": "Fusion automatique de la pile",
+  "4a18481bea4b4ad5": "Nouvel appareil connecté à {environmentLabel}",
+  "4144ab6aa487528a": "{device} s’est connecté via {product}. Ce n’était pas vous ? Vérifiez-le.",
+  "a10cfdb27152c757": "{count, plural, one {{count} appareil s’est connecté} other {{count} appareils se sont connectés}} via {product}. Ce n’était pas vous ? Vérifiez-les.",
+  "e0856d6a402ad821": "La politique de {organization} n’autorise pas les commandes de disposition des worktrees des projets.",
+  "206811f6f441bfc7": "Ce projet prépare ses worktrees avec sa propre commande, que personne n’a approuvée telle qu’elle est écrite actuellement. Cette connexion ne peut pas l’approuver : approuvez-la depuis un client qui peut utiliser le terminal.",
+  "b8087c9a70c26da9": "Impossible d’approuver la commande de disposition des worktrees.",
+  "49eda70cfd56e621": "S’exécute au démarrage d’un fil dans un worktree et à la restauration de son dossier",
+  "188ccaa1199f5611": "S’exécute à la suppression du worktree d’un fil",
+  "7e8476e7306acabe": "Autoriser ce projet à exécuter ses commandes de worktree ?",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " prépare les fils en worktree avec ses propres commandes issues de ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    ". Elles s’exécutent sur la machine de cet environnement avec vos autorisations, hors de tout bac à sable d’agent. La question vous sera reposée chaque fois que leur texte changera."
+  ],
+  "46807acd02a4ff72": "Approuver et continuer",
+  "a9cb97fca6a6576b": "Commande de création",
+  "90f45a354884ccdd": "Commande de suppression",
+  "78e308ada516928b": "Impossible d’approuver la commande",
+  "a0c772d32a233da6": "Impossible de révoquer l’approbation",
+  "0cdc8cdbed3e5eae": "Disposition des worktrees",
+  "c17b25519e2b194e": "Impossible de charger les commandes de disposition des worktrees",
+  "5ccd5614c65f8d1f": "Révoquer l’approbation de la commande {kind}",
+  "80c3794a5fa12f3a": "Approuver la commande {kind}",
+  "f206891e124c77b0": [
+    "Le ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " de ce projet prépare les fils en worktree avec ses propres commandes. Elles s’exécutent sur la machine de cet environnement avec vos autorisations, et uniquement telles qu’approuvées ici : une commande dont le texte change doit être approuvée de nouveau."
+  ],
+  "f6a91589456cca50": "Approuvée",
+  "c92657bb7f2293ff": "Approbation requise",
+  "f1e5c1be1ac92361": "Approuver",
+  "fcb5f3c4d4753326": "Cette connexion ne peut pas approuver de commandes. Utilisez un client qui peut utiliser le terminal."
 }

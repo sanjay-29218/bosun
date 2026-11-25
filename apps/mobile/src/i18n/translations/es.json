@@ -459,7 +459,6 @@
   "bc24c300d53d61c5": "{host} no respondió en ninguna de las rutas guardadas.",
   "b0dd3cd876937ca8": "El perfil de conexión {connectionId} no está disponible.",
   "5ce46783e79ca9d1": "La credencial de conexión {connectionId} no está disponible.",
-  "0bda0cac7f5acc20": "El entorno conectado {actual} no coincide con {expected}.",
   "ea0d3e4e51d5706f": "La credencial del entorno no es válida.",
   "7283ebfd16d09677": "La credencial del entorno no concede el acceso necesario.",
   "d3e9a9cb543b4b7b": "El entorno rechazó la solicitud de autenticación.",
@@ -5627,5 +5626,35 @@
   "5d0c71caa8f328b0": "Borrar",
   "efe8657d62633cd4": "Borrar objetivo",
   "3cdda4bfc05d6bf5": "Se ejecuta en {label}. Conéctate a él para abrir su hilo.",
-  "0752b8ccc7dfba04": "Se ejecuta en {label}"
+  "0752b8ccc7dfba04": "Se ejecuta en {label}",
+  "b39d1428ec8b23f5": "Esta dirección ahora ejecuta otra instalación de T3 Code ({actual}, no {expected}). Elimina esta conexión y vuelve a añadirla.",
+  "1cbfbcad9f0d04fe": "Reanudando la sesión de {provider}",
+  "796b81c4875c4feb": [
+    "La app ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " necesita un servidor de ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " más reciente en este entorno. Actualiza el servidor para usarla."
+  ],
+  "d71048f4fb9cf44a": "Esperando sincronización",
+  "fc9c3a00cfc18b55": "Todos los tipos",
+  "e4d1316c85ed7066": "No hay preguntas de este tipo esperándote.",
+  "45a94c724845ec1d": "Otras",
+  "892f08d21b8e48a9": "Fusionar {layers} en {base} con {kind, select, squash {squash} merge {merge} rebase {rebase} fastForward {fast-forward} other {{method}}} cuando se cumplan sus requisitos. Puede ocurrir de inmediato.",
+  "89bf40eb2503b6c5": "Nuevo dispositivo conectado a {environment}",
+  "c94b5fe9ef372bc0": "{device} se conectó a través de {product}. Si no fuiste tú, quítalo en Ajustes → Acceso en T3 Code en ese ordenador.",
+  "bec67d0ed485f885": "{count, plural, one {{count} dispositivo se conectó} other {{count} dispositivos se conectaron}} a través de {product}. Si no fuiste tú, quítalos en Ajustes → Acceso en T3 Code en ese ordenador.",
+  "18c30aa94d0a807f": "Diagnóstico de conexión",
+  "eb287395a09cd288": "Enviar trazas de conexión",
+  "6787f93bbf6ce0b6": "Ayuda al equipo de T3 Code a solucionar problemas de conexión. Las trazas incluyen tiempos, tipos de error, un ID de esta sesión de la app y la versión de la app, nunca tus hilos, prompts ni código. Puedes cambiarlo en Ajustes > Acerca de T3 Code > Diagnóstico.",
+  "0b1e4aecbd38e0cf": "Cuando la app se conecta a un ordenador mediante {product}, envía al equipo de T3 Code cuánto tardó cada paso, el tipo de error, un ID de esta sesión de la app y la versión de la app. Las trazas nunca incluyen tus hilos, prompts ni código.",
+  "e0856d6a402ad821": "La política de {organization} no permite comandos de diseño de worktrees de proyectos."
 }

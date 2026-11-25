@@ -339,6 +339,10 @@ function linkedTab(anchor: PullRequestAnchor | null): PullRequestDetailTab | nul
   }
 }
 
+// The Summary restores its scroll on remount; a header left expanded would condense over the
+// restored position and its scroll compensation would move the view.
+const summaryCondensedByScopeKey = new Map<string, boolean>();
+
 export function PullRequestDetailPanel({
   environmentId,
   shortcutsEnabled,
@@ -544,7 +548,7 @@ export function PullRequestDetailPanel({
   // Each tab restores the condensed state its own scrolling left behind.
   const [condensedByTab, setCondensedByTab] = useState<
     Partial<Record<PullRequestDetailTab, boolean>>
-  >({});
+  >(() => ({ summary: summaryCondensedByScopeKey.get(tabScopeKey) ?? false }));
   const condensed = condensedByTab[tab] ?? false;
   const scrollerByTab = useRef<Partial<Record<PullRequestDetailTab, HTMLElement | null>>>({});
   // Fresh ref callbacks would detach and reattach every scroller on each render.
@@ -700,6 +704,7 @@ export function PullRequestDetailPanel({
     stackError: nativeStackQuery.error,
   });
   const stackOwnsMerge = supportsStackActions && nativeStack !== null;
+  const stackAutoMerge = supportsStackActions && detail?.capabilities.stackAutoMerge === true;
   const mergeBlockedReason = canMergeSinglePullRequest
     ? null
     : nativeStackQuery.error
@@ -1630,6 +1635,12 @@ export function PullRequestDetailPanel({
                   stale={!nativeStackQuery.isFresh}
                   canMerge={supportsStackActions && can("merge") && allowedMergeMethods.length > 0}
                   canRebase={supportsStackActions && detail.viewerPermissions.stackRebase === true}
+                  canAutoMerge={
+                    stackAutoMerge && can("enable-auto-merge") && allowedMergeMethods.length > 0
+                  }
+                  preferAutoMerge={checksState !== null && checksState !== "passing"}
+                  autoMergeArmed={stackAutoMerge && autoMergeArmed}
+                  canCancelAutoMerge={stackAutoMerge && can("disable-auto-merge")}
                   onActed={() => {
                     refreshDetail();
                     onActed?.();
@@ -1919,7 +1930,7 @@ export function PullRequestDetailPanel({
         </div>
 
         {unseenHeadSha !== undefined && shownHeadSha !== undefined ? (
-          <div className="px-4 pb-2">
+          <div className="col-span-2 px-4 pb-2">
             <Alert variant="warning">
               <TriangleAlertIcon />
               <AlertDescription>
@@ -2098,7 +2109,9 @@ export function PullRequestDetailPanel({
             compensationRef.current = { tab, scroller, target: top - chromeDelta };
             next = true;
           }
-          if (next !== previous) setCondensedByTab({ ...condensedByTab, [tab]: next });
+          if (next === previous) return;
+          if (tab === "summary") summaryCondensedByScopeKey.set(tabScopeKey, next);
+          setCondensedByTab({ ...condensedByTab, [tab]: next });
         }}
       >
         {detailQuery.error && !detail ? (

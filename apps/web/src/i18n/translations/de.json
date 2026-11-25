@@ -446,7 +446,6 @@
   "bc24c300d53d61c5": "{host} hat auf keiner gespeicherten Route geantwortet.",
   "b0dd3cd876937ca8": "Verbindungsprofil {connectionId} ist nicht verfügbar.",
   "5ce46783e79ca9d1": "Zugangsdaten der Verbindung {connectionId} sind nicht verfügbar.",
-  "0bda0cac7f5acc20": "Die verbundene Umgebung {actual} stimmt nicht mit {expected} überein.",
   "ea0d3e4e51d5706f": "Die Zugangsdaten der Umgebung sind ungültig.",
   "7283ebfd16d09677": "Die Zugangsdaten der Umgebung gewähren nicht den erforderlichen Zugriff.",
   "d3e9a9cb543b4b7b": "Die Umgebung hat die Authentifizierungsanfrage abgelehnt.",
@@ -3792,8 +3791,6 @@
   "478e3b4551be4db3": "Extrahierten Text anzeigen",
   "e7205ebfead1aafc": "Vergrößerte Videovorschau",
   "1bda77e861bb472f": "Vergrößerte Bildvorschau",
-  "eebe5b17e3c19a1c": "Zurück, Videovorschau schließen",
-  "58fd0009a6eb7258": "Zurück, Bildvorschau schließen",
   "47bae54b5f532ff3": "Vorheriges Medium",
   "fb9434aad2b5c0bb": "Dieses Bild konnte nicht geladen werden.",
   "26aee5d4e97bfb28": "Bild nicht verfügbar. Die Datei wurde möglicherweise verschoben oder gelöscht.",
@@ -6793,27 +6790,6 @@
   "be3d1766bad18693": "Checks: {summary}",
   "425e4a3d6c5c2867": "{count, plural, one {{count} fehlgeschlagen} other {{count} fehlgeschlagen}}",
   "cb116c139cdace98": "Keine Checks gemeldet",
-  "d84d09b4818c50b7": [
-    {
-      "t": "span",
-      "i": 1,
-      "c": [
-        {
-          "i": 2,
-          "k": "_gt_value_2",
-          "v": "v"
-        },
-        "/",
-        {
-          "i": 3,
-          "k": "_gt_value_3",
-          "v": "v"
-        }
-      ]
-    },
-    " ",
-    "Checks"
-  ],
   "60b56e201607c7ec": "Die Check-Details sind veraltet. Aktualisiere den Pull Request, um sie zu aktualisieren.",
   "e74cd4e960cbb5e5": "Unveränderte Zeilen sind in einer Datei mit gekürzten Zeilen nicht verfügbar.",
   "38d6169e04a9a4ce": "Weitere Kommentare konnten nicht geladen werden",
@@ -8881,7 +8857,6 @@
   "a9cdd8c7073be920": "Befehlspalette: Umschalten",
   "4e0943e8c7a465d1": "Dateiauswahl: Umschalten",
   "df5fdcdf26a6b52a": "Projektsuche: Umschalten",
-  "a8ff6d33b060736f": "Nutzung: Öffnen",
   "a513d51b71b95674": "Design: Auswählen",
   "1ffd8427452372e1": "Darstellung: Wechseln",
   "3a3bb4a7551a87cc": "Design-Editor: Umschalten",
@@ -11505,10 +11480,7 @@
     },
     " wechseln"
   ],
-  "f54364b854a07918": "Keine Hubs konfiguriert.",
   "4cf6a373a7535324": "{name} · Deaktiviert",
-  "1d1e9cda847bd398": "Der Verwaltungsschlüssel des Hubs wird von diesem Server gelöscht. Seine Konten verschwinden aus der Limits-Ansicht; der Hub selbst bleibt unberührt. Füge ihn mit URL und Schlüssel erneut hinzu, um sie zurückzuholen.",
-  "c9bee4f93481b77a": "Hub entfernen",
   "0424112d5a0ecd71": "Automatisch",
   "3f0e1b77e45d53a9": "Tippen zum Umschalten, halten zum Sprechen",
   "45928549c050a1b4": "Halten",
@@ -12132,7 +12104,6 @@
   "f938bb483eb3d189": "startet zuletzt neu",
   "9bca02be2b4d612a": "nicht verbunden",
   "2dcc418b6a13b83c": "erfordert manuelles Update",
-  "5c8ebc36f84dee7a": "erfordert eine neuere Desktop-App",
   "fa8faa732a2688ef": "im Kanal {channel}",
   "9b961309baafa09d": "keine Berechtigung",
   "9bafb2622c22d145": "wird bereits aktualisiert",
@@ -12858,5 +12829,154 @@
   "8ebba639f92932c3": "Erlaubt anderen Geräten, die lokalen Server dieses Rechners zu öffnen: auf dem Gerät geladene Browser-Tabs, Auf diesem Gerät öffnen und Portweiterleitung. Aus: Browser-Tabs werden von diesem Rechner gestreamt.",
   "1c5266bf18d0ed24": "Vorschau-Tunnel erlauben",
   "a4e6dee662edc3cf": "Vorschau-Tunnel",
-  "8ed7c2a2226f4663": "localhost loopback portweiterleitung auf diesem gerät öffnen browser tabs streamen sicherheit port forwarding"
+  "8ed7c2a2226f4663": "localhost loopback portweiterleitung auf diesem gerät öffnen browser tabs streamen sicherheit port forwarding",
+  "b39d1428ec8b23f5": "Unter dieser Adresse läuft jetzt eine andere T3 Code-Installation ({actual}, nicht {expected}). Entferne diese Verbindung und füge sie erneut hinzu.",
+  "1cbfbcad9f0d04fe": "{provider}-Sitzung wird fortgesetzt",
+  "70bdebaa3d291d3b": "Thread nicht verfügbar",
+  "a351ebbdcf1a3f7a": "Dieser Thread liegt in einer Umgebung, mit der diese App nicht verbunden ist.",
+  "fb633d54edaeb4b1": "Videovorschau schließen",
+  "62d0c453f5803180": "Bildvorschau schließen",
+  "796b81c4875c4feb": [
+    "Die App ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " benötigt einen neueren ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    "-Server in dieser Umgebung. Aktualisiere den Server, um sie zu nutzen."
+  ],
+  "76cf478e5674fd12": "{count, plural, one {{count} Treffer} other {{count} Treffer}}",
+  "fd63b391898889f9": "{count, plural, one {{count} wartet auf Aktion} other {{count} warten auf Aktion}}",
+  "65300794c1edb929": "Bearer-Token (optional)",
+  "0c026221dcd2820b": "HTTP-Kontingentquelle hinzufügen",
+  "d185c750156b2121": [
+    "Kontingente von einem Endpunkt auf ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " abrufen."
+  ],
+  "2324770ba91371ac": "Endpunkt-URL",
+  "e4e5b75bba51396c": "Bearer-Token (optional)",
+  "7d7f65967cc821e3": "Breite der HTML-Vorschau",
+  "70ce0af7f78d5957": "Lässt HTML-Vorschauen in einem Chat breiter werden als die Nachrichten, die zentriert bleiben.",
+  "f2b119bf02ae2558": "Breite der HTML-Vorschau auf Standard zurücksetzen",
+  "6287212fed0deec6": "Wie Chat",
+  "dc8e85ea0364649c": "Wie Chat (Standard)",
+  "0ca6fd2b8fcab2c3": "Nutzung: Umschalten",
+  "39f64d971ba424b5": "Keine Nutzungsquellen konfiguriert.",
+  "dbd877abdc2c7c81": "HTTP-Kontingentquelle",
+  "c792e744936dbe1b": "HTTP-Quelle hinzufügen",
+  "4032a03ee5301037": "Die gespeicherte Verbindung und ihre Zugangsdaten werden aus dieser Umgebung entfernt.",
+  "9d5c7430a7ff76cf": "breit volle breite inline seite rendern diagramm dashboard artefakt zentriert",
+  "933dabf0700708af": "Wie viele übersprungene Läufe jeder Workflow in seinem Verlauf behält. Ältere übersprungene Läufe werden gelöscht; Läufe, die etwas getan haben, bleiben immer erhalten.",
+  "f172d7e5deb24f75": "Behaltene übersprungene Läufe auf Standard zurücksetzen",
+  "ba94015389f327bc": "Behaltene übersprungene Läufe",
+  "4b2669dcdb7d3776": "workflow verlauf aufbewahrung löschen alte übersprungene läufe webhook history retention skipped runs",
+  "353b08f4363dbb2c": "Ausstehend",
+  "374dac09151d4578": "Ausstehend",
+  "a8f30f631e2b010e": "Wartet auf die Synchronisierung mit seiner Umgebung",
+  "f13e08bd3614112e": "T3 Code auf diesem Rechner aktualisieren",
+  "3c3348c36a2695af": "Update-Kanal auf diesem Rechner ändern",
+  "e65649675cb4cbaa": "ausgeschaltet",
+  "a1e7c08d9ef315c7": "lädt noch",
+  "0e34c3076c08feb2": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": [
+        "↻ +",
+        {
+          "i": 2,
+          "k": "_gt_value_2",
+          "v": "v"
+        },
+        "%"
+      ]
+    },
+    " ",
+    "in ",
+    {
+      "i": 3,
+      "k": "_gt_value_3",
+      "v": "v"
+    }
+  ],
+  "45a94c724845ec1d": "Sonstige",
+  "8eeb9cb07d7c59e1": "Art der Frage",
+  "e4d1316c85ed7066": "Keine Fragen dieser Art warten auf dich.",
+  "e2131cbec8accfe3": "Alle Arten",
+  "3b0f1659172107e4": "Alle Arten",
+  "8a883c4fbc127b68": "Auto-Merge für den Stack wird aktiviert...",
+  "5fb2a26ae31e8983": "Auto-Merge für den Stack konnte nicht aktiviert werden",
+  "986d0dcbf4dd0098": "Auto-Merge für den Stack aktiviert",
+  "f3ed1f63c8a3eef2": "{host} mergt den Stack bis #{number}, sobald die Anforderungen erfüllt sind.",
+  "bd536a0a1754f6cb": "Auto-Merge für den Stack konnte nicht abgebrochen werden",
+  "bb90ac3b2f3a72d5": "Der Host hat das Abbrechen des Auto-Merge abgelehnt. Aktualisiere und versuche es erneut.",
+  "9c28753c777c37b7": "{count, plural, one {Auto-Merge für {count} {term, select, mr {Merge Request} cr {Änderungsanfrage} other {Pull Request}}?} other {Auto-Merge für {count} {term, select, mr {Merge Requests} cr {Änderungsanfragen} other {Pull Requests}}?}}",
+  "a86b49982e18784d": "#{number} und die darunterliegenden nicht gemergten Ebenen per {method} in {base} mergen, sobald jede davon die Anforderungen auf {host} erfüllt. Das kann sofort passieren.",
+  "b1afda5c964deee4": [
+    "Auto-Merge für Stack (",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ")"
+  ],
+  "33d18dda74f6d7b3": "Auto-Merge für Stack abbrechen",
+  "012c67c7f1a99e33": "Auto-Merge für Stack",
+  "4a18481bea4b4ad5": "Neues Gerät bei {environmentLabel} angemeldet",
+  "4144ab6aa487528a": "{device} hat sich über {product} verbunden. Warst du das nicht? Prüfe es.",
+  "a10cfdb27152c757": "{count, plural, one {{count} Gerät hat} other {{count} Geräte haben}} sich über {product} verbunden. Warst du das nicht? Prüfe sie.",
+  "e0856d6a402ad821": "Die Richtlinie von {organization} erlaubt keine Worktree-Layout-Befehle von Projekten.",
+  "206811f6f441bfc7": "Dieses Projekt richtet Worktrees mit einem eigenen Befehl ein, den in seiner jetzigen Form niemand genehmigt hat. Über diese Verbindung lässt er sich nicht genehmigen: Genehmige ihn in einem Client, der das Terminal verwenden darf.",
+  "b8087c9a70c26da9": "Der Worktree-Layout-Befehl konnte nicht genehmigt werden.",
+  "49eda70cfd56e621": "Läuft, wenn ein Worktree-Thread startet und wenn sein Ordner wiederhergestellt wird",
+  "188ccaa1199f5611": "Läuft, wenn der Worktree eines Threads entfernt wird",
+  "7e8476e7306acabe": "Darf dieses Projekt seine Worktree-Befehle ausführen?",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " richtet Worktree-Threads mit eigenen Befehlen aus ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    " ein. Sie laufen auf dem Rechner dieser Umgebung mit deinen Berechtigungen, außerhalb jeder Agenten-Sandbox. Du wirst erneut gefragt, sobald sich ihr Text ändert."
+  ],
+  "46807acd02a4ff72": "Genehmigen und fortfahren",
+  "a9cb97fca6a6576b": "Befehl zum Erstellen",
+  "90f45a354884ccdd": "Befehl zum Entfernen",
+  "78e308ada516928b": "Der Befehl konnte nicht genehmigt werden",
+  "a0c772d32a233da6": "Die Genehmigung konnte nicht widerrufen werden",
+  "0cdc8cdbed3e5eae": "Worktree-Layout",
+  "c17b25519e2b194e": "Die Worktree-Layout-Befehle konnten nicht geladen werden",
+  "5ccd5614c65f8d1f": "Genehmigung des Befehls {kind} widerrufen",
+  "80c3794a5fa12f3a": "Befehl {kind} genehmigen",
+  "f206891e124c77b0": [
+    "Die ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " dieses Projekts richtet Worktree-Threads mit eigenen Befehlen ein. Sie laufen auf dem Rechner dieser Umgebung mit deinen Berechtigungen und nur so, wie sie hier genehmigt wurden: Ändert sich der Text eines Befehls, muss er erneut genehmigt werden."
+  ],
+  "f6a91589456cca50": "Genehmigt",
+  "c92657bb7f2293ff": "Genehmigung nötig",
+  "f1e5c1be1ac92361": "Genehmigen",
+  "fcb5f3c4d4753326": "Über diese Verbindung lassen sich keine Befehle genehmigen. Verwende einen Client, der das Terminal verwenden darf."
 }

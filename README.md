@@ -264,3 +264,4 @@ MIT. Bosun is a fork of T3 Code and inherits its license: see [`LICENSE`](./LICE
 © T3 Tools Inc. Keep that copyright and permission notice, along with the third-party
 notices. MIT does not grant trademark rights in the "T3 Code" or "T3 Tools" names or
 logos, which remain the property of their owners.
+See [TRADEMARK.md](./TRADEMARK.md) for their trademark and branding policy.

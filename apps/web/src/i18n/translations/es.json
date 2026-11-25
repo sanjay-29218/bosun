@@ -446,7 +446,6 @@
   "bc24c300d53d61c5": "{host} no respondió en ninguna de las rutas guardadas.",
   "b0dd3cd876937ca8": "El perfil de conexión {connectionId} no está disponible.",
   "5ce46783e79ca9d1": "La credencial de conexión {connectionId} no está disponible.",
-  "0bda0cac7f5acc20": "El entorno conectado {actual} no coincide con {expected}.",
   "ea0d3e4e51d5706f": "La credencial del entorno no es válida.",
   "7283ebfd16d09677": "La credencial del entorno no concede el acceso necesario.",
   "d3e9a9cb543b4b7b": "El entorno rechazó la solicitud de autenticación.",
@@ -3791,8 +3790,6 @@
   "478e3b4551be4db3": "Mostrar texto extraído",
   "e7205ebfead1aafc": "Vista previa ampliada del vídeo",
   "1bda77e861bb472f": "Vista previa ampliada de la imagen",
-  "eebe5b17e3c19a1c": "Atrás, cerrar la vista previa del vídeo",
-  "58fd0009a6eb7258": "Atrás, cerrar la vista previa de la imagen",
   "47bae54b5f532ff3": "Elemento anterior",
   "fb9434aad2b5c0bb": "No se pudo cargar esta imagen.",
   "26aee5d4e97bfb28": "Imagen no disponible. Puede que el archivo se haya movido o eliminado.",
@@ -6793,27 +6790,6 @@
   "be3d1766bad18693": "Comprobaciones: {summary}",
   "425e4a3d6c5c2867": "{count, plural, one {{count} con errores} other {{count} con errores}}",
   "cb116c139cdace98": "No se informó de ninguna comprobación",
-  "d84d09b4818c50b7": [
-    {
-      "t": "span",
-      "i": 1,
-      "c": [
-        {
-          "i": 2,
-          "k": "_gt_value_2",
-          "v": "v"
-        },
-        "/",
-        {
-          "i": 3,
-          "k": "_gt_value_3",
-          "v": "v"
-        }
-      ]
-    },
-    " ",
-    "comprobaciones"
-  ],
   "60b56e201607c7ec": "Los detalles de las comprobaciones están desactualizados. Actualiza la pull request para ponerlos al día.",
   "e74cd4e960cbb5e5": "Las líneas sin cambios no están disponibles en un archivo con líneas cortadas.",
   "38d6169e04a9a4ce": "No se pudieron cargar más comentarios",
@@ -8879,7 +8855,6 @@
   "a9cdd8c7073be920": "Paleta de comandos: alternar",
   "4e0943e8c7a465d1": "Selector de archivos: alternar",
   "df5fdcdf26a6b52a": "Búsqueda en el proyecto: alternar",
-  "a8ff6d33b060736f": "Uso: abrir",
   "a513d51b71b95674": "Tema: seleccionar",
   "1ffd8427452372e1": "Apariencia: alternar",
   "3a3bb4a7551a87cc": "Editor de temas: alternar",
@@ -11499,10 +11474,7 @@
       "v": "v"
     }
   ],
-  "f54364b854a07918": "No hay hubs configurados.",
   "4cf6a373a7535324": "{name} · Deshabilitado",
-  "1d1e9cda847bd398": "La clave de gestión del hub se elimina de este servidor. Sus cuentas salen de la vista Límites; el hub en sí no se toca. Vuelve a añadirlo con la URL y la clave para recuperarlas.",
-  "c9bee4f93481b77a": "Quitar hub",
   "0424112d5a0ecd71": "Automático",
   "3f0e1b77e45d53a9": "Toca para alternar, mantén para hablar",
   "45928549c050a1b4": "Mantener",
@@ -12125,7 +12097,6 @@
   "f938bb483eb3d189": "se reinicia el último",
   "9bca02be2b4d612a": "sin conexión",
   "2dcc418b6a13b83c": "requiere una actualización manual",
-  "5c8ebc36f84dee7a": "requiere una app de escritorio más reciente",
   "fa8faa732a2688ef": "en el canal {channel}",
   "9b961309baafa09d": "sin permiso",
   "9bafb2622c22d145": "ya se está actualizando",
@@ -12853,5 +12824,154 @@
   "8ebba639f92932c3": "Permite que otros dispositivos abran los servidores locales de esta máquina: pestañas del navegador cargadas en el dispositivo, Abrir en este dispositivo y reenvío de puertos. Desactivado: las pestañas del navegador se transmiten desde esta máquina.",
   "1c5266bf18d0ed24": "Permitir el túnel de vista previa",
   "a4e6dee662edc3cf": "Túnel de vista previa",
-  "8ed7c2a2226f4663": "localhost loopback reenvío de puertos abrir en este dispositivo pestañas navegador transmitir seguridad port forwarding"
+  "8ed7c2a2226f4663": "localhost loopback reenvío de puertos abrir en este dispositivo pestañas navegador transmitir seguridad port forwarding",
+  "b39d1428ec8b23f5": "Esta dirección ahora ejecuta otra instalación de T3 Code ({actual}, no {expected}). Elimina esta conexión y vuelve a añadirla.",
+  "1cbfbcad9f0d04fe": "Reanudando la sesión de {provider}",
+  "70bdebaa3d291d3b": "Hilo no disponible",
+  "a351ebbdcf1a3f7a": "Este hilo está en un entorno al que esta app no está conectada.",
+  "fb633d54edaeb4b1": "Cerrar la vista previa del vídeo",
+  "62d0c453f5803180": "Cerrar la vista previa de la imagen",
+  "796b81c4875c4feb": [
+    "La app ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " necesita un servidor de ",
+    {
+      "i": 2,
+      "k": "_gt_value_2",
+      "v": "v"
+    },
+    " más reciente en este entorno. Actualiza el servidor para usarla."
+  ],
+  "76cf478e5674fd12": "{count, plural, one {{count} coincidencia} other {{count} coincidencias}}",
+  "fd63b391898889f9": "{count, plural, one {{count} pendiente de acción} other {{count} pendientes de acción}}",
+  "65300794c1edb929": "Token de portador (opcional)",
+  "0c026221dcd2820b": "Añadir una fuente de cuotas HTTP",
+  "d185c750156b2121": [
+    "Consulta las cuotas desde un punto de conexión en ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "."
+  ],
+  "2324770ba91371ac": "URL del punto de conexión",
+  "e4e5b75bba51396c": "Token de portador (opcional)",
+  "7d7f65967cc821e3": "Ancho de la vista previa HTML",
+  "70ce0af7f78d5957": "Permite que las vistas previas HTML de un chat sean más anchas que sus mensajes, que siguen centrados.",
+  "f2b119bf02ae2558": "Restablecer el ancho de la vista previa HTML al valor predeterminado",
+  "6287212fed0deec6": "Igual que el chat",
+  "dc8e85ea0364649c": "Igual que el chat (predeterminado)",
+  "0ca6fd2b8fcab2c3": "Uso: Mostrar u ocultar",
+  "39f64d971ba424b5": "No hay fuentes de uso configuradas.",
+  "dbd877abdc2c7c81": "Fuente de cuotas HTTP",
+  "c792e744936dbe1b": "Añadir fuente HTTP",
+  "4032a03ee5301037": "La conexión guardada y sus credenciales se eliminan de este entorno.",
+  "9d5c7430a7ff76cf": "ancho ancho completo en línea página renderizar gráfico panel artefacto centrado",
+  "933dabf0700708af": "Cuántas ejecuciones omitidas conserva cada flujo de trabajo en su historial. Las ejecuciones omitidas más antiguas se eliminan; las que hicieron algo se conservan siempre.",
+  "f172d7e5deb24f75": "Restablecer las ejecuciones omitidas conservadas al valor predeterminado",
+  "ba94015389f327bc": "Ejecuciones omitidas conservadas",
+  "4b2669dcdb7d3776": "workflow flujo historial retención eliminar antiguas ejecuciones omitidas webhook history retention skipped runs",
+  "353b08f4363dbb2c": "Pendiente",
+  "374dac09151d4578": "Pendiente",
+  "a8f30f631e2b010e": "Esperando para sincronizar con su entorno",
+  "f13e08bd3614112e": "actualiza T3 Code en ese equipo",
+  "3c3348c36a2695af": "cambia el canal de actualizaciones en ese equipo",
+  "e65649675cb4cbaa": "desactivado",
+  "a1e7c08d9ef315c7": "aún cargando",
+  "0e34c3076c08feb2": [
+    {
+      "t": "span",
+      "i": 1,
+      "c": [
+        "↻ +",
+        {
+          "i": 2,
+          "k": "_gt_value_2",
+          "v": "v"
+        },
+        "%"
+      ]
+    },
+    " ",
+    "en ",
+    {
+      "i": 3,
+      "k": "_gt_value_3",
+      "v": "v"
+    }
+  ],
+  "45a94c724845ec1d": "Otras",
+  "8eeb9cb07d7c59e1": "Tipo de pregunta",
+  "e4d1316c85ed7066": "No hay preguntas de este tipo esperándote.",
+  "e2131cbec8accfe3": "Todos los tipos",
+  "3b0f1659172107e4": "Todos los tipos",
+  "8a883c4fbc127b68": "Activando la fusión automática de la pila...",
+  "5fb2a26ae31e8983": "No se pudo activar la fusión automática de la pila",
+  "986d0dcbf4dd0098": "Fusión automática de la pila activada",
+  "f3ed1f63c8a3eef2": "{host} fusionará la pila hasta #{number} cuando se cumplan sus requisitos.",
+  "bd536a0a1754f6cb": "No se pudo cancelar la fusión automática de la pila",
+  "bb90ac3b2f3a72d5": "El host rechazó cancelar la fusión automática. Actualiza e inténtalo de nuevo.",
+  "9c28753c777c37b7": "{count, plural, one {¿Fusionar automáticamente {count} {term, select, mr {merge request} cr {solicitud de cambios} other {pull request}}?} other {¿Fusionar automáticamente {count} {term, select, mr {merge requests} cr {solicitudes de cambios} other {pull requests}}?}}",
+  "a86b49982e18784d": "Fusiona #{number} y sus capas sin fusionar de debajo en {base} mediante {method} cuando todas cumplan los requisitos de {host}. Puede ocurrir de inmediato.",
+  "b1afda5c964deee4": [
+    "Fusión automática de la pila (",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ")"
+  ],
+  "33d18dda74f6d7b3": "Cancelar la fusión automática de la pila",
+  "012c67c7f1a99e33": "Fusión automática de la pila",
+  "4a18481bea4b4ad5": "Nuevo dispositivo conectado a {environmentLabel}",
+  "4144ab6aa487528a": "{device} se conectó a través de {product}. ¿No fuiste tú? Revísalo.",
+  "a10cfdb27152c757": "{count, plural, one {{count} dispositivo se conectó} other {{count} dispositivos se conectaron}} a través de {product}. ¿No fuiste tú? Revísalos.",
+  "e0856d6a402ad821": "La política de {organization} no permite comandos de diseño de worktrees de proyectos.",
+  "206811f6f441bfc7": "Este proyecto prepara los worktrees con su propio comando, que nadie ha aprobado tal como está escrito ahora. Esta conexión no puede aprobarlo: apruébalo desde un cliente que pueda usar el terminal.",
+  "b8087c9a70c26da9": "No se pudo aprobar el comando de diseño de worktrees.",
+  "49eda70cfd56e621": "Se ejecuta cuando empieza un hilo en un worktree y cuando se restaura su carpeta",
+  "188ccaa1199f5611": "Se ejecuta cuando se elimina el worktree de un hilo",
+  "7e8476e7306acabe": "¿Permitir que este proyecto ejecute sus comandos de worktree?",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " prepara los hilos en worktrees con sus propios comandos de ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    ". Se ejecutan en la máquina de este entorno con tus permisos, fuera de cualquier sandbox de agente. Se te volverá a preguntar cada vez que cambie su texto."
+  ],
+  "46807acd02a4ff72": "Aprobar y continuar",
+  "a9cb97fca6a6576b": "Comando de creación",
+  "90f45a354884ccdd": "Comando de eliminación",
+  "78e308ada516928b": "No se pudo aprobar el comando",
+  "a0c772d32a233da6": "No se pudo revocar la aprobación",
+  "0cdc8cdbed3e5eae": "Diseño de worktrees",
+  "c17b25519e2b194e": "No se pudieron cargar los comandos de diseño de worktrees",
+  "5ccd5614c65f8d1f": "Revocar la aprobación del comando {kind}",
+  "80c3794a5fa12f3a": "Aprobar el comando {kind}",
+  "f206891e124c77b0": [
+    "El ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " de este proyecto prepara los hilos en worktrees con sus propios comandos. Se ejecutan en la máquina de este entorno con tus permisos y solo tal como se aprobaron aquí: un comando cuyo texto cambia necesita aprobación de nuevo."
+  ],
+  "f6a91589456cca50": "Aprobado",
+  "c92657bb7f2293ff": "Necesita aprobación",
+  "f1e5c1be1ac92361": "Aprobar",
+  "fcb5f3c4d4753326": "Esta conexión no puede aprobar comandos. Usa un cliente que pueda usar el terminal."
 }

@@ -509,6 +509,7 @@ function SidebarUpdateControl({
           compact={placement === "rail" && collapsed}
           side={popupSide}
           run={run}
+          current={everything.machines}
           local={local}
           icon={statusIcon}
           {...(run.localVersion === null && action === "install" && window.desktopBridge
