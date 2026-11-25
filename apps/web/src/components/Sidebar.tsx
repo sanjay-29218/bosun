@@ -1021,10 +1021,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
-  // Projects lists every project, so it folds threads into project folders whatever the setting.
   const railShowsProjects = useBotRailShowsProjects();
-  const boringSidebarEnabled =
-    useClientSettings((settings) => settings.boringSidebarEnabled) || railShowsProjects;
+  const boringSidebarEnabled = useClientSettings((settings) => settings.boringSidebarEnabled);
   const folderRowsMultiline = useClientSettings((settings) => settings.boringSidebarMultilineRows);
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
