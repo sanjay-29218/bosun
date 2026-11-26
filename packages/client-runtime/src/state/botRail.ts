@@ -189,17 +189,23 @@ export function resolveActiveLogicalBot(
   return bots[0] ?? null;
 }
 
+/** A connected machine, as far as the rail knows which bots it has. */
+export interface RailBotSource {
+  readonly configured: boolean;
+  readonly bots: "none" | "loading" | "loaded";
+}
+
 /**
- * Whether the thread list shows the rail's Projects: picked, or no bot to pick. A bot list on its
- * first load doesn't mean no bot yet; reading it so folds the list into folders and back.
+ * Whether the rail knows which bots exist: once every connected machine has sent its config and
+ * bot list, and from then on. A machine connecting later doesn't unsettle it, so the thread list
+ * doesn't fold into Projects and back while that machine's bots load.
  */
-export function railShowsProjects(input: {
-  readonly showsRail: boolean;
-  readonly picked: boolean;
-  readonly active: LogicalBot | null;
-  readonly botListsLoading: boolean;
-}): boolean {
-  return input.showsRail && input.active === null && (input.picked || !input.botListsLoading);
+export function railBotsSettled(settled: boolean, machines: ReadonlyArray<RailBotSource>): boolean {
+  return (
+    settled ||
+    (machines.length > 0 &&
+      machines.every((machine) => machine.configured && machine.bots !== "loading"))
+  );
 }
 
 /**

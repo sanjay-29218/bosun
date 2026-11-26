@@ -25,13 +25,12 @@ import {
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
-  railShowsProjects,
+  railBotsSettled,
   logicalBotProjectLists,
   projectBotId,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
-  type LogicalBot,
 } from "./botRail.ts";
 import { botNeedsYouKey } from "./crewBoard.ts";
 
@@ -392,17 +391,18 @@ describe("resolveActiveLogicalBot", () => {
   });
 });
 
-describe("railShowsProjects", () => {
-  const shows = (input: { picked: boolean; botListsLoading: boolean; active?: LogicalBot }) =>
-    railShowsProjects({ showsRail: true, active: null, ...input });
+describe("railBotsSettled", () => {
+  const loaded = { configured: true, bots: "loaded" } as const;
+  const loading = { configured: true, bots: "loading" } as const;
 
-  it("reads no bot as Projects only once the bot lists have loaded, or when Projects is picked", () => {
-    expect(shows({ picked: false, botListsLoading: true })).toBe(false);
-    expect(shows({ picked: false, botListsLoading: false })).toBe(true);
-    expect(shows({ picked: true, botListsLoading: true })).toBe(true);
-    expect(
-      shows({ picked: false, botListsLoading: false, active: buildLogicalBots(environments)[0]! }),
-    ).toBe(false);
+  it("waits for every connected machine's config and bot list, then stays settled as more connect", () => {
+    expect(railBotsSettled(false, [])).toBe(false);
+    expect(railBotsSettled(false, [{ configured: false, bots: "none" }])).toBe(false);
+    expect(railBotsSettled(false, [loaded, loading])).toBe(false);
+
+    const settled = railBotsSettled(false, [loaded, { configured: true, bots: "none" }]);
+    expect(settled).toBe(true);
+    expect(railBotsSettled(settled, [loaded, loading])).toBe(true);
   });
 });
 

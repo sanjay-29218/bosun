@@ -10,7 +10,7 @@ import {
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   railProjectKeys,
-  railShowsProjects,
+  railBotsSettled,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
@@ -50,15 +50,26 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
 
-/** Whether a connected bot environment's list hasn't loaded yet. */
-const botListsLoadingAtom = Atom.make((get): boolean => {
-  const connected = get(environmentSummaries.connectedEnvironmentIdsAtom);
-  return get(botEnvironmentIdsAtom).some(
-    (environmentId) =>
-      connected.includes(environmentId) &&
-      AsyncResult.isInitial(get(botsEnvironment.list({ environmentId, input: {} }))),
+// Kept alive so a later machine's connection can't reset it while the thread list is away.
+const botListsSettledAtom = Atom.make((get): boolean => {
+  const configs = get(environmentServerConfigsAtom);
+  const machines = get(environmentSummaries.connectedEnvironmentIdsAtom).map((environmentId) => {
+    const config = configs.get(environmentId);
+    return {
+      configured: config !== undefined,
+      bots:
+        config?.environment.capabilities.bots !== true
+          ? ("none" as const)
+          : AsyncResult.isInitial(get(botsEnvironment.list({ environmentId, input: {} })))
+            ? ("loading" as const)
+            : ("loaded" as const),
+    };
+  });
+  return railBotsSettled(
+    Option.getOrElse(get.self<boolean>(), () => false),
+    machines,
   );
-}).pipe(Atom.withLabel("web-bot-rail:lists-loading"));
+}).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:lists-settled"));
 
 /**
  * Rail entries: connected environments' bots, behind the rail, the active bot, pins and activity.
@@ -350,12 +361,12 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
 
 /** Whether the rail's Projects entry is what the thread list shows: picked, or no bot to pick. */
 export function useBotRailShowsProjects(): boolean {
-  return railShowsProjects({
-    showsRail: useShowBotRail(),
-    picked: useUiStateStore((store) => store.botRailShowsProjects),
-    active: useVisibleActiveLogicalBot(),
-    botListsLoading: useAtomValue(botListsLoadingAtom),
-  });
+  const showsRail = useShowBotRail();
+  const picked = useUiStateStore((store) => store.botRailShowsProjects);
+  const active = useVisibleActiveLogicalBot();
+  // No bot means Projects only once the bots are known; reading it sooner folds the list and back.
+  const botsSettled = useAtomValue(botListsSettledAtom);
+  return showsRail && active === null && (picked || botsSettled);
 }
 
 /**
