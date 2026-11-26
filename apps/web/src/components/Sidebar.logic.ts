@@ -939,8 +939,11 @@ export type SidebarThreadStatus =
   | "limited"
   | "ready";
 
+/** A row also marks a plan ready for review, which notifications read as a finished turn. */
+export type SidebarRowStatus = SidebarThreadStatus | "plan";
+
 export function shouldRecedeSidebarThread(input: {
-  status: SidebarThreadStatus;
+  status: SidebarRowStatus;
   isUnread: boolean;
   isWoke: boolean;
   isActive: boolean;
@@ -950,7 +953,8 @@ export function shouldRecedeSidebarThread(input: {
     input.isActive ||
     input.isSelected ||
     input.status === "input" ||
-    input.status === "request"
+    input.status === "request" ||
+    input.status === "plan"
   ) {
     return false;
   }
@@ -1005,11 +1009,15 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
-/** Sidebar row status: a failure the user has already opened settles to ready, like Done. */
+/**
+ * Sidebar row status: a plan ready for review asks the person, as the rail's badge counts it,
+ * and a failure the user has already opened settles to ready, like Done.
+ */
 export function resolveSidebarRowStatus(
   thread: ThreadStatusInput & SidebarThreadStatusInput,
-): SidebarThreadStatus {
+): SidebarRowStatus {
   const status = resolveSidebarThreadStatus(thread);
+  if ((status === "ready" || status === "waiting") && threadHasPlanReady(thread)) return "plan";
   // A runtime failure without a failed run has nothing to date it, so it stays.
   if (status !== "failed" || thread.latestRun?.status !== "failed") return status;
   return hasUnseenRunFailure(thread) ? status : "ready";
@@ -1049,6 +1057,7 @@ export function resolveSidebarFolderDot(
     statuses.has("input") ||
     statuses.has("approval") ||
     statuses.has("request") ||
+    statuses.has("plan") ||
     statuses.has("limited")
   ) {
     return "attention";
