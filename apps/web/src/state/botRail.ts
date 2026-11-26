@@ -35,7 +35,7 @@ import { useConnectedEnvironmentIds } from "./environments";
 import { environmentSummaries } from "./presentation";
 import { environmentProjects } from "./projects";
 import { needsYouThreadsAtom } from "./needsYou";
-import { catalogIsComplete, expectsPrimaryEnvironment } from "./shell";
+import { expectsPrimaryEnvironment } from "./shell";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
@@ -54,18 +54,14 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
 
-// A connected machine whose config or bot list stalls mustn't hide the thread list: rows show in
-// the layout known by then, 5s after a machine connects (again if every machine dropped first).
-const CONNECTED_BOTS_WAIT_MS = 5_000;
-
-const anyEnvironmentConnectedAtom = Atom.make(
-  (get) => get(environmentSummaries.connectedEnvironmentIdsAtom).length > 0,
-).pipe(Atom.withLabel("web-bot-rail:any-connected"));
+// A machine whose first attempt, config or bot list stalls mustn't hide the thread list: rows
+// show in the layout known by then this long after the sidebar first asks. Bots land about 1s after
+// it mounts locally; the margin covers slower machines, where firing early would switch layouts.
+const BOTS_WAIT_MS = 4_000;
 
 const botsWaitOverAtom = Atom.make((get): boolean => {
   if (Option.getOrElse(get.self<boolean>(), () => false)) return true;
-  if (!get(anyEnvironmentConnectedAtom)) return false;
-  const timer = setTimeout(() => get.setSelf(true), CONNECTED_BOTS_WAIT_MS);
+  const timer = setTimeout(() => get.setSelf(true), BOTS_WAIT_MS);
   get.addFinalizer(() => clearTimeout(timer));
   return false;
 }).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:wait-over"));
@@ -75,13 +71,28 @@ const botListsSettledAtom = Atom.make((get): boolean => {
   const settled = Option.getOrElse(get.self<boolean>(), () => false);
   // Reading nothing once settled lets the bot-list queries idle out.
   if (settled || get(botsWaitOverAtom)) return true;
-  if (!catalogIsComplete(get(environmentCatalog.catalogValueAtom), expectsPrimaryEnvironment())) {
+  // Before primary discovery the catalog proves nothing; a hosted app's can be truly empty.
+  const catalog = get(environmentCatalog.catalogValueAtom);
+  if (
+    !catalog.isReady ||
+    (expectsPrimaryEnvironment() &&
+      ![...catalog.entries.values()].some(
+        (entry) => entry.target._tag === "PrimaryConnectionTarget",
+      ))
+  ) {
     return false;
   }
   const configs = get(environmentServerConfigsAtom);
+  // A filter that leaves this machine out could narrow to hide its bot once others connect.
+  const selected = useUiStateStore.getState().sidebarEnvironmentIds;
   const machines = get(environmentSummaries.environmentsAtom).map(
     ({ environmentId, isEnabled, connectionState }): RailBotSource => {
       const config = configs.get(environmentId);
+      const bots =
+        config?.environment.capabilities.bots === true
+          ? get(botsEnvironment.list({ environmentId, input: {} }))
+          : null;
+      const loaded = bots === null ? null : Option.getOrNull(AsyncResult.value(bots));
       return {
         connection: !isEnabled
           ? "unreachable"
@@ -90,11 +101,14 @@ const botListsSettledAtom = Atom.make((get): boolean => {
             : "unreachable",
         configured: config !== undefined,
         bots:
-          config?.environment.capabilities.bots !== true
+          bots === null
             ? "none"
-            : AsyncResult.isInitial(get(botsEnvironment.list({ environmentId, input: {} })))
+            : AsyncResult.isInitial(bots)
               ? "loading"
-              : "loaded",
+              : loaded?.some((bot) => bot.pinned ?? true) &&
+                  (selected === null || selected.length === 0 || selected.includes(environmentId))
+                ? "shown"
+                : "loaded",
       };
     },
   );

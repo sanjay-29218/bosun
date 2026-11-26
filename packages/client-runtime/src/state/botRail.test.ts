@@ -412,6 +412,14 @@ describe("railBotsSettled", () => {
     expect(railBotsSettled(false, [unreachable])).toBe(true);
     expect(railBotsSettled(false, [answered, unreachable])).toBe(true);
   });
+
+  it("settles once a connected machine shows a bot, without waiting on slower machines", () => {
+    const shown = { ...answered, bots: "shown" } as const;
+    expect(railBotsSettled(false, [shown, connecting, loading])).toBe(true);
+    expect(railBotsSettled(false, [{ ...shown, connection: "unreachable" }, connecting])).toBe(
+      false,
+    );
+  });
 });
 
 describe("resolveSidebarLayout", () => {

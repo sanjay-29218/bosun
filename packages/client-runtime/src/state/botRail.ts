@@ -192,22 +192,25 @@ export function resolveActiveLogicalBot(
 /**
  * A machine, as far as the rail knows which bots it has. `connecting` is its first attempt still
  * underway; `unreachable` is offline, retrying after a failure, or disabled, so its cached
- * knowledge is all there is for now.
+ * knowledge is all there is for now. `shown` bots are loaded and include one the rail shows: pinned,
+ * on an environment the filter keeps whatever else connects.
  */
 export interface RailBotSource {
   readonly connection: "connecting" | "connected" | "unreachable";
   readonly configured: boolean;
-  readonly bots: "none" | "loading" | "loaded";
+  readonly bots: "none" | "loading" | "loaded" | "shown";
 }
 
 /**
- * Whether the rail knows which bots exist: once no machine is still on its first attempt and every
- * connected one has sent its config and bot list, and from then on. A machine connecting later
- * doesn't unsettle it, so the thread list doesn't fold into Projects and back while its bots load.
+ * Whether the rail knows enough to choose the layout, and from then on: once a connected machine
+ * shows a bot (any shown bot makes it cards), or no machine is still on its first attempt and every
+ * connected one has sent its config and bot list. A machine connecting later doesn't unsettle it,
+ * so the thread list doesn't fold into Projects and back while its bots load.
  */
 export function railBotsSettled(settled: boolean, machines: ReadonlyArray<RailBotSource>): boolean {
   return (
     settled ||
+    machines.some((machine) => machine.connection === "connected" && machine.bots === "shown") ||
     machines.every(
       (machine) =>
         machine.connection === "unreachable" ||
