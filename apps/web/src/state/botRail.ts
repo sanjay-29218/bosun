@@ -17,6 +17,7 @@ import {
   selectLogicalBot,
   type BotActivity,
   type LogicalBot,
+  type RailBotSource,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
@@ -34,6 +35,7 @@ import { useConnectedEnvironmentIds } from "./environments";
 import { environmentSummaries } from "./presentation";
 import { environmentProjects } from "./projects";
 import { needsYouThreadsAtom } from "./needsYou";
+import { catalogIsComplete, expectsPrimaryEnvironment } from "./shell";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
@@ -52,10 +54,9 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
 
-// A machine that never answers mustn't hide the thread list: rows show in the layout known by
-// then, this long after the first connection, or after launch while none connects (cached rows).
+// A connected machine whose config or bot list stalls mustn't hide the thread list: rows show in
+// the layout known by then, 5s after a machine connects (again if every machine dropped first).
 const CONNECTED_BOTS_WAIT_MS = 5_000;
-const OFFLINE_BOTS_WAIT_MS = 10_000;
 
 const anyEnvironmentConnectedAtom = Atom.make(
   (get) => get(environmentSummaries.connectedEnvironmentIdsAtom).length > 0,
@@ -63,10 +64,8 @@ const anyEnvironmentConnectedAtom = Atom.make(
 
 const botsWaitOverAtom = Atom.make((get): boolean => {
   if (Option.getOrElse(get.self<boolean>(), () => false)) return true;
-  const timer = setTimeout(
-    () => get.setSelf(true),
-    get(anyEnvironmentConnectedAtom) ? CONNECTED_BOTS_WAIT_MS : OFFLINE_BOTS_WAIT_MS,
-  );
+  if (!get(anyEnvironmentConnectedAtom)) return false;
+  const timer = setTimeout(() => get.setSelf(true), CONNECTED_BOTS_WAIT_MS);
   get.addFinalizer(() => clearTimeout(timer));
   return false;
 }).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:wait-over"));
@@ -76,19 +75,29 @@ const botListsSettledAtom = Atom.make((get): boolean => {
   const settled = Option.getOrElse(get.self<boolean>(), () => false);
   // Reading nothing once settled lets the bot-list queries idle out.
   if (settled || get(botsWaitOverAtom)) return true;
+  if (!catalogIsComplete(get(environmentCatalog.catalogValueAtom), expectsPrimaryEnvironment())) {
+    return false;
+  }
   const configs = get(environmentServerConfigsAtom);
-  const machines = get(environmentSummaries.connectedEnvironmentIdsAtom).map((environmentId) => {
-    const config = configs.get(environmentId);
-    return {
-      configured: config !== undefined,
-      bots:
-        config?.environment.capabilities.bots !== true
-          ? ("none" as const)
-          : AsyncResult.isInitial(get(botsEnvironment.list({ environmentId, input: {} })))
-            ? ("loading" as const)
-            : ("loaded" as const),
-    };
-  });
+  const machines = get(environmentSummaries.environmentsAtom).map(
+    ({ environmentId, isEnabled, connectionState }): RailBotSource => {
+      const config = configs.get(environmentId);
+      return {
+        connection: !isEnabled
+          ? "unreachable"
+          : connectionState === "connected" || connectionState === "connecting"
+            ? connectionState
+            : "unreachable",
+        configured: config !== undefined,
+        bots:
+          config?.environment.capabilities.bots !== true
+            ? "none"
+            : AsyncResult.isInitial(get(botsEnvironment.list({ environmentId, input: {} })))
+              ? "loading"
+              : "loaded",
+      };
+    },
+  );
   return railBotsSettled(settled, machines);
 }).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:lists-settled"));
 

@@ -393,17 +393,24 @@ describe("resolveActiveLogicalBot", () => {
 });
 
 describe("railBotsSettled", () => {
-  const loaded = { configured: true, bots: "loaded" } as const;
-  const loading = { configured: true, bots: "loading" } as const;
+  const answered = { connection: "connected", configured: true, bots: "loaded" } as const;
+  const loading = { connection: "connected", configured: true, bots: "loading" } as const;
+  const connecting = { connection: "connecting", configured: false, bots: "none" } as const;
+  const unreachable = { connection: "unreachable", configured: false, bots: "none" } as const;
 
-  it("waits for every connected machine's config and bot list, then stays settled as more connect", () => {
-    expect(railBotsSettled(false, [])).toBe(false);
-    expect(railBotsSettled(false, [{ configured: false, bots: "none" }])).toBe(false);
-    expect(railBotsSettled(false, [loaded, loading])).toBe(false);
+  it("waits for machines on their first attempt and connected ones' bot lists, then stays settled", () => {
+    expect(railBotsSettled(false, [connecting])).toBe(false);
+    expect(railBotsSettled(false, [{ ...answered, configured: false, bots: "none" }])).toBe(false);
+    expect(railBotsSettled(false, [answered, loading])).toBe(false);
 
-    const settled = railBotsSettled(false, [loaded, { configured: true, bots: "none" }]);
+    const settled = railBotsSettled(false, [answered, { ...answered, bots: "none" }]);
     expect(settled).toBe(true);
-    expect(railBotsSettled(settled, [loaded, loading])).toBe(true);
+    expect(railBotsSettled(settled, [answered, loading])).toBe(true);
+  });
+
+  it("doesn't wait on a machine that can't be reached, so its cached rows show at once", () => {
+    expect(railBotsSettled(false, [unreachable])).toBe(true);
+    expect(railBotsSettled(false, [answered, unreachable])).toBe(true);
   });
 });
 
@@ -422,6 +429,7 @@ describe("resolveSidebarLayout", () => {
     expect(layout({ botsSettled: false })).toBe("pending");
     expect(layout({ botsSettled: false, showsRail: false, foldersSetting: true })).toBe("pending");
     expect(layout({ botsSettled: false, projectsPicked: true })).toBe("projects");
+    expect(layout({ botsSettled: false, projectsPicked: true, showsRail: false })).toBe("pending");
 
     expect(layout({})).toBe("projects");
     expect(layout({ hasActiveBot: true })).toBe("cards");

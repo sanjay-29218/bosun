@@ -91,7 +91,7 @@ export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
 }).pipe(Atom.withLabel("web-all-environment-shells-bootstrapped"));
 
 // Catalog can precede primary discovery; an empty or incomplete catalog cannot prove absence.
-function catalogIsComplete(
+export function catalogIsComplete(
   catalog: EnvironmentCatalogState,
   requiresPrimaryEnvironment: boolean,
 ): boolean {

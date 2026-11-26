@@ -189,29 +189,38 @@ export function resolveActiveLogicalBot(
   return bots[0] ?? null;
 }
 
-/** A connected machine, as far as the rail knows which bots it has. */
+/**
+ * A machine, as far as the rail knows which bots it has. `connecting` is its first attempt still
+ * underway; `unreachable` is offline, retrying after a failure, or disabled, so its cached
+ * knowledge is all there is for now.
+ */
 export interface RailBotSource {
+  readonly connection: "connecting" | "connected" | "unreachable";
   readonly configured: boolean;
   readonly bots: "none" | "loading" | "loaded";
 }
 
 /**
- * Whether the rail knows which bots exist: once every connected machine has sent its config and
- * bot list, and from then on. A machine connecting later doesn't unsettle it, so the thread list
- * doesn't fold into Projects and back while that machine's bots load.
+ * Whether the rail knows which bots exist: once no machine is still on its first attempt and every
+ * connected one has sent its config and bot list, and from then on. A machine connecting later
+ * doesn't unsettle it, so the thread list doesn't fold into Projects and back while its bots load.
  */
 export function railBotsSettled(settled: boolean, machines: ReadonlyArray<RailBotSource>): boolean {
   return (
     settled ||
-    (machines.length > 0 &&
-      machines.every((machine) => machine.configured && machine.bots !== "loading"))
+    machines.every(
+      (machine) =>
+        machine.connection === "unreachable" ||
+        (machine.connection === "connected" && machine.configured && machine.bots !== "loading"),
+    )
   );
 }
 
 /**
  * The thread list's layout: Projects (the rail's, keeping empty folders), folders from the
  * setting, or cards. Pending until the bots are settled, since whether a bot exists decides it;
- * rows wait so a switch can't slide them under a click. Projects picked needs no wait.
+ * rows wait so a switch can't slide them under a click. Projects picked, with the rail showing,
+ * needs no wait.
  */
 export function resolveSidebarLayout(input: {
   readonly botsSettled: boolean;
@@ -220,7 +229,7 @@ export function resolveSidebarLayout(input: {
   readonly hasActiveBot: boolean;
   readonly foldersSetting: boolean;
 }): "pending" | "projects" | "folders" | "cards" {
-  if (!input.botsSettled) return input.projectsPicked ? "projects" : "pending";
+  if (!input.botsSettled) return input.projectsPicked && input.showsRail ? "projects" : "pending";
   if (input.showsRail && !input.hasActiveBot) return "projects";
   return input.foldersSetting ? "folders" : "cards";
 }
