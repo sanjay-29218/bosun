@@ -209,6 +209,23 @@ export function railBotsSettled(settled: boolean, machines: ReadonlyArray<RailBo
 }
 
 /**
+ * The thread list's layout: Projects (the rail's, keeping empty folders), folders from the
+ * setting, or cards. Pending until the bots are settled, since whether a bot exists decides it;
+ * rows wait so a switch can't slide them under a click. Projects picked needs no wait.
+ */
+export function resolveSidebarLayout(input: {
+  readonly botsSettled: boolean;
+  readonly projectsPicked: boolean;
+  readonly showsRail: boolean;
+  readonly hasActiveBot: boolean;
+  readonly foldersSetting: boolean;
+}): "pending" | "projects" | "folders" | "cards" {
+  if (!input.botsSettled) return input.projectsPicked ? "projects" : "pending";
+  if (input.showsRail && !input.hasActiveBot) return "projects";
+  return input.foldersSetting ? "folders" : "cards";
+}
+
+/**
  * What selecting `bot` remembers: its bot on each of its environments. Other environments forget
  * theirs, since an older choice there would otherwise outrank this one in
  * `resolveActiveLogicalBot` when `bot` lives only on a later environment.

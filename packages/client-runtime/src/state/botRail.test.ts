@@ -26,6 +26,7 @@ import {
   logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
   railBotsSettled,
+  resolveSidebarLayout,
   logicalBotProjectLists,
   projectBotId,
   resolveActiveLogicalBot,
@@ -403,6 +404,29 @@ describe("railBotsSettled", () => {
     const settled = railBotsSettled(false, [loaded, { configured: true, bots: "none" }]);
     expect(settled).toBe(true);
     expect(railBotsSettled(settled, [loaded, loading])).toBe(true);
+  });
+});
+
+describe("resolveSidebarLayout", () => {
+  const layout = (input: Partial<Parameters<typeof resolveSidebarLayout>[0]>) =>
+    resolveSidebarLayout({
+      botsSettled: true,
+      projectsPicked: false,
+      showsRail: true,
+      hasActiveBot: false,
+      foldersSetting: false,
+      ...input,
+    });
+
+  it("waits for the bots before choosing between cards and Projects, unless Projects is picked", () => {
+    expect(layout({ botsSettled: false })).toBe("pending");
+    expect(layout({ botsSettled: false, showsRail: false, foldersSetting: true })).toBe("pending");
+    expect(layout({ botsSettled: false, projectsPicked: true })).toBe("projects");
+
+    expect(layout({})).toBe("projects");
+    expect(layout({ hasActiveBot: true })).toBe("cards");
+    expect(layout({ showsRail: false })).toBe("cards");
+    expect(layout({ hasActiveBot: true, foldersSetting: true })).toBe("folders");
   });
 });
 

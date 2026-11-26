@@ -11,6 +11,7 @@ import {
   logicalBotHeadquartersKeys,
   railProjectKeys,
   railBotsSettled,
+  resolveSidebarLayout,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
@@ -26,6 +27,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
 import { environmentCatalog } from "../connection/catalog";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { useClientSettings } from "../hooks/useSettings";
 import { useUiStateStore } from "../uiStateStore";
 import { botsEnvironment } from "./bots";
 import { useConnectedEnvironmentIds } from "./environments";
@@ -50,11 +52,30 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
 
+// A machine that never answers mustn't hide the thread list: rows show in the layout known by
+// then, this long after the first connection, or after launch while none connects (cached rows).
+const CONNECTED_BOTS_WAIT_MS = 5_000;
+const OFFLINE_BOTS_WAIT_MS = 10_000;
+
+const anyEnvironmentConnectedAtom = Atom.make(
+  (get) => get(environmentSummaries.connectedEnvironmentIdsAtom).length > 0,
+).pipe(Atom.withLabel("web-bot-rail:any-connected"));
+
+const botsWaitOverAtom = Atom.make((get): boolean => {
+  if (Option.getOrElse(get.self<boolean>(), () => false)) return true;
+  const timer = setTimeout(
+    () => get.setSelf(true),
+    get(anyEnvironmentConnectedAtom) ? CONNECTED_BOTS_WAIT_MS : OFFLINE_BOTS_WAIT_MS,
+  );
+  get.addFinalizer(() => clearTimeout(timer));
+  return false;
+}).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:wait-over"));
+
 // Kept alive so a later machine's connection can't reset it while the thread list is away.
 const botListsSettledAtom = Atom.make((get): boolean => {
   const settled = Option.getOrElse(get.self<boolean>(), () => false);
   // Reading nothing once settled lets the bot-list queries idle out.
-  if (settled) return true;
+  if (settled || get(botsWaitOverAtom)) return true;
   const configs = get(environmentServerConfigsAtom);
   const machines = get(environmentSummaries.connectedEnvironmentIdsAtom).map((environmentId) => {
     const config = configs.get(environmentId);
@@ -359,14 +380,20 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return showsProjects ? null : resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** Whether the rail's Projects entry is what the thread list shows: picked, or no bot to pick. */
-export function useBotRailShowsProjects(): boolean {
+/** The thread list's layout; pending until it is known, so rows first show where they stay. */
+export function useSidebarLayout() {
   const showsRail = useShowBotRail();
-  const picked = useUiStateStore((store) => store.botRailShowsProjects);
-  const active = useVisibleActiveLogicalBot();
-  // No bot means Projects only once the bots are known; reading it sooner folds the list and back.
+  const projectsPicked = useUiStateStore((store) => store.botRailShowsProjects);
+  const hasActiveBot = useVisibleActiveLogicalBot() !== null;
   const botsSettled = useAtomValue(botListsSettledAtom);
-  return showsRail && active === null && (picked || botsSettled);
+  const foldersSetting = useClientSettings((settings) => settings.boringSidebarEnabled);
+  return resolveSidebarLayout({
+    botsSettled,
+    projectsPicked,
+    showsRail,
+    hasActiveBot,
+    foldersSetting,
+  });
 }
 
 /**
