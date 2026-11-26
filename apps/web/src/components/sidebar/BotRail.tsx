@@ -1,8 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  activityForProjects,
   botRailSignal,
   createLogicalBotResolver,
+  needsYouForProjects,
   pinnedProjectManagers,
   projectOwner,
   type BotActivity,
@@ -40,10 +42,12 @@ import { useHasUnseenAutomationFailure } from "../../state/automations";
 import {
   PROJECTS_RAIL_KEY,
   useActivityByLogicalBot,
+  useActivityByProject,
   useAllVisibleLogicalBots,
   useEnvironmentFilter,
   useHiddenNeedsYouCount,
   useNeedsYouByLogicalBot,
+  useNeedsYouByProject,
   useSelectLogicalBot,
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
@@ -92,7 +96,6 @@ import { useOpenProjectManager } from "./openProjectManager";
 import { RelativeTimeLabel } from "./SidebarThreadRow";
 import { supersedeStandingOpen } from "./standingOpen";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
-import { useStandingStatus } from "./useStandingStatus";
 
 /** The rail's width in px: the icon column, or the expanded list's chosen width. */
 export function useBotRailWidth(): number {
@@ -109,6 +112,8 @@ interface RailProjectManager {
   readonly title: string;
   /** The sidebar's key for the project, which scopes the thread list to it. */
   readonly projectKey: string;
+  /** `${environmentId}:${projectId}` of the projects picking it lists, on shown environments. */
+  readonly memberProjectKeys: ReadonlyArray<string>;
   /** Its bot, here or on the machine it lives on. */
   readonly owner: { readonly environmentId: EnvironmentId; readonly botId: string } | null;
   /** The machine it lives on, when the project is on several. */
@@ -159,6 +164,11 @@ function useRailProjectManagers(): ReadonlyArray<RailProjectManager> {
           threadId,
           title: project.title,
           projectKey: group.projectKey,
+          memberProjectKeys: group.memberProjects
+            .filter(
+              (member) => environmentFilter === null || environmentFilter.has(member.environmentId),
+            )
+            .map((member) => `${member.environmentId}:${member.id}`),
           owner: projectOwner(project),
           homeLabel:
             new Set(group.memberProjects.map((member) => member.environmentId)).size > 1
@@ -188,6 +198,8 @@ export const BotRail = memo(function BotRail({
   const active = useVisibleActiveLogicalBot();
   const needsYou = useNeedsYouByLogicalBot();
   const activity = useActivityByLogicalBot();
+  const needsYouByProject = useNeedsYouByProject();
+  const activityByProject = useActivityByProject();
   const selectBot = useSelectLogicalBot();
   const switchBotMainView = useSwitchBotMainView();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -394,6 +406,8 @@ export const BotRail = memo(function BotRail({
               <ManagerRailItem
                 key={manager.key}
                 manager={manager}
+                needsYou={needsYouForProjects(needsYouByProject, manager.memberProjectKeys)}
+                activity={activityForProjects(activityByProject, manager.memberProjectKeys)}
                 active={scopedManager?.key === manager.key}
                 onSelect={() => selectManager(manager)}
               />
@@ -401,6 +415,8 @@ export const BotRail = memo(function BotRail({
               <ManagerListRow
                 key={manager.key}
                 manager={manager}
+                needsYou={needsYouForProjects(needsYouByProject, manager.memberProjectKeys)}
+                activity={activityForProjects(activityByProject, manager.memberProjectKeys)}
                 active={scopedManager?.key === manager.key}
                 onSelect={() => selectManager(manager)}
               />
@@ -612,30 +628,29 @@ const BotListRow = memo(function BotListRow({
   );
 });
 
-function useManagerStatus(manager: RailProjectManager) {
-  const ref = scopeThreadRef(manager.environmentId, manager.threadId);
-  const shell = useThreadShell(ref);
-  const status = useStandingStatus(ref);
-  const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
-  return { shell, icon, ...status };
-}
-
 /** A manager's name in the rail: its project, and the machine it lives on when there are several. */
 const managerName = (manager: RailProjectManager) =>
   manager.homeLabel === null ? manager.title : `${manager.title} · ${manager.homeLabel}`;
 
+// Like bot rows, manager rows take their project group's totals from the rail.
 const ManagerListRow = memo(function ManagerListRow({
   manager,
+  needsYou,
+  activity,
   active,
   onSelect,
 }: {
   readonly manager: RailProjectManager;
+  readonly needsYou: number;
+  readonly activity: BotActivity | undefined;
   readonly active: boolean;
   readonly onSelect: () => void;
 }) {
-  const { shell, icon, waiting, working, done, status } = useManagerStatus(manager);
+  const shell = useThreadShell(scopeThreadRef(manager.environmentId, manager.threadId));
+  const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
   const latest = shell?.source.latestVisibleMessage;
-  const summary = botListRowSummary(0, undefined, latest);
+  const summary = botListRowSummary(needsYou, activity, latest);
+  const status = summary.mark === "needs-you" ? "needs input" : summary.mark;
   return (
     <div className={listRowClassName(active)}>
       <button
@@ -649,18 +664,18 @@ const ManagerListRow = memo(function ManagerListRow({
         projectId={manager.projectId}
         icon={icon}
         size={40}
-        working={working}
+        working={summary.mark === "working"}
         className="pointer-events-none shrink-0"
       />
       <span className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
         <ListRowHead
           name={managerName(manager)}
-          emphasized={done}
+          emphasized={summary.unread}
           time={summary.time}
-          unread={done}
+          unread={summary.unread}
         />
         <ListRowPreview
-          mark={waiting ? "needs-you" : working ? "working" : null}
+          mark={summary.mark}
           preview={latest ? summary.preview : "Project manager"}
         />
       </span>
@@ -670,32 +685,34 @@ const ManagerListRow = memo(function ManagerListRow({
 
 const ManagerRailItem = memo(function ManagerRailItem({
   manager,
+  needsYou,
+  activity,
   active,
   onSelect,
 }: {
   readonly manager: RailProjectManager;
+  readonly needsYou: number;
+  readonly activity: BotActivity | undefined;
   readonly active: boolean;
   readonly onSelect: () => void;
 }) {
-  const { icon, waiting, working, done } = useManagerStatus(manager);
+  const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
+  const signal = botRailSignal(needsYou, activity);
   return (
     <RailItem
       label={managerName(manager)}
       hint="Project manager"
       active={active}
-      signal={
-        waiting
-          ? { kind: "needs-you", count: 1 }
-          : working
-            ? { kind: "working" }
-            : done
-              ? { kind: "unread" }
-              : null
-      }
+      signal={signal}
       shortcut={null}
       onSelect={onSelect}
     >
-      <ProjectManagerAvatar projectId={manager.projectId} icon={icon} size={36} working={working} />
+      <ProjectManagerAvatar
+        projectId={manager.projectId}
+        icon={icon}
+        size={36}
+        working={signal?.kind === "working"}
+      />
     </RailItem>
   );
 });

@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  activityByProject,
   botListEnvironmentIds,
   botActivityByBot,
   botActivityByLogicalBot,
@@ -17,7 +18,10 @@ import {
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
-import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
+import {
+  countNeedsYouByBot,
+  countNeedsYouByProject,
+} from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -108,19 +112,35 @@ const botListAtom = Atom.make((get): BotListState => {
     : value;
 }).pipe(Atom.withLabel("web-bot-rail:bot-list"));
 
-/** Threads waiting on you per environment's bot, keyed by `botNeedsYouKey`. */
+const sameCounts = (left: ReadonlyMap<string, number>, right: ReadonlyMap<string, number>) =>
+  left.size === right.size && [...right].every(([key, count]) => left.get(key) === count);
+
+/** Asks waiting on you per environment's bot, keyed by `botNeedsYouKey`. */
 const needsYouByBotAtom = Atom.make((get): ReadonlyMap<string, number> => {
   const next = countNeedsYouByBot(get(needsYouThreadsAtom), get(environmentProjects.projectsAtom));
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, number>>());
-  return previous !== null &&
-    previous.size === next.size &&
-    [...next].every(([key, count]) => previous.get(key) === count)
-    ? previous
-    : next;
+  return previous !== null && sameCounts(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:needs-you"));
+
+/** Asks waiting on you per project, keyed by `${environmentId}:${projectId}`, for managers. */
+const needsYouByProjectAtom = Atom.make((get): ReadonlyMap<string, number> => {
+  const next = countNeedsYouByProject(get(needsYouThreadsAtom));
+  const previous = Option.getOrNull(get.self<ReadonlyMap<string, number>>());
+  return previous !== null && sameCounts(previous, next) ? previous : next;
+}).pipe(Atom.withLabel("web-bot-rail:needs-you-by-project"));
 
 const sameActivity = (left: BotActivity, right: BotActivity) =>
   left.failed === right.failed && left.working === right.working && left.unread === right.unread;
+
+const sameActivityMap = (
+  left: ReadonlyMap<string, BotActivity>,
+  right: ReadonlyMap<string, BotActivity>,
+) =>
+  left.size === right.size &&
+  [...right].every(([key, activity]) => {
+    const before = left.get(key);
+    return before !== undefined && sameActivity(before, activity);
+  });
 
 /**
  * Failed, working and unread threads per environment's bot, keyed by `botNeedsYouKey`. Shells
@@ -130,17 +150,31 @@ const activityByBotAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
   const next = botActivityByBot(
     get(environmentThreadShells.threadShellsAtom),
     get(environmentProjects.projectsAtom),
+    get(environmentThreadShells.delegatedUnderParentAtom),
   );
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
-  return previous !== null &&
-    previous.size === next.size &&
-    [...next].every(([key, activity]) => {
-      const before = previous.get(key);
-      return before !== undefined && sameActivity(before, activity);
-    })
-    ? previous
-    : next;
+  return previous !== null && sameActivityMap(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:activity"));
+
+/** `activityByBotAtom` per project, keyed by `${environmentId}:${projectId}`, for managers. */
+const activityByProjectAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
+  const next = activityByProject(
+    get(environmentThreadShells.threadShellsAtom),
+    get(environmentThreadShells.delegatedUnderParentAtom),
+  );
+  const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
+  return previous !== null && sameActivityMap(previous, next) ? previous : next;
+}).pipe(Atom.withLabel("web-bot-rail:activity-by-project"));
+
+/** Asks per project, keyed by `${environmentId}:${projectId}`; managers sum their group's. */
+export function useNeedsYouByProject(): ReadonlyMap<string, number> {
+  return useAtomValue(needsYouByProjectAtom);
+}
+
+/** Activity per project, keyed by `${environmentId}:${projectId}`; managers merge their group's. */
+export function useActivityByProject(): ReadonlyMap<string, BotActivity> {
+  return useAtomValue(activityByProjectAtom);
+}
 
 // Member keys are `botNeedsYouKey`s, so the environment is their prefix.
 const onShownEnvironments = <Value>(

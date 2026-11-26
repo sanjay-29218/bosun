@@ -68,28 +68,10 @@ function streamingPlanArtifact(
 describe("V2 session presentation", () => {
   it("uses run status as the settlement boundary", () => {
     const runId = RunId.make("run-1");
+    expect(isLatestRunSettled({ runId, status: "completed" }, null)).toBe(true);
+    expect(isLatestRunSettled({ runId, status: "running" }, { activeRunId: runId })).toBe(false);
     expect(
-      isLatestRunSettled(
-        {
-          runId,
-          status: "completed",
-          startedAt: "2026-06-20T00:00:00.000Z",
-          completedAt: "2026-06-20T00:01:00.000Z",
-        },
-        null,
-      ),
-    ).toBe(true);
-    expect(
-      isLatestRunSettled(
-        { runId, status: "running", startedAt: null, completedAt: null },
-        { status: "running", activeRunId: runId },
-      ),
-    ).toBe(false);
-    expect(
-      isLatestRunSettled(
-        { runId, status: "queued", startedAt: null, completedAt: null },
-        { status: "running", activeRunId: RunId.make("run-active") },
-      ),
+      isLatestRunSettled({ runId, status: "queued" }, { activeRunId: RunId.make("run-active") }),
     ).toBe(false);
   });
 

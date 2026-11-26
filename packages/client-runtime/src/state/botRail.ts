@@ -2,6 +2,7 @@ import {
   botHeadquartersThreadId,
   headquartersBotId,
   headquartersProjectId,
+  isListedThreadLineage,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
@@ -13,6 +14,7 @@ import {
 
 import type { EnvironmentThreadShell } from "./models.ts";
 import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
+import { threadKey } from "./entities.ts";
 import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
 
 /** A project's owner, or null when it has none. */
@@ -370,9 +372,12 @@ export interface BotActivity {
 }
 
 type BotActivityShell = Parameters<typeof isThreadWorking>[0] &
-  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt"> & {
+  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt" | "lineage"> & {
     readonly lastVisitedAt?: string | null | undefined;
+    readonly feature?: { readonly member?: string | undefined } | null | undefined;
   };
+
+const NO_THREAD_KEYS: ReadonlySet<string> = new Set();
 
 const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotActivity =>
   left === undefined
@@ -384,29 +389,95 @@ const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotAc
       };
 
 /**
+ * Whether a thread is its own row in a bot's list. Subagents, side chats and workflow steps sit
+ * inside their parent, crew fold into their feature's row, and a task delegated from a listed
+ * parent (`delegatedUnderParent`, by `threadKey`) shows under it. A manager's thread is its own
+ * rail entry.
+ */
+const isOwnListRow = (shell: BotActivityShell, delegatedUnderParent: ReadonlySet<string>) =>
+  isListedThreadLineage(shell.lineage) &&
+  shell.feature?.member === undefined &&
+  headquartersProjectId(shell.id) === null &&
+  !delegatedUnderParent.has(threadKey({ environmentId: shell.environmentId, threadId: shell.id }));
+
+/**
+ * A thread's activity: working from any thread, failed and unread only from one the list shows
+ * (`seen`), so a thread nobody can open never keeps a dot lit. Null when it has none.
+ */
+function shellActivity(shell: BotActivityShell, seen: boolean): BotActivity | null {
+  if (shell.archivedAt !== null) return null;
+  // A server without visit tracking never reads as unseen.
+  const visits = seen && shell.lastVisitedAt !== undefined;
+  const activity: BotActivity = {
+    failed: visits && hasUnseenFailure(shell),
+    working: isThreadWorking(shell),
+    unread: visits && hasUnseenCompletion(shell),
+  };
+  return activity.failed || activity.working || activity.unread ? activity : null;
+}
+
+/**
  * Activity per environment's bot, keyed by `botNeedsYouKey`. Bots with nothing going on are
- * left out. A server without visit tracking (`lastVisitedAt` undefined) never reads as unseen.
+ * left out. Failed and unread come only from the bot list's own rows.
  */
 export function botActivityByBot(
   shells: ReadonlyArray<BotActivityShell>,
   projects: ReadonlyArray<BotOwnedProject>,
+  delegatedUnderParent: ReadonlySet<string> = NO_THREAD_KEYS,
 ): ReadonlyMap<string, BotActivity> {
   const ownerKey = createThreadBotKeyResolver(projects);
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
-    if (shell.archivedAt !== null) continue;
-    const visits = shell.lastVisitedAt !== undefined;
-    const next: BotActivity = {
-      failed: visits && hasUnseenFailure(shell),
-      working: isThreadWorking(shell),
-      unread: visits && hasUnseenCompletion(shell),
-    };
-    if (!next.failed && !next.working && !next.unread) continue;
+    const next = shellActivity(shell, isOwnListRow(shell, delegatedUnderParent));
+    if (next === null) continue;
     const key = ownerKey(shell);
     if (key === undefined) continue;
     activity.set(key, mergeActivity(activity.get(key), next));
   }
   return activity;
+}
+
+/**
+ * Activity per project, keyed by `${environmentId}:${projectId}`, for project managers: the
+ * project's own rows and its manager's thread.
+ */
+export function activityByProject(
+  shells: ReadonlyArray<BotActivityShell>,
+  delegatedUnderParent: ReadonlySet<string>,
+): ReadonlyMap<string, BotActivity> {
+  const activity = new Map<string, BotActivity>();
+  for (const shell of shells) {
+    const seen =
+      headquartersProjectId(shell.id) !== null || isOwnListRow(shell, delegatedUnderParent);
+    const next = shellActivity(shell, seen);
+    if (next === null) continue;
+    const key = `${shell.environmentId}:${shell.projectId}`;
+    activity.set(key, mergeActivity(activity.get(key), next));
+  }
+  return activity;
+}
+
+/** A project manager's activity over its project group's `${environmentId}:${projectId}` keys. */
+export function activityForProjects(
+  activity: ReadonlyMap<string, BotActivity>,
+  projectKeys: Iterable<string>,
+): BotActivity | undefined {
+  let merged: BotActivity | undefined;
+  for (const key of projectKeys) {
+    const next = activity.get(key);
+    if (next !== undefined) merged = mergeActivity(merged, next);
+  }
+  return merged;
+}
+
+/** A project manager's asks over its project group's `${environmentId}:${projectId}` keys. */
+export function needsYouForProjects(
+  counts: ReadonlyMap<string, number>,
+  projectKeys: Iterable<string>,
+): number {
+  let total = 0;
+  for (const key of projectKeys) total += counts.get(key) ?? 0;
+  return total;
 }
 
 /** `botActivityByBot` merged per rail entry. */

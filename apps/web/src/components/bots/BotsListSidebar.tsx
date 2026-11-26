@@ -1,12 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  activityForProjects,
   botListSubtitle,
+  needsYouForProjects,
   writePins,
   type BotActivity,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
-import { projectHeadquartersThreadId, type EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { BotIcon, PinIcon, PlusIcon, SettingsIcon } from "lucide-react";
 import { Atom } from "effect/reactivity";
@@ -16,9 +17,11 @@ import { isElectron } from "../../env";
 import { cn } from "../../lib/utils";
 import {
   useActivityByLogicalBot,
+  useActivityByProject,
   useBotList,
   useEnvironmentFilter,
   useNeedsYouByLogicalBot,
+  useNeedsYouByProject,
   useShownBotEnvironmentIds,
 } from "../../state/botRail";
 import { botsEnvironment } from "../../state/bots";
@@ -37,7 +40,6 @@ import { BOTS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
 import { headquartersMember, useOpenBotHeadquarters } from "../sidebar/openBotHeadquarters";
 import { useOpenProjectManager } from "../sidebar/openProjectManager";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
-import { useStandingStatus } from "../sidebar/useStandingStatus";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { SidebarContent, SidebarGroup, useSidebar } from "../ui/sidebar";
@@ -58,6 +60,8 @@ export function BotsListSidebar() {
   const { bots, machineOf, isOnline } = useBotList();
   const needsYou = useNeedsYouByLogicalBot();
   const activity = useActivityByLogicalBot();
+  const needsYouByProject = useNeedsYouByProject();
+  const activityByProject = useActivityByProject();
   const projects = useProjects();
   const groups = useSettingsProjectGroups();
   const { environments } = useEnvironments();
@@ -103,6 +107,12 @@ export function BotsListSidebar() {
         : [],
     ),
   );
+
+  // A manager lists its project group's threads, so it counts theirs.
+  const managerProjectKeys = (projectKey: string) =>
+    (groups.find((group) => group.projectKey === projectKey)?.memberProjects ?? [])
+      .filter((member) => environmentFilter === null || environmentFilter.has(member.environmentId))
+      .map((member) => `${member.environmentId}:${member.id}`);
 
   const close = () => {
     if (isMobile) setOpenMobile(false);
@@ -203,6 +213,14 @@ export function BotsListSidebar() {
                   <BotsListManagerRow
                     key={manager.key}
                     manager={manager}
+                    needsYou={needsYouForProjects(
+                      needsYouByProject,
+                      managerProjectKeys(manager.projectKey),
+                    )}
+                    working={
+                      activityForProjects(activityByProject, managerProjectKeys(manager.projectKey))
+                        ?.working === true
+                    }
                     subtitle={managerSubtitle(
                       manager.ownerKey === null ? null : (botNames.get(manager.ownerKey) ?? null),
                       severalEnvironments || onSeveral.has(manager.projectKey)
@@ -461,12 +479,16 @@ const BotsListBotRow = memo(function BotsListBotRow({
 
 const BotsListManagerRow = memo(function BotsListManagerRow({
   manager,
+  needsYou,
+  working: anyWorking,
   subtitle,
   pinned,
   onTogglePin,
   onNavigate,
 }: {
   readonly manager: BotsListManager;
+  readonly needsYou: number;
+  readonly working: boolean;
   readonly subtitle: string;
   readonly pinned: boolean;
   readonly onTogglePin: () => void;
@@ -474,8 +496,7 @@ const BotsListManagerRow = memo(function BotsListManagerRow({
 }) {
   const navigate = useNavigate();
   const openProjectManager = useOpenProjectManager();
-  const threadId = projectHeadquartersThreadId(manager.projectId);
-  const { waiting, working } = useStandingStatus(scopeThreadRef(manager.environmentId, threadId));
+  const working = needsYou === 0 && anyWorking;
   const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
   const canPin = useAtomValue(botsEnvironment.setPin.permissionAtom(manager.environmentId));
   return (
@@ -491,7 +512,7 @@ const BotsListManagerRow = memo(function BotsListManagerRow({
           working={working}
         />
       }
-      mark={waiting ? { needsYou: 1 } : working ? "working" : null}
+      mark={needsYou > 0 ? { needsYou } : working ? "working" : null}
       pinned={pinned}
       onOpen={() => {
         onNavigate();

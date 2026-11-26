@@ -1,6 +1,7 @@
 import {
   botHeadquartersThreadId,
   EnvironmentId,
+  projectHeadquartersThreadId,
   ProjectId,
   RunId,
   ThreadId,
@@ -11,6 +12,9 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   botActivityByBot,
   botActivityByLogicalBot,
+  activityByProject,
+  activityForProjects,
+  needsYouForProjects,
   botRailShowsThread,
   botListEnvironmentIds,
   botListSubtitle,
@@ -32,6 +36,7 @@ import {
   selectLogicalBot,
 } from "./botRail.ts";
 import { botNeedsYouKey } from "./crewBoard.ts";
+import { threadKey } from "./entities.ts";
 
 const CAPTAIN_ID = "bot-ops";
 
@@ -566,12 +571,29 @@ describe("bot activity", () => {
     projectId: string,
     run: { status: "running" | "completed" | "failed"; completedAt: string | null } | null,
     lastVisitedAt: string | null | undefined,
+    row: {
+      readonly lineage?: {
+        readonly parentThreadId: ThreadId | null;
+        readonly relationshipToParent: "fork" | "subagent" | null;
+        readonly rootThreadId: ThreadId;
+        readonly sideChat?: boolean;
+        readonly listed?: boolean;
+        readonly workflowStep?: boolean;
+      };
+      readonly feature?: { readonly id: string; readonly title: string; readonly member?: string };
+    } = {},
   ) => ({
     environmentId: local,
     id: ThreadId.make(id),
     projectId: ProjectId.make(projectId),
     archivedAt: null,
     lastVisitedAt,
+    lineage: row.lineage ?? {
+      parentThreadId: null,
+      relationshipToParent: null,
+      rootThreadId: ThreadId.make(id),
+    },
+    feature: row.feature ?? null,
     hasActionableProposedPlan: false,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
@@ -643,6 +665,91 @@ describe("bot activity", () => {
       projects,
     );
     expect([...activity.keys()]).toEqual([botNeedsYouKey(local, "bot-social")]);
+  });
+
+  const finished = { status: "completed" as const, completedAt: after };
+  const running = { status: "running" as const, completedAt: null };
+  const child = (parent: string, extra: { sideChat?: boolean; workflowStep?: boolean } = {}) => ({
+    lineage: {
+      parentThreadId: ThreadId.make(parent),
+      relationshipToParent: extra.sideChat ? null : ("subagent" as const),
+      rootThreadId: ThreadId.make(parent),
+      ...extra,
+    },
+  });
+  const crew = { feature: { id: "f-1", title: "Feature", member: "Builder" } };
+
+  it("lights unread only for threads that are their own row in the bot's list", () => {
+    const activity = botActivityByBot(
+      [
+        shell("crew", "p-social", finished, before, crew),
+        shell("subagent", "p-social", finished, before, child("lead")),
+        shell("side-chat", "p-social", finished, before, child("lead", { sideChat: true })),
+        shell("step", "p-social", finished, before, child("lead", { workflowStep: true })),
+        shell("delegated", "p-social", finished, before),
+        shell(
+          projectHeadquartersThreadId(ProjectId.make("p-social")),
+          "p-social",
+          finished,
+          before,
+        ),
+        // Hidden threads still mean the bot is working.
+        shell("crew-running", "p-social", running, before, crew),
+      ],
+      projects,
+      new Set([threadKey({ environmentId: local, threadId: ThreadId.make("delegated") })]),
+    );
+    expect(activity.get(botNeedsYouKey(local, "bot-social"))).toEqual({
+      failed: false,
+      working: true,
+      unread: false,
+    });
+  });
+
+  it("still lights unread for a feature's lead and a headquarters", () => {
+    const activity = botActivityByBot(
+      [
+        shell("lead", "p-social", finished, before, { feature: { id: "f-1", title: "Feature" } }),
+        shell(botHeadquartersThreadId(CAPTAIN_ID), "scratch", finished, before),
+      ],
+      projects,
+    );
+    expect(activity.get(botNeedsYouKey(local, "bot-social"))?.unread).toBe(true);
+    expect(activity.get(botNeedsYouKey(local, CAPTAIN_ID))?.unread).toBe(true);
+  });
+
+  it("gives a project manager its project group's rows and its own thread", () => {
+    const manager = projectHeadquartersThreadId(ProjectId.make("p-loose"));
+    const byProject = activityByProject(
+      [
+        shell(manager, "p-loose", finished, before),
+        shell("crew", "p-social", finished, before, crew),
+        shell("crew-running", "p-social", running, before, crew),
+        shell("failed", "p-captain", { status: "failed", completedAt: after }, before),
+      ],
+      new Set(),
+    );
+    expect(activityForProjects(byProject, [`${local}:p-loose`])).toEqual({
+      failed: false,
+      working: false,
+      unread: true,
+    });
+    expect(activityForProjects(byProject, [`${local}:p-social`, `${local}:p-captain`])).toEqual({
+      failed: true,
+      working: true,
+      unread: true,
+    });
+    expect(activityForProjects(byProject, [`${remote}:p-loose`])).toBeUndefined();
+    expect(
+      needsYouForProjects(
+        new Map([
+          [`${local}:p-loose`, 2],
+          [`${local}:p-social`, 1],
+          [`${remote}:p-loose`, 4],
+        ]),
+        [`${local}:p-loose`, `${local}:p-social`],
+      ),
+    ).toBe(3);
   });
 
   it("merges per rail entry", () => {

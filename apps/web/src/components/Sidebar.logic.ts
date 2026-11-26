@@ -33,7 +33,10 @@ import {
   hasUnseenRunFailure,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
-import { hasUnseenCompletion } from "@t3tools/client-runtime/state/thread-inbox";
+import {
+  hasUnseenCompletion,
+  threadHasPlanReady,
+} from "@t3tools/client-runtime/state/thread-inbox";
 import {
   getThreadSortTimestamp,
   planPinnedReorder,
@@ -43,7 +46,6 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { normalizeSearchText } from "../lib/utils";
-import { isLatestRunSettled } from "../session-logic";
 import { THREAD_STATUS_TEXT } from "@t3tools/client-runtime/state/thread-activity-announcement";
 import { observeIntersection } from "../lib/observeIntersection";
 import { deadlineAfter, deadlineStore, type ClockStore } from "@t3tools/client-runtime/clock";
@@ -1318,12 +1320,7 @@ export function resolveThreadStatusPill(input: {
 
   if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return waiting;
 
-  const hasPlanReadyPrompt =
-    !thread.hasPendingUserInput &&
-    thread.interactionMode === "plan" &&
-    isLatestRunSettled(thread.latestRun, thread.runtime) &&
-    thread.hasActionableProposedPlan;
-  if (hasPlanReadyPrompt) {
+  if (threadHasPlanReady(thread)) {
     return {
       label: msg("Plan Ready"),
       colorClass: "text-violet-600 dark:text-violet-300/90",
