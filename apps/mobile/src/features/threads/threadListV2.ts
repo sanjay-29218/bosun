@@ -32,6 +32,8 @@ import {
   isThreadWorking,
   sortInboxThreadsByReturn,
   sortWorkingThreadsBySend,
+  threadHasPlanReady,
+  type PlanReadyInput,
 } from "@t3tools/client-runtime/state/thread-inbox";
 import {
   sortActiveThreadsByOrderKey,
@@ -83,7 +85,9 @@ export type ThreadListV2Status =
   | "waiting"
   | "failed"
   | "limited"
-  | "ready";
+  | "ready"
+  /** Rows only: a plan ready for review, which `resolveThreadListV2Status` reads as finished. */
+  | "plan";
 export type ThreadListV2SwipeAction = "archive" | "settle" | "unsettle" | "snooze" | "unsnooze";
 
 /**
@@ -349,12 +353,17 @@ export function threadListV2RowAccessibilityLabel(
     .join(", ");
 }
 
-/** Row status: a failure the user has already opened settles to ready, like Done. */
+/**
+ * Row status: a plan ready for review asks the person, as the bot menu counts it, and a
+ * failure the user has already opened settles to ready, like Done.
+ */
 export function resolveThreadListV2RowStatus(
   thread: Parameters<typeof resolveThreadListV2Status>[0] &
+    PlanReadyInput &
     Pick<EnvironmentThreadShell, "latestRun" | "lastVisitedAt">,
 ): ThreadListV2Status {
   const status = resolveThreadListV2Status(thread);
+  if ((status === "ready" || status === "waiting") && threadHasPlanReady(thread)) return "plan";
   // A runtime failure without a failed run has nothing to date it, so it stays.
   if (status !== "failed" || thread.latestRun?.status !== "failed") return status;
   return hasUnseenRunFailure(thread) ? status : "ready";

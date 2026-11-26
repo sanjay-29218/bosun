@@ -36,6 +36,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import { makeRawThreadShell, makeThreadShellFixture } from "../../test-fixtures";
 import { threadJumpTarget } from "../keyboard/threadKeyboardShortcuts";
+import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import {
   buildThreadListV2Items,
   buildThreadListV2ListItems,
@@ -195,6 +196,34 @@ describe("resolveThreadListV2Status", () => {
     expect(resolveThreadListV2Status(failed)).toBe("failed");
     expect(resolveThreadListV2RowStatus(failed)).toBe("ready");
     expect(resolveThreadListV2RowStatus({ ...failed, lastVisitedAt: null })).toBe("failed");
+  });
+
+  it("marks a plan ready for review in the row, as the bot menu counts it", () => {
+    const finished = presentThreadShell(
+      environmentId,
+      makeRawThreadShell({
+        latestRunId: RunId.make("run-plan"),
+        latestRunCompletedAt: DateTime.makeUnsafe("2026-06-01T23:59:00.000Z"),
+        lastVisitedAt: DateTime.makeUnsafe(NOW),
+      }),
+    );
+    const planReady = {
+      ...finished,
+      interactionMode: "plan" as const,
+      hasActionableProposedPlan: true,
+    };
+
+    expect(resolveThreadListV2RowStatus(planReady)).toBe("plan");
+    // The raw status is unchanged for everything else that reads it.
+    expect(resolveThreadListV2Status(planReady)).toBe(resolveThreadListV2Status(finished));
+    expect(resolveThreadListV2RowStatus({ ...planReady, hasPendingUserInput: true })).toBe("input");
+    expect(resolveThreadListV2RowStatus({ ...planReady, hasPendingApprovals: true })).toBe(
+      "approval",
+    );
+    expect(resolveThreadListV2RowStatus({ ...planReady, interactionMode: "default" })).toBe(
+      resolveThreadListV2Status(finished),
+    );
+    expect(shouldRecedeThreadRow({ status: "plan", selected: false })).toBe(false);
   });
 
   it("shows a waiting guest message as Request, after the agent's own requests", () => {
