@@ -25,11 +25,13 @@ import {
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
+  railShowsProjects,
   logicalBotProjectLists,
   projectBotId,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
+  type LogicalBot,
 } from "./botRail.ts";
 import { botNeedsYouKey } from "./crewBoard.ts";
 
@@ -387,6 +389,20 @@ describe("resolveActiveLogicalBot", () => {
     const finance = bots.find((entry) => entry.name === "Finance")!;
     const next = selectLogicalBot(finance);
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Finance");
+  });
+});
+
+describe("railShowsProjects", () => {
+  const shows = (input: { picked: boolean; botListsLoading: boolean; active?: LogicalBot }) =>
+    railShowsProjects({ showsRail: true, active: null, ...input });
+
+  it("reads no bot as Projects only once the bot lists have loaded, or when Projects is picked", () => {
+    expect(shows({ picked: false, botListsLoading: true })).toBe(false);
+    expect(shows({ picked: false, botListsLoading: false })).toBe(true);
+    expect(shows({ picked: true, botListsLoading: true })).toBe(true);
+    expect(
+      shows({ picked: false, botListsLoading: false, active: buildLogicalBots(environments)[0]! }),
+    ).toBe(false);
   });
 });
 

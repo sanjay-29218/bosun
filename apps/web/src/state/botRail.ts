@@ -10,6 +10,7 @@ import {
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   railProjectKeys,
+  railShowsProjects,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
@@ -48,6 +49,16 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   const previous = Option.getOrNull(get.self<ReadonlyArray<EnvironmentId>>());
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
+
+/** Whether a connected bot environment's list hasn't loaded yet. */
+const botListsLoadingAtom = Atom.make((get): boolean => {
+  const connected = get(environmentSummaries.connectedEnvironmentIdsAtom);
+  return get(botEnvironmentIdsAtom).some(
+    (environmentId) =>
+      connected.includes(environmentId) &&
+      AsyncResult.isInitial(get(botsEnvironment.list({ environmentId, input: {} }))),
+  );
+}).pipe(Atom.withLabel("web-bot-rail:lists-loading"));
 
 /**
  * Rail entries: connected environments' bots, behind the rail, the active bot, pins and activity.
@@ -339,8 +350,12 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
 
 /** Whether the rail's Projects entry is what the thread list shows: picked, or no bot to pick. */
 export function useBotRailShowsProjects(): boolean {
-  const active = useVisibleActiveLogicalBot();
-  return useShowBotRail() && active === null;
+  return railShowsProjects({
+    showsRail: useShowBotRail(),
+    picked: useUiStateStore((store) => store.botRailShowsProjects),
+    active: useVisibleActiveLogicalBot(),
+    botListsLoading: useAtomValue(botListsLoadingAtom),
+  });
 }
 
 /**

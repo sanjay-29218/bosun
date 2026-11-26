@@ -190,6 +190,19 @@ export function resolveActiveLogicalBot(
 }
 
 /**
+ * Whether the thread list shows the rail's Projects: picked, or no bot to pick. A bot list on its
+ * first load doesn't mean no bot yet; reading it so folds the list into folders and back.
+ */
+export function railShowsProjects(input: {
+  readonly showsRail: boolean;
+  readonly picked: boolean;
+  readonly active: LogicalBot | null;
+  readonly botListsLoading: boolean;
+}): boolean {
+  return input.showsRail && input.active === null && (input.picked || !input.botListsLoading);
+}
+
+/**
  * What selecting `bot` remembers: its bot on each of its environments. Other environments forget
  * theirs, since an older choice there would otherwise outrank this one in
  * `resolveActiveLogicalBot` when `bot` lives only on a later environment.
