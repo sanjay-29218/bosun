@@ -594,13 +594,13 @@ export function collectNeedsYou<Shell extends NeedsYouShell>(
   })).filter((group) => group.items.length > 0);
 }
 
-/** The item ⌘⇧Y opens: the one that has waited longest, whatever its kind. */
-export function oldestNeedsYouItem<Shell extends NeedsYouShell>(
-  groups: ReadonlyArray<NeedsYouGroup<Shell>>,
-): NeedsYouItem<Shell> | null {
-  let oldest: NeedsYouItem<Shell> | null = null;
-  for (const group of groups)
-    for (const item of group.items) if (oldest === null || item.since < oldest.since) oldest = item;
+/** The ask ⌘⇧Y opens: the one (`threadAsksYou`) that has waited longest, whatever its kind. */
+export function oldestAsk<Shell extends AskShell>(shells: ReadonlyArray<Shell>): Shell | null {
+  const since = (shell: Shell) => shell.runtime?.updatedAt ?? shell.updatedAt;
+  let oldest: Shell | null = null;
+  for (const shell of shells) {
+    if (threadAsksYou(shell) && (oldest === null || since(shell) < since(oldest))) oldest = shell;
+  }
   return oldest;
 }
 

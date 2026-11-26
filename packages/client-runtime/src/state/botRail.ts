@@ -2,7 +2,7 @@ import {
   botHeadquartersThreadId,
   headquartersBotId,
   headquartersProjectId,
-  isListedThreadLineage,
+  isStandingThread,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
@@ -10,12 +10,15 @@ import {
   type ProjectId,
   type ProjectRemoteBot,
   type ProjectRemoteManager,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
 import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
 import { threadKey } from "./entities.ts";
 import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
+import { isShownUnderParent } from "./threadShell.ts";
+import { groupWorkThreads, nestChildFeatureGroups, type WorkGroupThread } from "./workGroups.ts";
 
 /** A project's owner, or null when it has none. */
 export function projectBotId(project: {
@@ -372,12 +375,14 @@ export interface BotActivity {
 }
 
 type BotActivityShell = Parameters<typeof isThreadWorking>[0] &
-  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt" | "lineage"> & {
+  Pick<EnvironmentThreadShell, "environmentId" | "id" | "projectId" | "archivedAt"> & {
     readonly lastVisitedAt?: string | null | undefined;
-    readonly feature?: { readonly member?: string | undefined } | null | undefined;
   };
 
-const NO_THREAD_KEYS: ReadonlySet<string> = new Set();
+type ListRowShell = WorkGroupThread &
+  Pick<EnvironmentThreadShell, "environmentId" | "id" | "archivedAt" | "lineage"> & {
+    readonly settledOverride?: string | null;
+  };
 
 const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotActivity =>
   left === undefined
@@ -388,17 +393,38 @@ const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotAc
         unread: left.unread || right.unread,
       };
 
+const shellKey = (shell: { readonly environmentId: EnvironmentId; readonly id: ThreadId }) =>
+  threadKey({ environmentId: shell.environmentId, threadId: shell.id });
+
 /**
- * Whether a thread is its own row in a bot's list. Subagents, side chats and workflow steps sit
- * inside their parent, crew fold into their feature's row, and a task delegated from a listed
- * parent (`delegatedUnderParent`, by `threadKey`) shows under it. A manager's thread is its own
- * rail entry.
+ * `threadKey`s of threads that are their own thread-list row, folded as the sidebar folds them
+ * (nested and delegated threads, feature and request groups, child features), plus standing
+ * threads, which the rail opens. Pass shells without hidden-tag threads.
  */
-const isOwnListRow = (shell: BotActivityShell, delegatedUnderParent: ReadonlySet<string>) =>
-  isListedThreadLineage(shell.lineage) &&
-  shell.feature?.member === undefined &&
-  headquartersProjectId(shell.id) === null &&
-  !delegatedUnderParent.has(threadKey({ environmentId: shell.environmentId, threadId: shell.id }));
+export function listRowThreadKeys(
+  shells: ReadonlyArray<ListRowShell>,
+  delegatedUnderParent: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const live = shells.filter((shell) => shell.archivedAt === null);
+  const listed = live.filter(
+    (shell) =>
+      !isStandingThread(shell.id) &&
+      !isShownUnderParent(
+        { environmentId: shell.environmentId, threadId: shell.id },
+        shell.lineage,
+        delegatedUnderParent,
+      ),
+  );
+  const grouped = groupWorkThreads(
+    listed,
+    live.filter((shell) => shell.feature?.member !== undefined),
+  );
+  const { primaries } = nestChildFeatureGroups(grouped.primaries, grouped.groupByThreadKey);
+  return new Set([
+    ...primaries.map(shellKey),
+    ...live.filter((shell) => isStandingThread(shell.id)).map(shellKey),
+  ]);
+}
 
 /**
  * A thread's activity: working from any thread, failed and unread only from one the list shows
@@ -418,17 +444,19 @@ function shellActivity(shell: BotActivityShell, seen: boolean): BotActivity | nu
 
 /**
  * Activity per environment's bot, keyed by `botNeedsYouKey`. Bots with nothing going on are
- * left out. Failed and unread come only from the bot list's own rows.
+ * left out. Failed and unread come only from list rows (`listRowThreadKeys`); a project
+ * manager's thread counts for its manager.
  */
 export function botActivityByBot(
   shells: ReadonlyArray<BotActivityShell>,
   projects: ReadonlyArray<BotOwnedProject>,
-  delegatedUnderParent: ReadonlySet<string> = NO_THREAD_KEYS,
+  rowKeys: ReadonlySet<string>,
 ): ReadonlyMap<string, BotActivity> {
   const ownerKey = createThreadBotKeyResolver(projects);
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
-    const next = shellActivity(shell, isOwnListRow(shell, delegatedUnderParent));
+    const seen = rowKeys.has(shellKey(shell)) && headquartersProjectId(shell.id) === null;
+    const next = shellActivity(shell, seen);
     if (next === null) continue;
     const key = ownerKey(shell);
     if (key === undefined) continue;
@@ -439,17 +467,15 @@ export function botActivityByBot(
 
 /**
  * Activity per project, keyed by `${environmentId}:${projectId}`, for project managers: the
- * project's own rows and its manager's thread.
+ * project's list rows (`listRowThreadKeys`) and its manager's thread.
  */
 export function activityByProject(
   shells: ReadonlyArray<BotActivityShell>,
-  delegatedUnderParent: ReadonlySet<string>,
+  rowKeys: ReadonlySet<string>,
 ): ReadonlyMap<string, BotActivity> {
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
-    const seen =
-      headquartersProjectId(shell.id) !== null || isOwnListRow(shell, delegatedUnderParent);
-    const next = shellActivity(shell, seen);
+    const next = shellActivity(shell, rowKeys.has(shellKey(shell)));
     if (next === null) continue;
     const key = `${shell.environmentId}:${shell.projectId}`;
     activity.set(key, mergeActivity(activity.get(key), next));
@@ -539,9 +565,9 @@ export function isManagerPinned(project: {
 }
 
 /**
- * Threads waiting on you that the main rail hides: a project manager's thread when that manager
- * isn't pinned, and any other thread whose bot isn't pinned. The Bots place shows this count, so
- * nothing unpinned goes silent.
+ * Asks the main rail shows nowhere, for the Bots place's badge. A pinned bot shows its threads
+ * but not its project managers' threads; a pinned manager shows every thread in its projects
+ * (`managedProjectKeys`, by `${environmentId}:${projectId}`). An ask neither shows is hidden.
  */
 export function countHiddenNeedsYou(input: {
   readonly bots: ReadonlyArray<LogicalBot>;
@@ -550,33 +576,22 @@ export function countHiddenNeedsYou(input: {
     readonly id: string;
     readonly projectId: ProjectId;
   }>;
-  readonly projects: ReadonlyArray<
-    BotOwnedProject & { readonly managerPinned?: boolean | undefined }
-  >;
+  readonly projects: ReadonlyArray<BotOwnedProject>;
+  readonly managedProjectKeys: ReadonlySet<string>;
 }): number {
-  const unpinnedManagers = new Set(
-    input.projects
-      .filter((project) => !isManagerPinned(project))
-      .map((project) => `${project.environmentId}:${project.id}`),
-  );
-  const unpinnedBots = new Set<string>();
+  const pinnedBots = new Set<string>();
   for (const bot of input.bots) {
-    if (bot.pinned) continue;
+    if (!bot.pinned) continue;
     for (const member of bot.members) {
-      unpinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
+      pinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
     }
   }
   const ownerKey = createThreadBotKeyResolver(input.projects);
   let count = 0;
   for (const shell of input.shells) {
-    // A manager's thread shows with the manager, whatever its bot's pin.
-    const managerOf = headquartersProjectId(shell.id);
-    if (managerOf !== null) {
-      if (unpinnedManagers.has(`${shell.environmentId}:${managerOf}`)) count += 1;
-      continue;
-    }
-    const owner = ownerKey(shell);
-    if (owner !== undefined && unpinnedBots.has(owner)) count += 1;
+    if (input.managedProjectKeys.has(`${shell.environmentId}:${shell.projectId}`)) continue;
+    const owner = headquartersProjectId(shell.id) === null ? ownerKey(shell) : undefined;
+    if (owner === undefined || !pinnedBots.has(owner)) count += 1;
   }
   return count;
 }

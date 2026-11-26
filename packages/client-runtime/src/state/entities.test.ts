@@ -53,6 +53,26 @@ describe("V2 client presentation", () => {
     expect(effectiveSnoozed(active, { now: "2026-06-20T00:05:00.000Z" })).toBe(false);
   });
 
+  it("marks a question only the person can answer", () => {
+    const question = (userOnly?: boolean) =>
+      presentThreadShell(environmentId, {
+        ...v2ThreadShell,
+        pendingRuntimeRequest: {
+          id: RuntimeRequestId.make("request-question"),
+          kind: "user_input",
+          createdAt: v2ThreadShell.updatedAt,
+          ...(userOnly === undefined ? {} : { userOnly }),
+        },
+      }).pendingUserInputUserOnly;
+    expect(question(true)).toBe(true);
+    expect(question(false)).toBe(false);
+    expect(question()).toBe(false);
+    expect(
+      presentThreadShell(environmentId, { ...v2ThreadShell, pendingRuntimeRequest: null })
+        .pendingUserInputUserOnly,
+    ).toBe(false);
+  });
+
   it("moves a running thread with any question out of Working", () => {
     for (const capability of [{ blocking: false }, { blocking: true }, {}]) {
       const shell = presentThreadShell(environmentId, {

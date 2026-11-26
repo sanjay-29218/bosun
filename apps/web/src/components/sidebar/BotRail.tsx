@@ -401,27 +401,33 @@ export const BotRail = memo(function BotRail({
           ) : (
             <h3 className="px-4 pt-4 pb-1 text-2xs text-muted-foreground">Project managers</h3>
           )}
-          {managers.map((manager) =>
-            collapsed ? (
+          {managers.map((manager) => {
+            const activity = activityForProjects(activityByProject, manager.memberProjectKeys);
+            // Primitives, so a merged activity object doesn't defeat the rows' memo.
+            const status = {
+              needsYou: needsYouForProjects(needsYouByProject, manager.memberProjectKeys),
+              failed: activity?.failed === true,
+              working: activity?.working === true,
+              unread: activity?.unread === true,
+            };
+            return collapsed ? (
               <ManagerRailItem
                 key={manager.key}
                 manager={manager}
-                needsYou={needsYouForProjects(needsYouByProject, manager.memberProjectKeys)}
-                activity={activityForProjects(activityByProject, manager.memberProjectKeys)}
+                {...status}
                 active={scopedManager?.key === manager.key}
-                onSelect={() => selectManager(manager)}
+                onSelect={selectManager}
               />
             ) : (
               <ManagerListRow
                 key={manager.key}
                 manager={manager}
-                needsYou={needsYouForProjects(needsYouByProject, manager.memberProjectKeys)}
-                activity={activityForProjects(activityByProject, manager.memberProjectKeys)}
+                {...status}
                 active={scopedManager?.key === manager.key}
-                onSelect={() => selectManager(manager)}
+                onSelect={selectManager}
               />
-            ),
-          )}
+            );
+          })}
         </div>
         <div
           className={cn(
@@ -434,7 +440,11 @@ export const BotRail = memo(function BotRail({
           ) : (
             <div aria-hidden className="mx-4 mb-1.5 h-px shrink-0 bg-sidebar-border" />
           )}
-          <RailPlaces destination={destination} collapsed={collapsed} />
+          <RailPlaces
+            destination={destination}
+            collapsed={collapsed}
+            managedProjectKeys={new Set(managers.flatMap((manager) => manager.memberProjectKeys))}
+          />
           <SidebarUpdatePill placement="rail" collapsed={collapsed} />
           <EnvironmentFilterMenu collapsed={collapsed} />
           <RailAppPages collapsed={collapsed} />
@@ -633,23 +643,29 @@ const managerName = (manager: RailProjectManager) =>
   manager.homeLabel === null ? manager.title : `${manager.title} · ${manager.homeLabel}`;
 
 // Like bot rows, manager rows take their project group's totals from the rail.
+interface ManagerRowProps {
+  readonly manager: RailProjectManager;
+  readonly needsYou: number;
+  readonly failed: boolean;
+  readonly working: boolean;
+  readonly unread: boolean;
+  readonly active: boolean;
+  readonly onSelect: (manager: RailProjectManager) => void;
+}
+
 const ManagerListRow = memo(function ManagerListRow({
   manager,
   needsYou,
-  activity,
+  failed,
+  working,
+  unread,
   active,
   onSelect,
-}: {
-  readonly manager: RailProjectManager;
-  readonly needsYou: number;
-  readonly activity: BotActivity | undefined;
-  readonly active: boolean;
-  readonly onSelect: () => void;
-}) {
+}: ManagerRowProps) {
   const shell = useThreadShell(scopeThreadRef(manager.environmentId, manager.threadId));
   const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
   const latest = shell?.source.latestVisibleMessage;
-  const summary = botListRowSummary(needsYou, activity, latest);
+  const summary = botListRowSummary(needsYou, { failed, working, unread }, latest);
   const status = summary.mark === "needs-you" ? "needs input" : summary.mark;
   return (
     <div className={listRowClassName(active)}>
@@ -658,7 +674,7 @@ const ManagerListRow = memo(function ManagerListRow({
         aria-current={active ? "page" : undefined}
         aria-label={`${manager.title}'s project manager${manager.homeLabel === null ? "" : ` on ${manager.homeLabel}`}${status ? `, ${status}` : ""}`}
         className="absolute inset-0 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        onClick={onSelect}
+        onClick={() => onSelect(manager)}
       />
       <ProjectManagerAvatar
         projectId={manager.projectId}
@@ -686,18 +702,14 @@ const ManagerListRow = memo(function ManagerListRow({
 const ManagerRailItem = memo(function ManagerRailItem({
   manager,
   needsYou,
-  activity,
+  failed,
+  working,
+  unread,
   active,
   onSelect,
-}: {
-  readonly manager: RailProjectManager;
-  readonly needsYou: number;
-  readonly activity: BotActivity | undefined;
-  readonly active: boolean;
-  readonly onSelect: () => void;
-}) {
+}: ManagerRowProps) {
   const icon = useProjectManagerIcon(manager.environmentId, manager.projectId);
-  const signal = botRailSignal(needsYou, activity);
+  const signal = botRailSignal(needsYou, { failed, working, unread });
   return (
     <RailItem
       label={managerName(manager)}
@@ -705,7 +717,7 @@ const ManagerRailItem = memo(function ManagerRailItem({
       active={active}
       signal={signal}
       shortcut={null}
-      onSelect={onSelect}
+      onSelect={() => onSelect(manager)}
     >
       <ProjectManagerAvatar
         projectId={manager.projectId}
@@ -721,22 +733,24 @@ const ManagerRailItem = memo(function ManagerRailItem({
 function RailPlaces({
   destination,
   collapsed,
+  managedProjectKeys,
 }: {
   readonly destination: ReturnType<typeof useRailDestination>;
   readonly collapsed: boolean;
+  readonly managedProjectKeys: ReadonlySet<string>;
 }) {
   const navigate = useNavigate();
   const { isMobile, setOpen, setOpenMobile } = useSidebar();
   const automationFailed = useHasUnseenAutomationFailure();
   const pullRequestsSupported = usePullRequestsSupported();
   const issuesSupported = useIssuesSupported();
-  const hiddenNeedsYou = useHiddenNeedsYouCount();
+  const hiddenNeedsYou = useHiddenNeedsYouCount(managedProjectKeys);
   const places = [
     {
       label: "Bots",
       icon: BotIcon,
       active: destination === "bots-list",
-      // Unpinned bots and managers aren't in the rail, so their waiting threads count here.
+      // Asks that no pinned bot or manager shows count here.
       signal: hiddenNeedsYou > 0 ? ({ kind: "needs-you", count: hiddenNeedsYou } as const) : null,
       // Its list shows in the thread list's column, which a closed list would hide.
       onSelect: () => {

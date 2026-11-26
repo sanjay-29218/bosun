@@ -14,6 +14,7 @@ import {
   botActivityByLogicalBot,
   activityByProject,
   activityForProjects,
+  listRowThreadKeys,
   needsYouForProjects,
   botRailShowsThread,
   botListEnvironmentIds,
@@ -157,18 +158,17 @@ describe("pins", () => {
     expect(logicalBotsSignature(after)).not.toBe(logicalBotsSignature(before));
   });
 
-  it("counts threads waiting on you that only an unpinned bot or manager shows", () => {
+  it("counts asks that no pinned bot or manager shows", () => {
     const bots = buildLogicalBots([
       {
         environmentId: local,
         bots: [bot("bot-shown", "Shown", 0), { ...bot("bot-hidden", "Hidden", 1), pinned: false }],
       },
     ]);
-    const project = (id: string, botId: string | null, managerPinned?: boolean) => ({
+    const project = (id: string, botId: string | null) => ({
       environmentId: local,
       id: ProjectId.make(id),
       botId,
-      ...(managerPinned === undefined ? {} : { managerPinned }),
     });
     const shell = (id: string, projectId: string) => ({
       environmentId: local,
@@ -176,30 +176,39 @@ describe("pins", () => {
       projectId: ProjectId.make(projectId),
     });
     const projects = [
-      project("shown", "bot-shown", true),
-      project("hidden", "bot-hidden", true),
-      project("quiet", "bot-shown", false),
+      project("shown", "bot-shown"),
+      project("hidden", "bot-hidden"),
+      project("unmanaged", "bot-hidden"),
+      project("quiet", "bot-shown"),
       project("loose", null),
+      project("loose-managed", null),
     ];
+    // The projects pinned managers show, by `${environmentId}:${projectId}`.
+    const managedProjectKeys = new Set(
+      ["shown", "hidden", "loose-managed"].map((id) => `${local}:${id}`),
+    );
     expect(
       countHiddenNeedsYou({
         bots,
         projects,
+        managedProjectKeys,
         shells: [
           shell("a", "shown"),
-          // Under an unpinned bot.
+          // An unpinned bot's project, but its pinned manager shows it.
           shell("b", "hidden"),
+          // An unpinned bot's project with no pinned manager.
+          shell("d", "unmanaged"),
           shell(botHeadquartersThreadId("bot-hidden"), "scratch"),
-          // An unpinned manager's own thread, though its bot is pinned.
+          // An unpinned manager's own thread: bots never show it.
           shell("bot-run:project-hq:quiet", "quiet"),
-          // A pinned manager, and a project with no bot, show in the rail.
           shell("bot-run:project-hq:shown", "shown"),
-          // A pinned manager shows even when its bot isn't pinned.
           shell("bot-run:project-hq:hidden", "hidden"),
+          // A project with no bot shows only on its manager.
           shell("c", "loose"),
+          shell("e", "loose-managed"),
         ],
       }),
-    ).toBe(3);
+    ).toBe(4);
   });
 });
 
@@ -580,12 +589,28 @@ describe("bot activity", () => {
         readonly listed?: boolean;
         readonly workflowStep?: boolean;
       };
-      readonly feature?: { readonly id: string; readonly title: string; readonly member?: string };
+      readonly feature?: {
+        readonly id: string;
+        readonly title: string;
+        readonly member?: string;
+        readonly parentFeatureId?: string;
+      };
+      readonly crewRequest?: {
+        readonly id: string;
+        readonly title: string;
+        readonly member: string;
+      };
+      readonly createdAt?: string;
     } = {},
   ) => ({
     environmentId: local,
     id: ThreadId.make(id),
     projectId: ProjectId.make(projectId),
+    title: id,
+    createdAt: row.createdAt ?? "2026-09-30T00:00:00.000Z",
+    updatedAt: "2026-09-30T00:00:00.000Z",
+    settledOverride: null,
+    crewRequest: row.crewRequest ?? null,
     archivedAt: null,
     lastVisitedAt,
     lineage: row.lineage ?? {
@@ -624,20 +649,22 @@ describe("bot activity", () => {
   });
   const before = "2026-10-01T00:00:00.000Z";
   const after = "2026-10-01T01:00:00.000Z";
+  // Rows as the thread list arranges them, as the web atom computes them.
+  const activityOf = (
+    shells: ReadonlyArray<ReturnType<typeof shell>>,
+    delegatedUnderParent: ReadonlySet<string> = new Set(),
+  ) => botActivityByBot(shells, projects, listRowThreadKeys(shells, delegatedUnderParent));
 
   it("flags failed, working and unread threads under their bot", () => {
-    const activity = botActivityByBot(
-      [
-        shell("failed", "p-social", { status: "failed", completedAt: after }, before),
-        shell("working", "p-captain", { status: "running", completedAt: null }, before),
-        shell("done", "p-captain", { status: "completed", completedAt: after }, before),
-        // A project with no bot is no bot's activity.
-        shell("loose", "p-loose", { status: "running", completedAt: null }, before),
-        // Opened since it finished: nothing to flag.
-        shell("seen", "p-social", { status: "completed", completedAt: before }, after),
-      ],
-      projects,
-    );
+    const activity = activityOf([
+      shell("failed", "p-social", { status: "failed", completedAt: after }, before),
+      shell("working", "p-captain", { status: "running", completedAt: null }, before),
+      shell("done", "p-captain", { status: "completed", completedAt: after }, before),
+      // A project with no bot is no bot's activity.
+      shell("loose", "p-loose", { status: "running", completedAt: null }, before),
+      // Opened since it finished: nothing to flag.
+      shell("seen", "p-social", { status: "completed", completedAt: before }, after),
+    ]);
     // A failed run is also an unread one; the signal shows the failure.
     expect(activity.get(botNeedsYouKey(local, "bot-social"))).toEqual({
       failed: true,
@@ -652,18 +679,15 @@ describe("bot activity", () => {
   });
 
   it("counts a headquarters under its own bot, and nothing from servers without visits", () => {
-    const activity = botActivityByBot(
-      [
-        shell(
-          botHeadquartersThreadId("bot-social"),
-          "scratch",
-          { status: "completed", completedAt: after },
-          before,
-        ),
-        shell("old-server", "p-captain", { status: "failed", completedAt: after }, undefined),
-      ],
-      projects,
-    );
+    const activity = activityOf([
+      shell(
+        botHeadquartersThreadId("bot-social"),
+        "scratch",
+        { status: "completed", completedAt: after },
+        before,
+      ),
+      shell("old-server", "p-captain", { status: "failed", completedAt: after }, undefined),
+    ]);
     expect([...activity.keys()]).toEqual([botNeedsYouKey(local, "bot-social")]);
   });
 
@@ -680,8 +704,9 @@ describe("bot activity", () => {
   const crew = { feature: { id: "f-1", title: "Feature", member: "Builder" } };
 
   it("lights unread only for threads that are their own row in the bot's list", () => {
-    const activity = botActivityByBot(
+    const activity = activityOf(
       [
+        shell("lead", "p-social", finished, after, { feature: { id: "f-1", title: "Feature" } }),
         shell("crew", "p-social", finished, before, crew),
         shell("subagent", "p-social", finished, before, child("lead")),
         shell("side-chat", "p-social", finished, before, child("lead", { sideChat: true })),
@@ -696,7 +721,6 @@ describe("bot activity", () => {
         // Hidden threads still mean the bot is working.
         shell("crew-running", "p-social", running, before, crew),
       ],
-      projects,
       new Set([threadKey({ environmentId: local, threadId: ThreadId.make("delegated") })]),
     );
     expect(activity.get(botNeedsYouKey(local, "bot-social"))).toEqual({
@@ -707,28 +731,48 @@ describe("bot activity", () => {
   });
 
   it("still lights unread for a feature's lead and a headquarters", () => {
-    const activity = botActivityByBot(
-      [
-        shell("lead", "p-social", finished, before, { feature: { id: "f-1", title: "Feature" } }),
-        shell(botHeadquartersThreadId(CAPTAIN_ID), "scratch", finished, before),
-      ],
-      projects,
-    );
+    const activity = activityOf([
+      shell("lead", "p-social", finished, before, { feature: { id: "f-1", title: "Feature" } }),
+      shell(botHeadquartersThreadId(CAPTAIN_ID), "scratch", finished, before),
+    ]);
     expect(activity.get(botNeedsYouKey(local, "bot-social"))?.unread).toBe(true);
     expect(activity.get(botNeedsYouKey(local, CAPTAIN_ID))?.unread).toBe(true);
   });
 
+  it("leaves out threads folded into another row once that row is read", () => {
+    const feature = { id: "f-1", title: "Feature" };
+    const activity = activityOf([
+      // The feature's row is its lead, read since everything finished.
+      shell("lead", "p-social", finished, after, { feature, createdAt: before }),
+      // A second thread on the feature that no crew member runs folds into the lead's row.
+      shell("extra", "p-social", finished, before, { feature, createdAt: after }),
+      // A child feature's lead folds under its parent's row.
+      shell("child-lead", "p-social", finished, before, {
+        feature: { id: "f-2", title: "Child", parentFeatureId: "f-1" },
+      }),
+      // A bot request's earlier attempt folds into its latest one.
+      shell("try-1", "p-captain", finished, before, {
+        crewRequest: { id: "r-1", title: "Request", member: "Builder" },
+        createdAt: before,
+      }),
+      shell("try-2", "p-captain", finished, after, {
+        crewRequest: { id: "r-1", title: "Request", member: "Builder" },
+        createdAt: after,
+      }),
+    ]);
+    expect(activity.get(botNeedsYouKey(local, "bot-social"))).toBeUndefined();
+    expect(activity.get(botNeedsYouKey(local, CAPTAIN_ID))).toBeUndefined();
+  });
+
   it("gives a project manager its project group's rows and its own thread", () => {
     const manager = projectHeadquartersThreadId(ProjectId.make("p-loose"));
-    const byProject = activityByProject(
-      [
-        shell(manager, "p-loose", finished, before),
-        shell("crew", "p-social", finished, before, crew),
-        shell("crew-running", "p-social", running, before, crew),
-        shell("failed", "p-captain", { status: "failed", completedAt: after }, before),
-      ],
-      new Set(),
-    );
+    const shells = [
+      shell(manager, "p-loose", finished, before),
+      shell("crew", "p-social", finished, before, crew),
+      shell("crew-running", "p-social", running, before, crew),
+      shell("failed", "p-captain", { status: "failed", completedAt: after }, before),
+    ];
+    const byProject = activityByProject(shells, listRowThreadKeys(shells, new Set()));
     expect(activityForProjects(byProject, [`${local}:p-loose`])).toEqual({
       failed: false,
       working: false,

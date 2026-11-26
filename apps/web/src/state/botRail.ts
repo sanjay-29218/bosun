@@ -8,6 +8,7 @@ import {
   buildLogicalBots,
   countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
+  listRowThreadKeys,
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   railProjectKeys,
@@ -143,6 +144,24 @@ const sameActivityMap = (
   });
 
 /**
+ * Threads that are their own row in a thread list (`listRowThreadKeys`). Read from quiet shells,
+ * which leave out hidden-tag threads and skip streamed updates, so grouping reruns only when the
+ * list's shape changes.
+ */
+const listRowKeysAtom = Atom.make((get): ReadonlySet<string> => {
+  const next = listRowThreadKeys(
+    get(environmentThreadShells.quietThreadShellsAtom),
+    get(environmentThreadShells.delegatedUnderParentAtom),
+  );
+  const previous = Option.getOrNull(get.self<ReadonlySet<string>>());
+  return previous !== null &&
+    previous.size === next.size &&
+    [...next].every((key) => previous.has(key))
+    ? previous
+    : next;
+}).pipe(Atom.withLabel("web-bot-rail:list-rows"));
+
+/**
  * Failed, working and unread threads per environment's bot, keyed by `botNeedsYouKey`. Shells
  * stream while agents work, so the same map returns until a flag flips.
  */
@@ -150,7 +169,7 @@ const activityByBotAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
   const next = botActivityByBot(
     get(environmentThreadShells.threadShellsAtom),
     get(environmentProjects.projectsAtom),
-    get(environmentThreadShells.delegatedUnderParentAtom),
+    get(listRowKeysAtom),
   );
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
   return previous !== null && sameActivityMap(previous, next) ? previous : next;
@@ -160,7 +179,7 @@ const activityByBotAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
 const activityByProjectAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
   const next = activityByProject(
     get(environmentThreadShells.threadShellsAtom),
-    get(environmentThreadShells.delegatedUnderParentAtom),
+    get(listRowKeysAtom),
   );
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
   return previous !== null && sameActivityMap(previous, next) ? previous : next;
@@ -387,8 +406,11 @@ export function useShowBotRail(): boolean {
   return botEnvironmentCount > 0 || environmentCount > 1;
 }
 
-/** Threads waiting on you that only an unpinned bot or project manager shows. */
-export function useHiddenNeedsYouCount(): number {
+/**
+ * Asks no pinned bot or manager shows. `managedProjectKeys` are the projects the rail's pinned
+ * managers show, by `${environmentId}:${projectId}`.
+ */
+export function useHiddenNeedsYouCount(managedProjectKeys: ReadonlySet<string>): number {
   const bots = useLogicalBots();
   const shells = useAtomValue(needsYouThreadsAtom);
   const projects = useAtomValue(environmentProjects.projectsAtom);
@@ -396,6 +418,7 @@ export function useHiddenNeedsYouCount(): number {
   return countHiddenNeedsYou({
     bots,
     projects,
+    managedProjectKeys,
     shells:
       environmentFilter === null
         ? shells

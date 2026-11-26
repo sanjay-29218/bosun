@@ -30,7 +30,7 @@ import {
   groupFeaturesByColumn,
   matchesFeatureSearch,
   nestFeatureChildren,
-  oldestNeedsYouItem,
+  oldestAsk,
   threadAsksYou,
   threadBoardColumn,
   threadsByFeature,
@@ -413,7 +413,6 @@ describe("needs you", () => {
       ["approval", ["early-approval", "late-approval"]],
       ["question", ["question"]],
     ]);
-    expect(oldestNeedsYouItem(groups)?.shell.id).toBe("question");
   });
 });
 
@@ -588,6 +587,25 @@ describe("threadAsksYou", () => {
         askShell("archived", { hasPendingApprovals: true, archivedAt: "2026-10-02T00:00:00.000Z" }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("oldestAsk", () => {
+  it("opens the ask that has waited longest, plan reviews included", () => {
+    expect(
+      oldestAsk([
+        askShell("late-approval", { hasPendingApprovals: true, updatedAt: "2026-10-03" }),
+        askShell("plan", { ...planReady, updatedAt: "2026-10-02" }),
+        // Its coordinator answers it, so ⌘⇧Y skips it as the badge does.
+        askShell("child-question", {
+          ...nestedSubagent,
+          hasPendingUserInput: true,
+          updatedAt: "2026-10-01",
+        }),
+        askShell("idle", { updatedAt: "2026-09-01" }),
+      ])?.id,
+    ).toBe("plan");
+    expect(oldestAsk([askShell("idle")])).toBeNull();
   });
 });
 
