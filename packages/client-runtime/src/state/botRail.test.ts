@@ -30,6 +30,8 @@ import {
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   logicalBotProjectKeys,
+  railBotsSettled,
+  resolveSidebarLayout,
   logicalBotProjectLists,
   projectBotId,
   resolveActiveLogicalBot,
@@ -407,6 +409,60 @@ describe("resolveActiveLogicalBot", () => {
     const finance = bots.find((entry) => entry.name === "Finance")!;
     const next = selectLogicalBot(finance);
     expect(resolveActiveLogicalBot(bots, next, [local, remote])?.name).toBe("Finance");
+  });
+});
+
+describe("railBotsSettled", () => {
+  const answered = { connection: "connected", configured: true, bots: "loaded" } as const;
+  const loading = { connection: "connected", configured: true, bots: "loading" } as const;
+  const connecting = { connection: "connecting", configured: false, bots: "none" } as const;
+  const unreachable = { connection: "unreachable", configured: false, bots: "none" } as const;
+
+  it("waits for machines on their first attempt and connected ones' bot lists, then stays settled", () => {
+    expect(railBotsSettled(false, [connecting])).toBe(false);
+    expect(railBotsSettled(false, [{ ...answered, configured: false, bots: "none" }])).toBe(false);
+    expect(railBotsSettled(false, [answered, loading])).toBe(false);
+
+    const settled = railBotsSettled(false, [answered, { ...answered, bots: "none" }]);
+    expect(settled).toBe(true);
+    expect(railBotsSettled(settled, [answered, loading])).toBe(true);
+  });
+
+  it("doesn't wait on a machine that can't be reached, so its cached rows show at once", () => {
+    expect(railBotsSettled(false, [unreachable])).toBe(true);
+    expect(railBotsSettled(false, [answered, unreachable])).toBe(true);
+  });
+
+  it("settles once a connected machine shows a bot, without waiting on slower machines", () => {
+    const shown = { ...answered, bots: "shown" } as const;
+    expect(railBotsSettled(false, [shown, connecting, loading])).toBe(true);
+    expect(railBotsSettled(false, [{ ...shown, connection: "unreachable" }, connecting])).toBe(
+      false,
+    );
+  });
+});
+
+describe("resolveSidebarLayout", () => {
+  const layout = (input: Partial<Parameters<typeof resolveSidebarLayout>[0]>) =>
+    resolveSidebarLayout({
+      botsSettled: true,
+      projectsPicked: false,
+      showsRail: true,
+      hasActiveBot: false,
+      foldersSetting: false,
+      ...input,
+    });
+
+  it("waits for the bots before choosing between cards and Projects, unless Projects is picked", () => {
+    expect(layout({ botsSettled: false })).toBe("pending");
+    expect(layout({ botsSettled: false, showsRail: false, foldersSetting: true })).toBe("pending");
+    expect(layout({ botsSettled: false, projectsPicked: true })).toBe("projects");
+    expect(layout({ botsSettled: false, projectsPicked: true, showsRail: false })).toBe("pending");
+
+    expect(layout({})).toBe("projects");
+    expect(layout({ hasActiveBot: true })).toBe("cards");
+    expect(layout({ showsRail: false })).toBe("cards");
+    expect(layout({ hasActiveBot: true, foldersSetting: true })).toBe("folders");
   });
 });
 

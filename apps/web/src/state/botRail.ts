@@ -12,11 +12,14 @@ import {
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   railProjectKeys,
+  railBotsSettled,
+  resolveSidebarLayout,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
   type BotActivity,
   type LogicalBot,
+  type RailBotSource,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
 import {
@@ -30,12 +33,14 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
 import { environmentCatalog } from "../connection/catalog";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { useClientSettings } from "../hooks/useSettings";
 import { useUiStateStore } from "../uiStateStore";
 import { botsEnvironment } from "./bots";
 import { useConnectedEnvironmentIds } from "./environments";
 import { environmentSummaries } from "./presentation";
 import { environmentProjects } from "./projects";
 import { needsYouThreadsAtom } from "./needsYou";
+import { expectsPrimaryEnvironment } from "./shell";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
@@ -53,6 +58,67 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   const previous = Option.getOrNull(get.self<ReadonlyArray<EnvironmentId>>());
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
+
+// A machine whose first attempt, config or bot list stalls mustn't hide the thread list: rows
+// show in the layout known by then this long after the sidebar first asks. Bots land about 1s after
+// it mounts locally; the margin covers slower machines, where firing early would switch layouts.
+const BOTS_WAIT_MS = 4_000;
+
+const botsWaitOverAtom = Atom.make((get): boolean => {
+  if (Option.getOrElse(get.self<boolean>(), () => false)) return true;
+  const timer = setTimeout(() => get.setSelf(true), BOTS_WAIT_MS);
+  get.addFinalizer(() => clearTimeout(timer));
+  return false;
+}).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:wait-over"));
+
+// Kept alive so a later machine's connection can't reset it while the thread list is away.
+const botListsSettledAtom = Atom.make((get): boolean => {
+  const settled = Option.getOrElse(get.self<boolean>(), () => false);
+  // Reading nothing once settled lets the bot-list queries idle out.
+  if (settled || get(botsWaitOverAtom)) return true;
+  // Before primary discovery the catalog proves nothing; a hosted app's can be truly empty.
+  const catalog = get(environmentCatalog.catalogValueAtom);
+  if (
+    !catalog.isReady ||
+    (expectsPrimaryEnvironment() &&
+      ![...catalog.entries.values()].some(
+        (entry) => entry.target._tag === "PrimaryConnectionTarget",
+      ))
+  ) {
+    return false;
+  }
+  const configs = get(environmentServerConfigsAtom);
+  // A filter that leaves this machine out could narrow to hide its bot once others connect.
+  const selected = useUiStateStore.getState().sidebarEnvironmentIds;
+  const machines = get(environmentSummaries.environmentsAtom).map(
+    ({ environmentId, isEnabled, connectionState }): RailBotSource => {
+      const config = configs.get(environmentId);
+      const bots =
+        config?.environment.capabilities.bots === true
+          ? get(botsEnvironment.list({ environmentId, input: {} }))
+          : null;
+      const loaded = bots === null ? null : Option.getOrNull(AsyncResult.value(bots));
+      return {
+        connection: !isEnabled
+          ? "unreachable"
+          : connectionState === "connected" || connectionState === "connecting"
+            ? connectionState
+            : "unreachable",
+        configured: config !== undefined,
+        bots:
+          bots === null
+            ? "none"
+            : AsyncResult.isInitial(bots)
+              ? "loading"
+              : loaded?.some((bot) => bot.pinned ?? true) &&
+                  (selected === null || selected.length === 0 || selected.includes(environmentId))
+                ? "shown"
+                : "loaded",
+      };
+    },
+  );
+  return railBotsSettled(settled, machines);
+}).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:lists-settled"));
 
 /**
  * Rail entries: connected environments' bots, behind the rail, the active bot, pins and activity.
@@ -390,10 +456,20 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return showsProjects ? null : resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** Whether the rail's Projects entry is what the thread list shows: picked, or no bot to pick. */
-export function useBotRailShowsProjects(): boolean {
-  const active = useVisibleActiveLogicalBot();
-  return useShowBotRail() && active === null;
+/** The thread list's layout; pending until it is known, so rows first show where they stay. */
+export function useSidebarLayout() {
+  const showsRail = useShowBotRail();
+  const projectsPicked = useUiStateStore((store) => store.botRailShowsProjects);
+  const hasActiveBot = useVisibleActiveLogicalBot() !== null;
+  const botsSettled = useAtomValue(botListsSettledAtom);
+  const foldersSetting = useClientSettings((settings) => settings.boringSidebarEnabled);
+  return resolveSidebarLayout({
+    botsSettled,
+    projectsPicked,
+    showsRail,
+    hasActiveBot,
+    foldersSetting,
+  });
 }
 
 /**
