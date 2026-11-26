@@ -33,19 +33,23 @@ const state = vi.hoisted(() => ({
   update: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
   reset: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
   setIcon: (() => {}) as (...args: ReadonlyArray<unknown>) => unknown,
+  // The settings the server holds. Kept here, not as an extra export of the mocked module:
+  // Vitest's browser mocker drops exports the real module doesn't have.
+  held: null as Atom.Writable<AsyncResult.AsyncResult<ProjectManagerSettings, never>> | null,
 }));
 
-// The settings the server holds; a test changes them as a save or reset would.
 vi.mock(import("../../state/roles"), async (original) => {
   const actual = await original();
   const { Atom } = await import("effect/reactivity");
   const allowed = Atom.make(true);
-  const held = Atom.make(AsyncResult.initial<ProjectManagerSettings, never>()).pipe(Atom.keepAlive);
+  const held = Atom.make<AsyncResult.AsyncResult<ProjectManagerSettings, never>>(
+    AsyncResult.initial(),
+  ).pipe(Atom.keepAlive);
+  state.held = held;
   // A refresh reads the server again, which is what `held` says now.
   const query = Atom.make((get) => get(held));
   return {
     ...actual,
-    heldProjectManager: held,
     rolesEnvironment: {
       ...actual.rolesEnvironment,
       projectManager: (() => query) as never,
@@ -93,11 +97,11 @@ vi.mock(import("../../hooks/useSettings"), async (original) => ({
   useEnvironmentSettings: (() => DEFAULT_UNIFIED_SETTINGS) as never,
 }));
 
+// A test changes the server's settings as a save or reset would.
 async function serverHolds(next: ProjectManagerSettings) {
-  const roles = (await import("../../state/roles")) as unknown as {
-    readonly heldProjectManager: Atom.Writable<AsyncResult.AsyncResult<ProjectManagerSettings>>;
-  };
-  await act(async () => appAtomRegistry.set(roles.heldProjectManager, AsyncResult.success(next)));
+  const held = state.held;
+  if (!held) throw new Error("The state/roles mock hasn't loaded");
+  await act(async () => appAtomRegistry.set(held, AsyncResult.success(next)));
 }
 
 const section = () => (
