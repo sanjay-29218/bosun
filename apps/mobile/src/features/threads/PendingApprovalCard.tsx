@@ -7,6 +7,8 @@ import type {
 import {
   FULL_ACCESS_OVERRIDE_QUESTION,
   fullAccessOverrideExplanation,
+  PUSH_HOOKS_APPROVAL_QUESTION,
+  pushHooksApprovalRows,
 } from "@t3tools/client-runtime/state/thread-requests";
 import { T, useGT, useMessages } from "gt-react-native";
 import { useState, type ReactNode } from "react";
@@ -77,13 +79,33 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
   const canRespond = props.approval.responseCapability === "live";
   const disabled = !canRespond || props.respondingApprovalId === props.approval.requestId;
   const [explanationOpen, setExplanationOpen] = useState(false);
+  // T3 Code's own question reads as the app asking: a plain sentence, then what it names.
+  const { pushHooks } = props.approval;
   return (
     <ApprovalCardLayout
       kicker={gt("Approval needed")}
-      title={props.approval.appName ?? props.approval.requestKind}
-      detail={props.approval.detail}
+      title={
+        pushHooks
+          ? m(PUSH_HOOKS_APPROVAL_QUESTION)
+          : (props.approval.appName ?? props.approval.requestKind)
+      }
+      detail={pushHooks ? null : props.approval.detail}
       note={
         <>
+          {pushHooks ? (
+            <View className="gap-1.5">
+              {pushHooksApprovalRows(pushHooks, m).map((row, index) => (
+                // oxlint-disable-next-line react/no-array-index-key -- rows never reorder and two hooks may read alike
+                <View key={index} className="gap-0.5">
+                  <Text className="font-sans text-xs text-foreground-muted">{row.label}</Text>
+                  <Text selectable className="font-sans text-sm leading-normal text-foreground">
+                    {row.name ? `${row.name}  ` : null}
+                    <Text className="font-mono text-sm text-foreground">{row.code}</Text>
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
           {props.approval.reason ? (
             <Text className="font-sans text-xs leading-normal text-warning-foreground">
               {props.approval.reason}

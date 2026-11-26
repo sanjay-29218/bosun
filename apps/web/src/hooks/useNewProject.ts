@@ -7,7 +7,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { EnvironmentId } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
 import { msg } from "gt-react";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
@@ -17,7 +17,6 @@ import { projectEnvironment } from "~/state/projects";
 import { sourceControlEnvironment } from "~/state/sourceControl";
 import { activeBotInput } from "~/state/botRail";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useNewThreadHandler } from "./useHandleNewThread";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
 
 function errorMessage(error: unknown): string {
@@ -26,12 +25,11 @@ function errorMessage(error: unknown): string {
     : m(msg("An error occurred."));
 }
 
-export function useNewProject() {
+export function useNewProject(openProject: (projectRef: ScopedProjectRef) => Promise<void>) {
   const createNew = useAtomCommand(projectEnvironment.createNew, { reportFailure: false });
   const publishRepository = useAtomCommand(sourceControlEnvironment.publishRepository, {
     reportFailure: false,
   });
-  const handleNewThread = useNewThreadHandler();
 
   const publishNewRepository = async (input: {
     readonly environmentId: EnvironmentId;
@@ -142,7 +140,7 @@ export function useNewProject() {
       return null;
     });
     if (project === null) return true;
-    await handleNewThread(projectRef).catch((error: unknown) => {
+    await openProject(projectRef).catch((error: unknown) => {
       toastManager.add(
         stackedThreadToast({
           type: "error",

@@ -111,6 +111,7 @@ interface NewThreadWorkspaceOptions {
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
   startFromOrigin?: boolean;
+  workspaceExplicit?: boolean;
 }
 
 function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undefined) {
@@ -119,6 +120,9 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
     ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
+    ...(options?.envMode !== undefined || options?.startFromOrigin !== undefined
+      ? { workspaceExplicit: true }
+      : {}),
   };
 }
 
@@ -361,6 +365,7 @@ export function createNewThreadHandler(router: AnyRouter) {
             worktreePath: null,
             envMode: defaultEnvMode.envMode,
             startFromOrigin: startFromOriginFor(defaultEnvMode.envMode),
+            workspaceExplicit: false,
           };
         }
         if (workspaceContext) {
@@ -459,6 +464,9 @@ export function createNewThreadHandler(router: AnyRouter) {
         worktreePath: options?.worktreePath ?? null,
         envMode: initialEnvMode,
         startFromOrigin: options?.startFromOrigin ?? startFromOriginFor(initialEnvMode),
+        ...(options?.envMode !== undefined || options?.startFromOrigin !== undefined
+          ? { workspaceExplicit: true }
+          : {}),
         runtimeMode: defaultRuntimeMode,
         ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
       });
