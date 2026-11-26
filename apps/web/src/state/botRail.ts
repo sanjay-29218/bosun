@@ -52,6 +52,9 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
 
 // Kept alive so a later machine's connection can't reset it while the thread list is away.
 const botListsSettledAtom = Atom.make((get): boolean => {
+  const settled = Option.getOrElse(get.self<boolean>(), () => false);
+  // Reading nothing once settled lets the bot-list queries idle out.
+  if (settled) return true;
   const configs = get(environmentServerConfigsAtom);
   const machines = get(environmentSummaries.connectedEnvironmentIdsAtom).map((environmentId) => {
     const config = configs.get(environmentId);
@@ -65,10 +68,7 @@ const botListsSettledAtom = Atom.make((get): boolean => {
             : ("loaded" as const),
     };
   });
-  return railBotsSettled(
-    Option.getOrElse(get.self<boolean>(), () => false),
-    machines,
-  );
+  return railBotsSettled(settled, machines);
 }).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:lists-settled"));
 
 /**
