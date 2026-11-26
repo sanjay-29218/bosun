@@ -414,11 +414,18 @@ export function useHiddenNeedsYouCount(managedProjectKeys: ReadonlySet<string>):
   const bots = useLogicalBots();
   const shells = useAtomValue(needsYouThreadsAtom);
   const projects = useAtomValue(environmentProjects.projectsAtom);
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const environmentFilter = useEnvironmentFilter();
   return countHiddenNeedsYou({
     bots,
     projects,
     managedProjectKeys,
+    // Servers with features have project managers.
+    managerEnvironmentIds: new Set(
+      [...serverConfigs]
+        .filter(([, config]) => config.environment.capabilities.workflows === true)
+        .map(([environmentId]) => environmentId),
+    ),
     shells:
       environmentFilter === null
         ? shells

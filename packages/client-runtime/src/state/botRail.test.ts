@@ -158,18 +158,18 @@ describe("pins", () => {
     expect(logicalBotsSignature(after)).not.toBe(logicalBotsSignature(before));
   });
 
-  it("counts asks that no pinned bot or manager shows", () => {
+  it("counts asks an unpinned bot or manager shows and no pinned one does", () => {
     const bots = buildLogicalBots([
       {
         environmentId: local,
         bots: [bot("bot-shown", "Shown", 0), { ...bot("bot-hidden", "Hidden", 1), pinned: false }],
       },
     ]);
-    const project = (id: string, botId: string | null) => ({
-      environmentId: local,
-      id: ProjectId.make(id),
-      botId,
-    });
+    const project = (
+      id: string,
+      botId: string | null,
+      extra: { readonly managerPinned?: boolean; readonly isScratch?: true } = {},
+    ) => ({ environmentId: local, id: ProjectId.make(id), title: id, botId, ...extra });
     const shell = (id: string, projectId: string) => ({
       environmentId: local,
       id,
@@ -178,9 +178,11 @@ describe("pins", () => {
     const projects = [
       project("shown", "bot-shown"),
       project("hidden", "bot-hidden"),
-      project("unmanaged", "bot-hidden"),
-      project("quiet", "bot-shown"),
-      project("loose", null),
+      project("unmanaged", "bot-hidden", { managerPinned: false }),
+      project("quiet", "bot-shown", { managerPinned: false }),
+      // Scratch has no manager, and here no bot: nothing lists its chats as an entry.
+      project("loose", null, { isScratch: true }),
+      project("loose-unpinned", null, { managerPinned: false }),
       project("loose-managed", null),
     ];
     // The projects pinned managers show, by `${environmentId}:${projectId}`.
@@ -192,19 +194,23 @@ describe("pins", () => {
         bots,
         projects,
         managedProjectKeys,
+        managerEnvironmentIds: new Set([local]),
         shells: [
           shell("a", "shown"),
           // An unpinned bot's project, but its pinned manager shows it.
           shell("b", "hidden"),
-          // An unpinned bot's project with no pinned manager.
+          // An unpinned bot's project whose manager isn't pinned.
           shell("d", "unmanaged"),
           shell(botHeadquartersThreadId("bot-hidden"), "scratch"),
-          // An unpinned manager's own thread: bots never show it.
+          shell(botHeadquartersThreadId("bot-shown"), "scratch"),
+          // An unpinned manager under a pinned bot: only its own thread is hidden.
           shell("bot-run:project-hq:quiet", "quiet"),
+          shell("g", "quiet"),
           shell("bot-run:project-hq:shown", "shown"),
           shell("bot-run:project-hq:hidden", "hidden"),
-          // A project with no bot shows only on its manager.
           shell("c", "loose"),
+          // A project with no bot shows only on its manager.
+          shell("f", "loose-unpinned"),
           shell("e", "loose-managed"),
         ],
       }),

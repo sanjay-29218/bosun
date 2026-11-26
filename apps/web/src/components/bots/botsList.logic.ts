@@ -1,6 +1,7 @@
 import {
   createProjectOwnerResolver,
   isManagerPinned,
+  projectHasManager,
   type LogicalBot,
 } from "@t3tools/client-runtime/state/bot-rail";
 import type {
@@ -48,8 +49,7 @@ export function botsListManagers(input: {
   const ownerOf = createProjectOwnerResolver(input.bots);
   return input.projects
     .flatMap((project) => {
-      if (project.isScratch || project.isBotHome || project.remoteManager != null) return [];
-      if (!input.managerEnvironmentIds.has(project.environmentId)) return [];
+      if (!projectHasManager(project, input.managerEnvironmentIds)) return [];
       const projectKey = input.projectKeyOf(project.environmentId, project.id);
       if (projectKey === null) return [];
       return [

@@ -419,6 +419,7 @@ export function listRowThreadKeys(
     listed,
     live.filter((shell) => shell.feature?.member !== undefined),
   );
+  // Unscoped, so a child feature in another project folds under its parent's row there too.
   const { primaries } = nestChildFeatureGroups(grouped.primaries, grouped.groupByThreadKey);
   return new Set([
     ...primaries.map(shellKey),
@@ -428,18 +429,20 @@ export function listRowThreadKeys(
 
 /**
  * A thread's activity: working from any thread, failed and unread only from one the list shows
- * (`seen`), so a thread nobody can open never keeps a dot lit. Null when it has none.
+ * (`isRow`), so a thread nobody can open never keeps a dot lit. Null when it has none. Runs on
+ * every streamed update, so the row lookup waits until there is something unseen.
  */
-function shellActivity(shell: BotActivityShell, seen: boolean): BotActivity | null {
-  if (shell.archivedAt !== null) return null;
+function shellActivity<Shell extends BotActivityShell>(
+  shell: Shell,
+  isRow: (shell: Shell) => boolean,
+): BotActivity | null {
+  const working = isThreadWorking(shell);
   // A server without visit tracking never reads as unseen.
-  const visits = seen && shell.lastVisitedAt !== undefined;
-  const activity: BotActivity = {
-    failed: visits && hasUnseenFailure(shell),
-    working: isThreadWorking(shell),
-    unread: visits && hasUnseenCompletion(shell),
-  };
-  return activity.failed || activity.working || activity.unread ? activity : null;
+  const visits = shell.lastVisitedAt !== undefined;
+  const failed = visits && hasUnseenFailure(shell);
+  const unread = visits && hasUnseenCompletion(shell);
+  if ((failed || unread) && isRow(shell)) return { failed, working, unread };
+  return working ? { failed: false, working, unread: false } : null;
 }
 
 /**
@@ -453,10 +456,12 @@ export function botActivityByBot(
   rowKeys: ReadonlySet<string>,
 ): ReadonlyMap<string, BotActivity> {
   const ownerKey = createThreadBotKeyResolver(projects);
+  const isRow = (shell: BotActivityShell) =>
+    headquartersProjectId(shell.id) === null && rowKeys.has(shellKey(shell));
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
-    const seen = rowKeys.has(shellKey(shell)) && headquartersProjectId(shell.id) === null;
-    const next = shellActivity(shell, seen);
+    if (shell.archivedAt !== null) continue;
+    const next = shellActivity(shell, isRow);
     if (next === null) continue;
     const key = ownerKey(shell);
     if (key === undefined) continue;
@@ -473,9 +478,11 @@ export function activityByProject(
   shells: ReadonlyArray<BotActivityShell>,
   rowKeys: ReadonlySet<string>,
 ): ReadonlyMap<string, BotActivity> {
+  const isRow = (shell: BotActivityShell) => rowKeys.has(shellKey(shell));
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
-    const next = shellActivity(shell, rowKeys.has(shellKey(shell)));
+    if (shell.archivedAt !== null) continue;
+    const next = shellActivity(shell, isRow);
     if (next === null) continue;
     const key = `${shell.environmentId}:${shell.projectId}`;
     activity.set(key, mergeActivity(activity.get(key), next));
@@ -564,10 +571,31 @@ export function isManagerPinned(project: {
   return project.managerPinned ?? true;
 }
 
+interface ManagedProject {
+  readonly environmentId: EnvironmentId;
+  readonly managerPinned?: boolean | undefined;
+  readonly remoteManager?: ProjectRemoteManager | null | undefined;
+  readonly isScratch?: true;
+  readonly isBotHome?: true;
+}
+
 /**
- * Asks the main rail shows nowhere, for the Bots place's badge. A pinned bot shows its threads
- * but not its project managers' threads; a pinned manager shows every thread in its projects
- * (`managedProjectKeys`, by `${environmentId}:${projectId}`). An ask neither shows is hidden.
+ * Whether a project has its own manager: not Scratch or a bot's home, on an environment with
+ * features (`managerEnvironmentIds`), and not a copy whose manager lives on another machine.
+ */
+export const projectHasManager = (
+  project: ManagedProject,
+  managerEnvironmentIds: ReadonlySet<EnvironmentId>,
+): boolean =>
+  !project.isScratch &&
+  !project.isBotHome &&
+  project.remoteManager == null &&
+  managerEnvironmentIds.has(project.environmentId);
+
+/**
+ * Asks only the Bots place shows: an unpinned bot's or unpinned manager's, that no pinned entry
+ * shows. A pinned bot shows its threads but not its managers' threads; a pinned manager shows
+ * every thread in its projects (`managedProjectKeys`, by `${environmentId}:${projectId}`).
  */
 export function countHiddenNeedsYou(input: {
   readonly bots: ReadonlyArray<LogicalBot>;
@@ -576,8 +604,9 @@ export function countHiddenNeedsYou(input: {
     readonly id: string;
     readonly projectId: ProjectId;
   }>;
-  readonly projects: ReadonlyArray<BotOwnedProject>;
+  readonly projects: ReadonlyArray<BotOwnedProject & ManagedProject>;
   readonly managedProjectKeys: ReadonlySet<string>;
+  readonly managerEnvironmentIds: ReadonlySet<EnvironmentId>;
 }): number {
   const pinnedBots = new Set<string>();
   for (const bot of input.bots) {
@@ -586,12 +615,23 @@ export function countHiddenNeedsYou(input: {
       pinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
     }
   }
+  const unpinnedManagers = new Set(
+    input.projects
+      .filter(
+        (project) =>
+          !isManagerPinned(project) && projectHasManager(project, input.managerEnvironmentIds),
+      )
+      .map((project) => `${project.environmentId}:${project.id}`),
+  );
   const ownerKey = createThreadBotKeyResolver(input.projects);
   let count = 0;
   for (const shell of input.shells) {
-    if (input.managedProjectKeys.has(`${shell.environmentId}:${shell.projectId}`)) continue;
+    const projectKey = `${shell.environmentId}:${shell.projectId}`;
+    if (input.managedProjectKeys.has(projectKey)) continue;
+    // A bot never shows its project managers' threads.
     const owner = headquartersProjectId(shell.id) === null ? ownerKey(shell) : undefined;
-    if (owner === undefined || !pinnedBots.has(owner)) count += 1;
+    if (owner !== undefined && pinnedBots.has(owner)) continue;
+    if (owner !== undefined || unpinnedManagers.has(projectKey)) count += 1;
   }
   return count;
 }
@@ -621,11 +661,8 @@ export function pinnedProjectManagers<
   return input.projects
     .filter(
       (project) =>
-        !project.isScratch &&
-        !project.isBotHome &&
         isManagerPinned(project) &&
-        project.remoteManager == null &&
-        input.managerEnvironmentIds.has(project.environmentId) &&
+        projectHasManager(project, input.managerEnvironmentIds) &&
         !input.archivedManagers.has(`${project.environmentId}:${project.id}`),
     )
     .sort((left, right) => left.title.localeCompare(right.title));
