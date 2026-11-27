@@ -654,7 +654,7 @@ describe("Bot foundation", () => {
     Effect.gen(function* () {
       const fallback = { instanceId: ProviderInstanceId.make("claude"), model: "claude-haiku-5-5" };
       const asked: Array<unknown> = [];
-      const fakeRuntime = Layer.succeed(CrewThreadRuntime, {
+      const fakeRuntime = Layer.mock(CrewThreadRuntime)({
         projectExists: () => Effect.succeed(true),
         // The role's own model is out of usage here, so its fallback stands in.
         runModelSelection: (_projectId, chosen, roleFallback) =>
@@ -665,7 +665,7 @@ describe("Bot foundation", () => {
           }),
         noteModelFallback: () => Effect.void,
         start: () => Effect.void,
-        getTurnState: () => Effect.succeed("pending"),
+        getTurnState: () => Effect.succeed("pending" as const),
       });
       const layer = CrewServiceLive.pipe(
         Layer.provideMerge(CrewStoreLive),
@@ -744,7 +744,6 @@ describe("Bot foundation", () => {
         pin: () => Effect.void,
         unpin: () => Effect.void,
         start: () => Effect.void,
-        getTurnState: () => Effect.succeed("pending"),
         getTurnState: () => Effect.succeed("pending" as const),
         replayPending: () => Effect.void,
         interrupt: () => Effect.void,
@@ -815,6 +814,7 @@ describe("Bot foundation", () => {
           name: "Project manager",
           instructions: "Manage the project.",
           modelSelection,
+          fallbackModelSelection: null,
           enabled: true,
           icon: null,
           customizedAt: null,

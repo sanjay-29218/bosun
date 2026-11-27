@@ -77,6 +77,16 @@ class SourceProblem extends Schema.TaggedError<SourceProblem>()("SourceProblem",
 
 const keyOf = (kind: string, id: string) => `${kind}\n${id}`;
 
+const sameImportedFrom = (left: ImportedFrom, right: ImportedFrom | null) =>
+  right !== null &&
+  left.environmentId === right.environmentId &&
+  left.label === right.label &&
+  left.revision === right.revision &&
+  left.localRevision === right.localRevision &&
+  left.available === right.available &&
+  left.skipped === right.skipped &&
+  left.problem === right.problem;
+
 const editedHere = (item: Role | Workflow) =>
   item.importedFrom !== null && item.revision !== item.importedFrom.localRevision;
 
@@ -524,7 +534,7 @@ const make = Effect.gen(function* () {
     );
     let changed = false;
     const write = Effect.fn(function* (entry: Item, next: ImportedFrom) {
-      if (JSON.stringify(next) === JSON.stringify(entry.item.importedFrom)) return;
+      if (sameImportedFrom(next, entry.item.importedFrom)) return;
       yield* store.setImportedFrom(entry.kind, entry.item.id, next);
       changed = true;
     });
@@ -575,7 +585,7 @@ const make = Effect.gen(function* () {
     if (changed) yield* notify("library");
   });
 
-  const syncAll = writing
+  const syncAll: Effect.Effect<void> = writing
     .withPermits(1)(
       Effect.gen(function* () {
         if (!(yield* links.enabled)) return;
@@ -601,7 +611,12 @@ const make = Effect.gen(function* () {
         );
       }),
     )
-    .pipe(Effect.withSpan("LibraryImports.syncAll"));
+    .pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Syncing imported workflows and roles failed", { cause }),
+      ),
+      Effect.withSpan("LibraryImports.syncAll"),
+    );
 
   const serveSync: LibraryImports["Service"]["serveSync"] = Effect.fn("LibraryImports.serveSync")(
     function* (scope, input) {
@@ -788,16 +803,19 @@ const make = Effect.gen(function* () {
       yield* sendTo("workflow", workflow.id, workflow.revision, input.alsoUpdateOn);
       return yield* withImporters("workflow", workflow);
     }),
-    deleteWorkflow: (id) => crew.deleteWorkflow(id),
+    deleteWorkflow: Effect.fn("LibraryImports.deleteWorkflow")(function* (id) {
+      yield* crew.deleteWorkflow(id);
+    }),
     importable,
-    importItems: (input) =>
-      writing.withPermits(1)(
+    importItems: Effect.fn("LibraryImports.importItems")(function* (input) {
+      return yield* writing.withPermits(1)(
         importFrom(input.sourceEnvironmentId, {
           roleIds: input.roleIds,
           workflowIds: input.workflowIds,
           replace: input.replace,
         }),
-      ),
+      );
+    }),
     detach,
     serveSync,
     unlink,

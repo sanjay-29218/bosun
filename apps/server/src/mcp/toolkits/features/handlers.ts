@@ -162,18 +162,20 @@ const make = Effect.gen(function* () {
         readonly workflowIds?: ReadonlyArray<string> | undefined;
         readonly replace?: boolean | undefined;
       }) =>
-        (input.roleIds?.length ?? 0) + (input.workflowIds?.length ?? 0) === 0
-          ? reading(library.importable(input.environmentId)).pipe(
-              Effect.map((listed) => ({ listed })),
-            )
-          : writing(
-              library.importItems({
-                sourceEnvironmentId: input.environmentId,
-                roleIds: input.roleIds ?? [],
-                workflowIds: input.workflowIds ?? [],
-                replace: input.replace ?? false,
-              }),
-            ).pipe(Effect.map((imported) => ({ imported }))),
+        Effect.gen(function* () {
+          if ((input.roleIds?.length ?? 0) + (input.workflowIds?.length ?? 0) === 0) {
+            return { listed: yield* reading(library.importable(input.environmentId)) };
+          }
+          const imported = yield* writing(
+            library.importItems({
+              sourceEnvironmentId: input.environmentId,
+              roleIds: input.roleIds ?? [],
+              workflowIds: input.workflowIds ?? [],
+              replace: input.replace ?? false,
+            }),
+          );
+          return { imported };
+        }),
     ),
     t3_library_detach: McpToolAccess.writesWithCapability((input: typeof LibraryDetachInput.Type) =>
       writing(library.detach(input)).pipe(Effect.as({})),
