@@ -241,6 +241,25 @@ describe("LibraryPage", () => {
     });
   });
 
+  it("shows what was taken once an update lands", async () => {
+    setup([{ ...reviewer, importedFrom: fromStudio }]);
+    const selection = { environmentId, roleId: reviewer.id };
+    await using screen = await render(<LibraryPage kind="role" search={selection} />);
+    const instructions = page.getByRole("textbox", { name: "Instructions" });
+    await expect.element(instructions).toHaveTextContent("Review the change");
+
+    state.roles = [
+      {
+        ...reviewer,
+        instructions: "Review the change and its tests",
+        revision: 2,
+        importedFrom: { ...fromStudio, revision: 3, localRevision: 2, available: null },
+      },
+    ];
+    await screen.rerender(<LibraryPage kind="role" search={selection} />);
+    await expect.element(instructions).toHaveTextContent("Review the change and its tests");
+  });
+
   it("asks which importers take a save, with edited ones left unticked", async () => {
     const mini = EnvironmentId.make("mini");
     setup([

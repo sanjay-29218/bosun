@@ -96,7 +96,8 @@ export function LibraryPage({
     shown[0]?.environmentId ??
     null;
 
-  // Bumped to remount the open form, which discards its draft.
+  // Bumped to remount the open form, which discards its draft. Taking an import's update
+  // (a new localRevision) remounts it too, so it shows what was taken.
   const [formRevision, setFormRevision] = useState(0);
   const open = (id: string) => {
     if (environmentId === null) return;
@@ -182,7 +183,7 @@ export function LibraryPage({
     return (
       <CrewSettingsFrame back={back} title={workflow.name} actions={null}>
         <WorkflowEditorForm
-          key={`${library.environmentId}:${workflow.id}:${formRevision}`}
+          key={`${library.environmentId}:${workflow.id}:${formRevision}:${workflow.importedFrom?.localRevision ?? 0}`}
           environmentId={library.environmentId}
           workflow={workflow}
           roles={library.roles}
@@ -197,7 +198,7 @@ export function LibraryPage({
     return (
       <CrewSettingsFrame back={back} title={role.name} actions={null}>
         <RoleEditorForm
-          key={`${library.environmentId}:${role.id}:${formRevision}`}
+          key={`${library.environmentId}:${role.id}:${formRevision}:${role.importedFrom?.localRevision ?? 0}`}
           environmentId={library.environmentId}
           role={role}
           defaultModel={role.modelSelection}
