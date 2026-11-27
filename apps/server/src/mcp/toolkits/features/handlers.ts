@@ -7,7 +7,6 @@ import {
   OrchestratorMcpFailure,
   ProjectId,
   type FeatureWorkspace,
-  type LibraryDetachInput,
   type RoleCreateInput,
   type RoleUpdateInput,
   type WorkflowCreateInput,
@@ -146,39 +145,57 @@ const make = Effect.gen(function* () {
     t3_role_create: McpToolAccess.writesWithCapability((input: typeof RoleCreateInput.Type) =>
       writing(library.createRole(input)),
     ),
-    t3_role_update: McpToolAccess.writesWithCapability((input: typeof RoleUpdateInput.Type) =>
-      writing(library.updateRole(input)),
+    t3_role_update: McpToolAccess.writesWithCapability(
+      (input: Omit<typeof RoleUpdateInput.Type, "alsoUpdateOn">) =>
+        writing(library.updateRole(input)),
     ),
     t3_feature_workflow_create: McpToolAccess.writesWithCapability(
       (input: typeof WorkflowCreateInput.Type) => writing(library.createWorkflow(input)),
     ),
     t3_feature_workflow_update: McpToolAccess.writesWithCapability(
-      (input: typeof WorkflowUpdateInput.Type) => writing(library.updateWorkflow(input)),
+      (input: Omit<typeof WorkflowUpdateInput.Type, "alsoUpdateOn">) =>
+        writing(library.updateWorkflow(input)),
     ),
     t3_library_import: McpToolAccess.writesWithCapability(
       (input: {
         readonly environmentId: EnvironmentId;
-        readonly roleIds?: ReadonlyArray<string> | undefined;
-        readonly workflowIds?: ReadonlyArray<string> | undefined;
-        readonly replace?: boolean | undefined;
+        readonly ids?: ReadonlyArray<string> | undefined;
+        readonly mode?: "replace" | "keep" | "skip" | undefined;
       }) =>
         Effect.gen(function* () {
-          if ((input.roleIds?.length ?? 0) + (input.workflowIds?.length ?? 0) === 0) {
-            return { listed: yield* reading(library.importable(input.environmentId)) };
+          const ids = input.ids ?? [];
+          const mode = input.mode;
+          if (mode === "keep" || mode === "skip") {
+            // Agents name ids alone; a workflow's id is told from the workflows here.
+            const workflows = new Set(
+              (yield* reading(library.listWorkflows)).map((workflow) => workflow.id),
+            );
+            for (const id of ids) {
+              yield* writing(
+                library.detach({
+                  kind: workflows.has(id) ? "workflow" : "role",
+                  id,
+                  mode: mode === "keep" ? "detach" : "skip",
+                }),
+              );
+            }
+            return { detached: ids.length };
           }
+          const listed = yield* reading(library.importable(input.environmentId));
+          if (ids.length === 0) return { listed };
+          const workflows = new Set(
+            listed.items.filter((item) => item.kind === "workflow").map((item) => item.id),
+          );
           const imported = yield* writing(
             library.importItems({
               sourceEnvironmentId: input.environmentId,
-              roleIds: input.roleIds ?? [],
-              workflowIds: input.workflowIds ?? [],
-              replace: input.replace ?? false,
+              roleIds: ids.filter((id) => !workflows.has(id)),
+              workflowIds: ids.filter((id) => workflows.has(id)),
+              replace: mode === "replace",
             }),
           );
           return { imported };
         }),
-    ),
-    t3_library_detach: McpToolAccess.writesWithCapability((input: typeof LibraryDetachInput.Type) =>
-      writing(library.detach(input)).pipe(Effect.as({})),
     ),
     t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {

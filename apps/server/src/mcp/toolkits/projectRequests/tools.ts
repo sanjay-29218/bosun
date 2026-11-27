@@ -25,7 +25,7 @@ const RequestStatus = Schema.Literals(["open", "done"]);
 const SendRequest = Tool.make("t3_project_send", {
   ...shared,
   description:
-    "Send a project's manager a request; it replies in this thread. The same key returns the same request. Needs the owning bot's headquarters or full access. With environmentId, a headquarters sends its bot's project on that linked environment the request as a task; if that environment is offline, the task waits and starts by itself when it's back.",
+    "Send a project's manager a request; it replies in this thread. The same key returns the same request. Needs the owning bot's headquarters or full access. With environmentId, a headquarters sends it as a task to its bot's project on that linked environment; while that environment is offline, the task waits and then starts by itself.",
   parameters: Schema.Struct({
     environmentId: Schema.optional(
       EnvironmentId.annotate({
