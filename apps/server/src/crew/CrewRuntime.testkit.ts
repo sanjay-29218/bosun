@@ -37,6 +37,7 @@ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderS
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { layerNoTaskFolders } from "../orchestration-v2/ProviderTurnStartService.testkit.ts";
@@ -207,6 +208,7 @@ export const makeCrewTestOrchestration = (
           RuntimeLayer.layerEventSink,
           CommandReceiptStore.layer,
           IdAllocator.layer,
+          ProjectionStore.layer,
           WorktreeSetupTracker.layer,
           Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
           Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
