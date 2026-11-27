@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
   type EnvironmentId,
+  type LibraryPushTarget,
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
@@ -89,7 +90,7 @@ export function WorkflowEditorForm({
     message: "Leave without saving this workflow?",
   });
 
-  const submit = async (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
+  const submit = async (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
     if (!canSave) return;
     if (workflow && workflow.importers.length > 0 && alsoUpdateOn === undefined) {
       setAsking(true);

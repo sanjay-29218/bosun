@@ -4,6 +4,7 @@ import {
   ProviderInstanceId,
   type RoleConfig,
   type EnvironmentId,
+  type LibraryPushTarget,
   type ModelSelection,
   type ProjectId,
 } from "@t3tools/contracts";
@@ -77,7 +78,7 @@ function Editor(props: {
     readonly fallbackModelSelection: ModelSelection | null;
     readonly enabled: boolean;
     readonly expectedRevision?: number;
-    readonly alsoUpdateOn?: ReadonlyArray<EnvironmentId>;
+    readonly alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>;
   }) => Promise<boolean>;
 }) {
   const gt = useGT();
@@ -97,8 +98,18 @@ function Editor(props: {
   // refused instead of overwriting it.
   const [baseRevision, setBaseRevision] = useState(props.role?.revision);
   const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
+  const fallbackNow = modelFrom(fallbackInstanceId, fallbackModel, initialFallback);
+  const unsaved =
+    props.role !== null &&
+    (name !== props.role.name ||
+      instructions !== props.role.instructions ||
+      instanceId !== props.role.modelSelection.instanceId ||
+      model !== props.role.modelSelection.model ||
+      enabled !== props.role.enabled ||
+      fallbackNow?.instanceId !== initialFallback?.instanceId ||
+      fallbackNow?.model !== initialFallback?.model);
 
-  const save = (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
+  const save = (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
     const modelSelection = modelFrom(instanceId, model, props.role?.modelSelection)!;
     setAsking(false);
     void props
@@ -131,6 +142,7 @@ function Editor(props: {
           environmentId={props.environmentId}
           kind="role"
           item={props.role}
+          unsaved={unsaved}
           onChanged={props.onChanged}
         />
       )}

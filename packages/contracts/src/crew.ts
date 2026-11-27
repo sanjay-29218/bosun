@@ -141,8 +141,16 @@ const roleFields = {
   /** Absent keeps the role's fallback model; null clears it. */
   fallbackModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
 };
-/** Linked machines that imported it and take this save on their next sync. */
-const alsoUpdateOn = Schema.optionalKey(Schema.Array(EnvironmentId));
+/**
+ * A machine that imported it and takes this save on its next sync. `replacesEdits` is what the
+ * person agreed to: without it, a copy edited there keeps its edits and shows Update available.
+ */
+export const LibraryPushTarget = Schema.Struct({
+  environmentId: EnvironmentId,
+  replacesEdits: Schema.Boolean,
+});
+export type LibraryPushTarget = typeof LibraryPushTarget.Type;
+const alsoUpdateOn = Schema.optionalKey(Schema.Array(LibraryPushTarget));
 export const RoleCreateInput = Schema.Struct({ ...roleFields });
 export const RoleUpdateInput = Schema.Struct({
   ...roleFields,
@@ -268,7 +276,7 @@ export const LibraryImportResult = Schema.Struct({
     Schema.Struct({
       kind: LibraryItemKind,
       id: Schema.String,
-      reason: Schema.Literals(["replaces", "missing", "current"]),
+      reason: Schema.Literals(["replaces", "missing", "current", "edited"]),
     }),
   ),
 });

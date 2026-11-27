@@ -299,7 +299,7 @@ describe("LibraryPage", () => {
       input: expect.objectContaining({
         id: reviewer.id,
         instructions: "Review it all",
-        alsoUpdateOn: [studio],
+        alsoUpdateOn: [{ environmentId: studio, replacesEdits: false }],
       }),
     });
   });

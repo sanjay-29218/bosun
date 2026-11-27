@@ -16,7 +16,9 @@ import {
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import { describe, expect } from "vite-plus/test";
@@ -47,6 +49,8 @@ interface Network {
   readonly links: Map<EnvironmentId, Set<EnvironmentId>>;
   /** Every sync sent, as it went over the wire. */
   readonly sent: Array<LibrarySyncInput>;
+  /** Run before the next calls are answered, one each, to hold a call in flight. */
+  readonly beforeAnswer: Array<Effect.Effect<void>>;
 }
 
 /** How the source sees the importer's link: a full-access link session. */
@@ -78,7 +82,10 @@ const fakeForwarding = (network: Network) =>
         );
       }
       network.sent.push(params as LibrarySyncInput);
-      return receiver.serveSync(linkScope(environmentId), params as LibrarySyncInput) as never;
+      const hold = network.beforeAnswer.shift() ?? Effect.void;
+      return hold.pipe(
+        Effect.andThen(receiver.serveSync(linkScope(environmentId), params as LibrarySyncInput)),
+      ) as never;
     },
   });
 
@@ -144,6 +151,7 @@ const twoMachines = Effect.gen(function* () {
     receivers: new Map(),
     offline: new Set(),
     older: new Set(),
+    beforeAnswer: [],
     links: new Map([[laptopId, new Set([boxId])]]),
     sent: [],
   };
@@ -281,7 +289,7 @@ describe("LibraryImports", () => {
         instructions: "Pushed from the box.",
         expectedRevision: original.revision,
         enabled: true,
-        alsoUpdateOn: [laptopId],
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: false }],
       });
       expect(saved.importers).toMatchObject([{ environmentId: laptopId, pending: true }]);
 
@@ -313,7 +321,7 @@ describe("LibraryImports", () => {
         instructions: "Pushed from the box.",
         expectedRevision: original.revision,
         enabled: true,
-        alsoUpdateOn: [laptopId],
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: false }],
       });
       const copy = yield* roleOn(laptop.library, writer.id);
       yield* laptop.library.updateRole({
@@ -329,6 +337,133 @@ describe("LibraryImports", () => {
       expect((yield* roleOn(box.library, writer.id)).importers).toMatchObject([
         { edited: true, pending: false },
       ]);
+    }),
+  );
+
+  it.effect("an edit saved while the sync is in flight is not overwritten by a pushed save", () =>
+    Effect.gen(function* () {
+      const { network, laptop, box } = yield* twoMachines;
+      const original = yield* box.library.createRole(writer);
+      yield* laptop.library.importItems({
+        ...nothing,
+        sourceEnvironmentId: boxId,
+        roleIds: [writer.id],
+      });
+      yield* laptop.library.syncNow;
+      yield* box.library.updateRole({
+        ...writer,
+        instructions: "Pushed from the box.",
+        expectedRevision: original.revision,
+        enabled: true,
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: false }],
+      });
+      // The laptop's next sync waits at the box while the laptop saves an edit.
+      const asked = yield* Deferred.make<void>();
+      const answer = yield* Deferred.make<void>();
+      network.beforeAnswer.push(
+        Deferred.succeed(asked, undefined).pipe(Effect.andThen(Deferred.await(answer))),
+      );
+      const syncing = yield* laptop.library.syncNow.pipe(Effect.forkChild);
+      yield* Deferred.await(asked);
+      const copy = yield* roleOn(laptop.library, writer.id);
+      yield* laptop.library.updateRole({
+        ...writer,
+        instructions: "My own notes.",
+        expectedRevision: copy.revision,
+        enabled: true,
+      });
+      yield* Deferred.succeed(answer, undefined);
+      yield* Fiber.join(syncing);
+
+      const kept = yield* roleOn(laptop.library, writer.id);
+      expect(kept.instructions).toBe("My own notes.");
+      yield* laptop.library.syncNow;
+      expect(libraryImportState(yield* roleOn(laptop.library, writer.id))).toEqual({
+        edited: true,
+        updateAvailable: true,
+      });
+    }),
+  );
+
+  it.effect("a save replaces edits only where the person was shown them", () =>
+    Effect.gen(function* () {
+      const { laptop, box } = yield* twoMachines;
+      const original = yield* box.library.createRole(writer);
+      yield* laptop.library.importItems({
+        ...nothing,
+        sourceEnvironmentId: boxId,
+        roleIds: [writer.id],
+      });
+      yield* laptop.library.syncNow;
+      // The box's dialog opens while the laptop's copy is unedited; then the laptop edits it
+      // and syncs, so the box now knows, but the person saves what the dialog showed.
+      const shown = (yield* roleOn(box.library, writer.id)).importers[0]!;
+      expect(shown.edited).toBe(false);
+      const copy = yield* roleOn(laptop.library, writer.id);
+      yield* laptop.library.updateRole({
+        ...writer,
+        instructions: "My own notes.",
+        expectedRevision: copy.revision,
+        enabled: true,
+      });
+      yield* laptop.library.syncNow;
+      expect((yield* roleOn(box.library, writer.id)).importers[0]?.edited).toBe(true);
+      yield* box.library.updateRole({
+        ...writer,
+        instructions: "Pushed from the box.",
+        expectedRevision: original.revision,
+        enabled: true,
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: shown.edited }],
+      });
+      yield* laptop.library.syncNow;
+      expect((yield* roleOn(laptop.library, writer.id)).instructions).toBe("My own notes.");
+
+      // Shown the edits and still ticked, the laptop takes it.
+      const latest = (yield* box.crew.getRole(writer.id))!;
+      yield* box.library.updateRole({
+        ...writer,
+        instructions: "Pushed again, knowingly.",
+        expectedRevision: latest.revision,
+        enabled: true,
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: true }],
+      });
+      yield* laptop.library.syncNow;
+      expect((yield* roleOn(laptop.library, writer.id)).instructions).toBe(
+        "Pushed again, knowingly.",
+      );
+    }),
+  );
+
+  it.effect("a later save that doesn't tick a machine withdraws what waited for it", () =>
+    Effect.gen(function* () {
+      const { network, laptop, box } = yield* twoMachines;
+      const original = yield* box.library.createRole(writer);
+      yield* laptop.library.importItems({
+        ...nothing,
+        sourceEnvironmentId: boxId,
+        roleIds: [writer.id],
+      });
+      yield* laptop.library.syncNow;
+      network.offline.add(boxId);
+      const second = yield* box.library.updateRole({
+        ...writer,
+        instructions: "Revision two, sent.",
+        expectedRevision: original.revision,
+        enabled: true,
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: false }],
+      });
+      const third = yield* box.library.updateRole({
+        ...writer,
+        instructions: "Revision three, not sent.",
+        expectedRevision: second.revision,
+        enabled: true,
+      });
+      expect(third.importers).toMatchObject([{ pending: false }]);
+      network.offline.delete(boxId);
+      yield* laptop.library.syncNow;
+      const copy = yield* roleOn(laptop.library, writer.id);
+      expect(copy.instructions).toBe(writer.instructions);
+      expect(libraryImportState(copy).updateAvailable).toBe(true);
     }),
   );
 

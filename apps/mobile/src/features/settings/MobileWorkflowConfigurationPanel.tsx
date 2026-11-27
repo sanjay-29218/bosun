@@ -2,6 +2,7 @@ import {
   FEATURE_DELIVERY_WORKFLOW_ID,
   libraryImportState,
   type EnvironmentId,
+  type LibraryPushTarget,
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
@@ -29,7 +30,7 @@ interface WorkflowFields {
   readonly instructions: string;
   readonly crewRoleIds: Array<string>;
   readonly expectedRevision?: number;
-  readonly alsoUpdateOn?: ReadonlyArray<EnvironmentId>;
+  readonly alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>;
 }
 
 function Editor(props: {
@@ -50,6 +51,11 @@ function Editor(props: {
   // The fields above match this revision; a newer save elsewhere refuses this one.
   const [baseRevision, setBaseRevision] = useState(props.workflow?.revision);
   const canSave = !!name.trim() && !!instructions.trim();
+  const unsaved =
+    props.workflow !== null &&
+    (name !== props.workflow.name ||
+      instructions !== props.workflow.instructions ||
+      crewRoleIds.join("\n") !== props.workflow.crewRoleIds.join("\n"));
   const roleName = (id: string) => props.roles.find((role) => role.id === id)?.name ?? id;
   // Roles that are off or gone stay listed while the workflow names them, so they can be removed.
   const crewChoices = [
@@ -58,7 +64,7 @@ function Editor(props: {
   ];
 
   const [asking, setAsking] = useState(false);
-  const save = (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
+  const save = (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
     setAsking(false);
     void props
       .onSave({
@@ -84,6 +90,7 @@ function Editor(props: {
           environmentId={props.environmentId}
           kind="workflow"
           item={props.workflow}
+          unsaved={unsaved}
           onChanged={props.onChanged}
         />
       )}

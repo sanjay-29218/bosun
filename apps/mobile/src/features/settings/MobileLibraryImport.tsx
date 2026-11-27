@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useNavigation } from "@react-navigation/native";
 import { libraryImportBanner, libraryImporterLine } from "@t3tools/client-runtime/state/library";
 import type {
@@ -5,6 +6,7 @@ import type {
   ImportedFrom,
   LibraryImporter,
   LibraryItemKind,
+  LibraryPushTarget,
 } from "@t3tools/contracts";
 import { T, useGT, useMessages } from "gt-react-native";
 import { useState } from "react";
@@ -13,16 +15,29 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import * as Dialog from "../../components/ui/Dialog";
+import { useEnvironments } from "../../state/environments";
 import { useNowMinuteMs } from "../../lib/clock";
 import { relativeTime } from "../../lib/time";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Action, useRun } from "./MobileRoleConfigurationPanel";
 
+/**
+ * Whether this client may import into `environmentId`: its server serves imports and this
+ * client may change its library.
+ */
+export function useCanImport(environmentId: EnvironmentId) {
+  const { environments } = useEnvironments();
+  const permitted = useAtomValue(rolesEnvironment.importItems.permissionAtom(environmentId));
+  const environment = environments.find((candidate) => candidate.environmentId === environmentId);
+  return permitted && environment?.serverConfig?.environment.capabilities.libraryImports === true;
+}
+
 /** Opens the import screen for `environmentId`'s library. */
 export function ImportFromAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const gt = useGT();
   const navigation = useNavigation();
+  if (!useCanImport(environmentId)) return null;
   return (
     <Action
       label={gt("Import from…")}
@@ -47,6 +62,8 @@ export function MobileImportBanner(props: {
   readonly environmentId: EnvironmentId;
   readonly kind: LibraryItemKind;
   readonly item: ImportedItem;
+  /** The editor has changes Take update would throw away. */
+  readonly unsaved: boolean;
   readonly onChanged: () => void;
 }) {
   const gt = useGT();
@@ -68,11 +85,16 @@ export function MobileImportBanner(props: {
       <Text className={`text-sm font-t3-medium ${tone}`}>{banner.title}</Text>
       <Text className="text-xs text-foreground-muted">{banner.description}</Text>
       {error ? <Text className="text-xs text-red-500">{error}</Text> : null}
+      {props.unsaved && banner.actions.includes("take") ? (
+        <Text className="text-xs text-foreground-muted">
+          <T>Save or discard your changes first</T>
+        </Text>
+      ) : null}
       <View className="flex-row flex-wrap gap-2 pt-1">
         {banner.actions.includes("take") ? (
           <Action
             label={gt("Take update")}
-            disabled={busy}
+            disabled={busy || props.unsaved}
             onPress={() =>
               void run(() =>
                 importItems({
@@ -164,15 +186,15 @@ export function AlsoUpdateOnSheet(props: {
   readonly name: string;
   readonly importers: ReadonlyArray<LibraryImporter>;
   readonly onCancel: () => void;
-  readonly onSave: (alsoUpdateOn: ReadonlyArray<EnvironmentId>) => void;
+  readonly onSave: (alsoUpdateOn: ReadonlyArray<LibraryPushTarget>) => void;
 }) {
   const gt = useGT();
+  // What the person is shown is what they agree to, even if a sync changes it meanwhile.
+  const [shown] = useState(props.importers);
   const [ticked, setTicked] = useState<ReadonlySet<EnvironmentId>>(
     () =>
       new Set(
-        props.importers
-          .filter((importer) => !importer.edited)
-          .map((importer) => importer.environmentId),
+        shown.filter((importer) => !importer.edited).map((importer) => importer.environmentId),
       ),
   );
   return (
@@ -192,12 +214,12 @@ export function AlsoUpdateOnSheet(props: {
               {gt(
                 "{machines} imported {name}. Turned-on machines take this change within a minute; the rest see Update available.",
                 {
-                  machines: props.importers.map((importer) => importer.label).join(", "),
+                  machines: shown.map((importer) => importer.label).join(", "),
                   name: props.name,
                 },
               )}
             </Text>
-            {props.importers.map((importer) => {
+            {shown.map((importer) => {
               const on = ticked.has(importer.environmentId);
               return (
                 <View key={importer.environmentId} className="gap-1">
@@ -234,7 +256,16 @@ export function AlsoUpdateOnSheet(props: {
                     : gt("Save and update {count}", { count: ticked.size })
                 }
                 selected
-                onPress={() => props.onSave([...ticked])}
+                onPress={() =>
+                  props.onSave(
+                    shown
+                      .filter((importer) => ticked.has(importer.environmentId))
+                      .map((importer) => ({
+                        environmentId: importer.environmentId,
+                        replacesEdits: importer.edited,
+                      })),
+                  )
+                }
               />
             </View>
           </View>

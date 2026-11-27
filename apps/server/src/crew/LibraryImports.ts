@@ -9,6 +9,7 @@ import {
   LibraryImportProblem,
   type LibraryImportResult,
   type LibraryItemKind,
+  type LibraryPushTarget,
   OrchestratorMcpFailure,
   type RoleConfig,
   type RoleCreateInput,
@@ -279,19 +280,34 @@ const make = Effect.gen(function* () {
     return { ...item, importers: importersOf(yield* importerRows, kind, item.id) };
   });
 
-  /** Importers ticked on save take `revision` on their next sync; one edited there was warned. */
+  /**
+   * Importers ticked on save take exactly `revision` on their next sync, replacing local edits
+   * only where the person agreed to. A save that doesn't tick one withdraws what waited for it.
+   */
   const sendTo = Effect.fn("LibraryImports.sendTo")(function* (
     kind: LibraryItemKind,
     id: string,
     revision: number,
-    targets: ReadonlyArray<EnvironmentId> | undefined,
+    targets: ReadonlyArray<LibraryPushTarget> | undefined,
   ) {
-    for (const target of targets ?? []) {
-      yield* sql`
-        UPDATE library_importers SET push_revision = ${revision}, push_overwrites = edited
-        WHERE environment_id = ${target} AND kind = ${kind} AND item_id = ${id}
-      `.pipe(Effect.mapError(queryError));
-    }
+    yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
+            UPDATE library_importers SET push_revision = NULL, push_overwrites = 0
+            WHERE kind = ${kind} AND item_id = ${id}
+          `;
+          for (const target of targets ?? []) {
+            yield* sql`
+              UPDATE library_importers SET push_revision = ${revision},
+                push_overwrites = ${target.replacesEdits ? 1 : 0}
+              WHERE environment_id = ${target.environmentId} AND kind = ${kind}
+                AND item_id = ${id}
+            `;
+          }
+        }),
+      )
+      .pipe(Effect.mapError(queryError));
   });
 
   /** How this server reaches a source: as itself, not any agent's thread. */
@@ -350,6 +366,12 @@ const make = Effect.gen(function* () {
   const importFrom = Effect.fn("LibraryImports.importFrom")(function* (
     source: EnvironmentId,
     wanted: Omit<typeof LibraryImportInput.Type, "sourceEnvironmentId">,
+    /**
+     * For pushed saves: the source revision the person sent, and this one's revision here when
+     * it was checked as unedited (null when they agreed to replace edits). Anything else is left
+     * alone and shows as an update instead.
+     */
+    pushes?: ReadonlyMap<string, { readonly revision: number; readonly local: number | null }>,
   ) {
     const me = yield* self;
     const items = yield* libraryItems;
@@ -399,7 +421,19 @@ const make = Effect.gen(function* () {
             skipped.push({ kind, id, reason: "missing" });
             continue;
           }
-          const existing = local.get(keyOf(kind, id)) ?? null;
+          // Read again: an edit here may have landed while the source answered.
+          const existing =
+            kind === "role" ? yield* store.getRole(id) : yield* store.getWorkflow(id);
+          const pushed = pushes?.get(keyOf(kind, id));
+          const checked = pushed === undefined ? undefined : pushed.local;
+          if (pushed !== undefined && there.revision !== pushed.revision) {
+            skipped.push({ kind, id, reason: "current" });
+            continue;
+          }
+          if (checked != null && existing?.revision !== checked) {
+            skipped.push({ kind, id, reason: "edited" });
+            continue;
+          }
           const status = statusOf(existing, source, there.revision);
           if (status === "current" || (status === "replaces" && !wanted.replace)) {
             skipped.push({ kind, id, reason: status === "current" ? "current" : "replaces" });
@@ -436,7 +470,9 @@ const make = Effect.gen(function* () {
             };
             if (previous === null) yield* store.insertRole(role);
             else if (!(yield* store.updateRole(role, previous.revision))) {
-              return yield* Effect.fail(conflict(previous.name));
+              if (pushed === undefined) return yield* Effect.fail(conflict(previous.name));
+              skipped.push({ kind, id, reason: "edited" });
+              continue;
             }
           } else {
             const crewRoleIds: Array<string> = [];
@@ -456,7 +492,9 @@ const make = Effect.gen(function* () {
             };
             if (previous === null) yield* store.insertWorkflow(workflow);
             else if (!(yield* store.updateWorkflow(workflow, previous.revision))) {
-              return yield* Effect.fail(conflict(previous.name));
+              if (pushed === undefined) return yield* Effect.fail(conflict(previous.name));
+              skipped.push({ kind, id, reason: "edited" });
+              continue;
             }
           }
           imported.push({ kind, id, name: content.name });
@@ -575,11 +613,26 @@ const make = Effect.gen(function* () {
         return entry !== undefined && (sent.overwrites || !editedHere(entry.item));
       });
       if (takes.length > 0) {
-        yield* importFrom(source, {
-          roleIds: takes.filter((sent) => sent.kind === "role").map((sent) => sent.id),
-          workflowIds: takes.filter((sent) => sent.kind === "workflow").map((sent) => sent.id),
-          replace: false,
-        });
+        const checkedAt = new Map(
+          held.map((entry) => [keyOf(entry.kind, entry.item.id), entry.item.revision]),
+        );
+        yield* importFrom(
+          source,
+          {
+            roleIds: takes.filter((sent) => sent.kind === "role").map((sent) => sent.id),
+            workflowIds: takes.filter((sent) => sent.kind === "workflow").map((sent) => sent.id),
+            replace: false,
+          },
+          new Map(
+            takes.map((sent) => [
+              keyOf(sent.kind, sent.id),
+              {
+                revision: sent.revision,
+                local: sent.overwrites ? null : (checkedAt.get(keyOf(sent.kind, sent.id)) ?? null),
+              },
+            ]),
+          ),
+        );
       }
     }
     if (changed) yield* notify("library");
@@ -661,10 +714,13 @@ const make = Effect.gen(function* () {
               previous.delete(key);
               const overwrites = last?.pushOverwrites === 1;
               // Taken, or refused because it was edited there after the person here was asked.
+              // Taken; refused because it was edited there and nobody agreed to replace that;
+              // or overtaken by a change here the person didn't send.
               const pushRevision =
                 last?.pushRevision == null ||
                 (held.revision ?? -1) >= last.pushRevision ||
-                (held.edited && !overwrites)
+                (held.edited && !overwrites) ||
+                last.pushRevision !== entry.item.revision
                   ? null
                   : last.pushRevision;
               yield* sql`

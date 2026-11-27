@@ -21,6 +21,7 @@ import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { useCanImport } from "./MobileLibraryImport";
 import { Action } from "./MobileRoleConfigurationPanel";
 
 /**
@@ -37,7 +38,8 @@ export function SettingsLibraryImportRouteScreen({
   const { environments } = useEnvironments();
   const environment = environments.find((candidate) => candidate.environmentId === environmentId);
   const here = environment?.label ?? gt("This environment");
-  const offered = offersLinkedEnvironments(environment?.serverConfig);
+  const canImport = useCanImport(environmentId);
+  const offered = canImport && offersLinkedEnvironments(environment?.serverConfig);
   const links = useEnvironmentQuery(
     offered ? peerLinkEnvironment.list({ environmentId, input: {} }) : null,
   );
@@ -145,7 +147,14 @@ export function SettingsLibraryImportRouteScreen({
             { machine: here },
           )}
         </Text>
-        {!offered ? (
+        {!canImport ? (
+          <Text className="text-foreground-muted">
+            {gt(
+              "Importing into {machine} isn't available here. Update Bosun there, or connect with access that can change its workflows and roles.",
+              { machine: here },
+            )}
+          </Text>
+        ) : !offered ? (
           <Text className="text-foreground-muted">
             {gt("Linked environments are off on {machine}. Turn them on in Settings → Labs.", {
               machine: here,

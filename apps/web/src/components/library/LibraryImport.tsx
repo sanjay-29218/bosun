@@ -5,6 +5,7 @@ import type {
   ImportedFrom,
   LibraryImporter,
   LibraryItemKind,
+  LibraryPushTarget,
 } from "@t3tools/contracts";
 import { T, useGT, useMessages, Var } from "gt-react";
 import { DownloadIcon, InfoIcon, TriangleAlertIcon } from "lucide-react";
@@ -214,7 +215,7 @@ export function AlsoUpdateOnDialog({
   readonly importers: ReadonlyArray<LibraryImporter>;
   readonly open: boolean;
   readonly onCancel: () => void;
-  readonly onSave: (alsoUpdateOn: ReadonlyArray<EnvironmentId>) => void;
+  readonly onSave: (alsoUpdateOn: ReadonlyArray<LibraryPushTarget>) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
@@ -236,18 +237,20 @@ function AlsoUpdateOnForm({
   readonly name: string;
   readonly importers: ReadonlyArray<LibraryImporter>;
   readonly onCancel: () => void;
-  readonly onSave: (alsoUpdateOn: ReadonlyArray<EnvironmentId>) => void;
+  readonly onSave: (alsoUpdateOn: ReadonlyArray<LibraryPushTarget>) => void;
 }) {
   const gt = useGT();
   const m = useMessages();
   const nowMinute = useNowMinute();
+  // What the person is shown is what they agree to, even if a sync changes it meanwhile.
+  const [shown] = useState(importers);
   const [ticked, setTicked] = useState<ReadonlySet<EnvironmentId>>(
     () =>
       new Set(
-        importers.filter((importer) => !importer.edited).map((importer) => importer.environmentId),
+        shown.filter((importer) => !importer.edited).map((importer) => importer.environmentId),
       ),
   );
-  const machines = importers.map((importer) => importer.label).join(", ");
+  const machines = shown.map((importer) => importer.label).join(", ");
   return (
     <>
       <DialogHeader>
@@ -263,7 +266,7 @@ function AlsoUpdateOnForm({
       </DialogHeader>
       <DialogPanel>
         <ul className="divide-y divide-border rounded-lg border bg-card">
-          {importers.map((importer) => {
+          {shown.map((importer) => {
             const checked = ticked.has(importer.environmentId);
             const lastSeen = formatRelativeTimeLabel(importer.seenAt, Date.parse(nowMinute), m);
             return (
@@ -305,7 +308,18 @@ function AlsoUpdateOnForm({
         <Button variant="ghost" onClick={onCancel}>
           <T>Cancel</T>
         </Button>
-        <Button onClick={() => onSave([...ticked])}>
+        <Button
+          onClick={() =>
+            onSave(
+              shown
+                .filter((importer) => ticked.has(importer.environmentId))
+                .map((importer) => ({
+                  environmentId: importer.environmentId,
+                  replacesEdits: importer.edited,
+                })),
+            )
+          }
+        >
           {ticked.size === 0 ? gt("Save") : gt("Save and update {count}", { count: ticked.size })}
         </Button>
       </DialogFooter>

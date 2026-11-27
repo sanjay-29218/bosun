@@ -3,6 +3,7 @@ import {
   PLANNER_ROLE_ID,
   type RoleConfig,
   type EnvironmentId,
+  type LibraryPushTarget,
   type ModelSelection,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
@@ -138,7 +139,7 @@ export function useSaveRole(environmentId: EnvironmentId) {
   return async (
     role: RoleConfig,
     change: RoleChange,
-    alsoUpdateOn: ReadonlyArray<EnvironmentId> = [],
+    alsoUpdateOn: ReadonlyArray<LibraryPushTarget> = [],
   ) => {
     const next = { ...role, ...change };
     const result = await update({
@@ -214,7 +215,7 @@ export function RoleEditorForm({
     message: gt("Leave without saving this role?"),
   });
 
-  const submit = async (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
+  const submit = async (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
     if (!canSave) return;
     if (role && role.importers.length > 0 && alsoUpdateOn === undefined) {
       setAsking(true);
