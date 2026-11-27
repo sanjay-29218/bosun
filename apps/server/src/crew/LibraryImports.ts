@@ -293,6 +293,12 @@ const make = Effect.gen(function* () {
     yield* sql
       .withTransaction(
         Effect.gen(function* () {
+          // Saves commit their content first, so two can get here out of order: the later
+          // save's targets stand.
+          const [current] = yield* kind === "role"
+            ? sql<{ readonly revision: number }>`SELECT revision FROM roles WHERE id = ${id}`
+            : sql<{ readonly revision: number }>`SELECT revision FROM workflows WHERE id = ${id}`;
+          if (current !== undefined && current.revision > revision) return;
           yield* sql`
             UPDATE library_importers SET push_revision = NULL, push_overwrites = 0
             WHERE kind = ${kind} AND item_id = ${id}
@@ -671,111 +677,123 @@ const make = Effect.gen(function* () {
       Effect.withSpan("LibraryImports.syncAll"),
     );
 
+  /** An importer's sync: what it holds replaces what it held, and it hears what changed here. */
+  const answerSync = Effect.fn("LibraryImports.answerSync")(function* (input: LibrarySyncInput) {
+    const unavailable = (error: { readonly message: string }) =>
+      new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message });
+    const importer = input.importer;
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const here = yield* self;
+    const answer = new Map<string, LibrarySyncResult["items"][number]>();
+    const push: Array<LibrarySyncResult["push"][number]> = [];
+    const missing: Array<LibrarySyncResult["missing"][number]> = [];
+    let items: ReadonlyArray<Item> = [];
+    let changed = false;
+    yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          // Read in the transaction that writes, so a save and the push it sent, committed
+          // meanwhile, are seen here rather than written over.
+          items = yield* libraryItems;
+          const byKey = new Map(items.map((entry) => [keyOf(entry.kind, entry.item.id), entry]));
+          const previous = new Map(
+            (yield* importerRows)
+              .filter((row) => row.environmentId === importer.environmentId)
+              .map((row) => [keyOf(row.kind, row.itemId), row]),
+          );
+          yield* sql`DELETE FROM library_importers WHERE environment_id = ${importer.environmentId}`;
+          for (const held of input.holds) {
+            const key = keyOf(held.kind, held.id);
+            const entry = byKey.get(key);
+            if (entry === undefined) {
+              missing.push({ kind: held.kind, id: held.id });
+              continue;
+            }
+            const last = previous.get(key);
+            previous.delete(key);
+            const overwrites = last?.pushOverwrites === 1;
+            // Taken; refused because it was edited there and nobody agreed to replace that;
+            // or overtaken by a change here the person didn't send.
+            const pushRevision =
+              last?.pushRevision == null ||
+              (held.revision ?? -1) >= last.pushRevision ||
+              (held.edited && !overwrites) ||
+              last.pushRevision !== entry.item.revision
+                ? null
+                : last.pushRevision;
+            yield* sql`
+              INSERT INTO library_importers (
+                environment_id, label, kind, item_id, revision, edited, push_revision,
+                push_overwrites, seen_at
+              ) VALUES (
+                ${importer.environmentId}, ${importer.label}, ${held.kind}, ${held.id},
+                ${held.revision}, ${held.edited ? 1 : 0}, ${pushRevision}, ${overwrites ? 1 : 0},
+                ${now}
+              )
+            `;
+            if (
+              last === undefined ||
+              last.label !== importer.label ||
+              last.revision !== held.revision ||
+              (last.edited === 1) !== held.edited ||
+              last.pushRevision !== pushRevision
+            ) {
+              changed = true;
+            }
+            answer.set(key, {
+              kind: held.kind,
+              id: held.id,
+              revision: entry.item.revision,
+              ...(held.revision === null ? { content: contentOf(entry) } : {}),
+            });
+            if (pushRevision !== null) {
+              push.push({
+                kind: held.kind,
+                id: held.id,
+                revision: entry.item.revision,
+                overwrites,
+              });
+            }
+          }
+          if (previous.size > 0) changed = true;
+        }),
+      )
+      .pipe(
+        Effect.mapError((error) =>
+          unavailable("_tag" in error && error._tag === "SqlError" ? queryError(error) : error),
+        ),
+      );
+    if (input.list === true) {
+      for (const entry of items) {
+        // What the caller gave this machine never goes back to it.
+        if (entry.item.importedFrom?.environmentId === importer.environmentId) continue;
+        answer.set(keyOf(entry.kind, entry.item.id), {
+          kind: entry.kind,
+          id: entry.item.id,
+          revision: entry.item.revision,
+          content: contentOf(entry),
+          importedFrom: entry.item.importedFrom?.label ?? null,
+        });
+      }
+    }
+    if (changed) yield* notify("library");
+    return { label: here.label, items: [...answer.values()], push, missing };
+  });
+
   const serveSync: LibraryImports["Service"]["serveSync"] = Effect.fn("LibraryImports.serveSync")(
     function* (scope, input) {
-      const here = yield* self;
       const refuse = (message: string) =>
         Effect.fail(new OrchestratorMcpFailure({ code: "capability_denied", message }));
       if (scope.client?.linked !== true) {
         return yield* refuse("Only a linked environment imports workflows and roles from here.");
       }
       if (scope.client.access !== "full-access") {
+        const { label } = yield* self;
         return yield* refuse(
-          `${here.label} is linked with ${scope.client.access} access, and importing its workflows and roles needs full access. Link ${here.label} again with full access in Settings → Environments → Linked environments.`,
+          `${label} is linked with ${scope.client.access} access, and importing its workflows and roles needs full access. Link ${label} again with full access in Settings → Environments → Linked environments.`,
         );
       }
-      const unavailable = (error: { readonly message: string }) =>
-        new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message });
-      const items = yield* libraryItems.pipe(Effect.mapError(unavailable));
-      const byKey = new Map(items.map((entry) => [keyOf(entry.kind, entry.item.id), entry]));
-      const importer = input.importer;
-      const previous = new Map(
-        (yield* importerRows.pipe(Effect.mapError(unavailable)))
-          .filter((row) => row.environmentId === importer.environmentId)
-          .map((row) => [keyOf(row.kind, row.itemId), row]),
-      );
-      const now = DateTime.formatIso(yield* DateTime.now);
-      const answer = new Map<string, LibrarySyncResult["items"][number]>();
-      const push: Array<LibrarySyncResult["push"][number]> = [];
-      const missing: Array<LibrarySyncResult["missing"][number]> = [];
-      let changed = false;
-      yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            yield* sql`DELETE FROM library_importers WHERE environment_id = ${importer.environmentId}`;
-            for (const held of input.holds) {
-              const key = keyOf(held.kind, held.id);
-              const entry = byKey.get(key);
-              if (entry === undefined) {
-                missing.push({ kind: held.kind, id: held.id });
-                continue;
-              }
-              const last = previous.get(key);
-              previous.delete(key);
-              const overwrites = last?.pushOverwrites === 1;
-              // Taken, or refused because it was edited there after the person here was asked.
-              // Taken; refused because it was edited there and nobody agreed to replace that;
-              // or overtaken by a change here the person didn't send.
-              const pushRevision =
-                last?.pushRevision == null ||
-                (held.revision ?? -1) >= last.pushRevision ||
-                (held.edited && !overwrites) ||
-                last.pushRevision !== entry.item.revision
-                  ? null
-                  : last.pushRevision;
-              yield* sql`
-                INSERT INTO library_importers (
-                  environment_id, label, kind, item_id, revision, edited, push_revision,
-                  push_overwrites, seen_at
-                ) VALUES (
-                  ${importer.environmentId}, ${importer.label}, ${held.kind}, ${held.id},
-                  ${held.revision}, ${held.edited ? 1 : 0}, ${pushRevision}, ${overwrites ? 1 : 0},
-                  ${now}
-                )
-              `;
-              if (
-                last === undefined ||
-                last.label !== importer.label ||
-                last.revision !== held.revision ||
-                (last.edited === 1) !== held.edited ||
-                last.pushRevision !== pushRevision
-              ) {
-                changed = true;
-              }
-              answer.set(key, {
-                kind: held.kind,
-                id: held.id,
-                revision: entry.item.revision,
-                ...(held.revision === null ? { content: contentOf(entry) } : {}),
-              });
-              if (pushRevision !== null) {
-                push.push({
-                  kind: held.kind,
-                  id: held.id,
-                  revision: entry.item.revision,
-                  overwrites,
-                });
-              }
-            }
-          }),
-        )
-        .pipe(Effect.mapError((error) => unavailable(queryError(error))));
-      if (previous.size > 0) changed = true;
-      if (input.list === true) {
-        for (const entry of items) {
-          // What the caller gave this machine never goes back to it.
-          if (entry.item.importedFrom?.environmentId === importer.environmentId) continue;
-          answer.set(keyOf(entry.kind, entry.item.id), {
-            kind: entry.kind,
-            id: entry.item.id,
-            revision: entry.item.revision,
-            content: contentOf(entry),
-            importedFrom: entry.item.importedFrom?.label ?? null,
-          });
-        }
-      }
-      if (changed) yield* notify("library");
-      return { label: here.label, items: [...answer.values()], push, missing };
+      return yield* answerSync(input);
     },
   );
 

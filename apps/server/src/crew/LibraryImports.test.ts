@@ -51,6 +51,8 @@ interface Network {
   readonly sent: Array<LibrarySyncInput>;
   /** Run before the next calls are answered, one each, to hold a call in flight. */
   readonly beforeAnswer: Array<Effect.Effect<void>>;
+  /** Run when a machine next reads its own descriptor, one each, to hold it there. */
+  readonly onDescriptor: Map<EnvironmentId, Array<Effect.Effect<void>>>;
 }
 
 /** How the source sees the importer's link: a full-access link session. */
@@ -117,13 +119,17 @@ const machine = (environmentId: EnvironmentId, label: string, network: Network) 
       Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "library-imports-" })),
       Layer.provideMerge(
         Layer.mock(ServerEnvironment)({
-          getDescriptor: Effect.succeed({
-            environmentId,
-            label,
-            platform: { os: "linux", arch: "x64" },
-            serverVersion: "0.0.0-test",
-            capabilities: { repositoryIdentity: true },
-          }),
+          getDescriptor: Effect.suspend(
+            () => network.onDescriptor.get(environmentId)?.shift() ?? Effect.void,
+          ).pipe(
+            Effect.as({
+              environmentId,
+              label,
+              platform: { os: "linux" as const, arch: "x64" as const },
+              serverVersion: "0.0.0-test",
+              capabilities: { repositoryIdentity: true },
+            }),
+          ),
         }),
       ),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
@@ -152,6 +158,7 @@ const twoMachines = Effect.gen(function* () {
     offline: new Set(),
     older: new Set(),
     beforeAnswer: [],
+    onDescriptor: new Map(),
     links: new Map([[laptopId, new Set([boxId])]]),
     sent: [],
   };
@@ -382,6 +389,39 @@ describe("LibraryImports", () => {
         edited: true,
         updateAvailable: true,
       });
+    }),
+  );
+
+  it.effect("a save sent while an importer's sync is being answered still reaches it", () =>
+    Effect.gen(function* () {
+      const { network, laptop, box } = yield* twoMachines;
+      const original = yield* box.library.createRole(writer);
+      yield* laptop.library.importItems({
+        ...nothing,
+        sourceEnvironmentId: boxId,
+        roleIds: [writer.id],
+      });
+      yield* laptop.library.syncNow;
+      // The box is answering the laptop's sync when the person there saves and sends it.
+      const reading = yield* Deferred.make<void>();
+      const write = yield* Deferred.make<void>();
+      network.onDescriptor.set(boxId, [
+        Deferred.succeed(reading, undefined).pipe(Effect.andThen(Deferred.await(write))),
+      ]);
+      const syncing = yield* laptop.library.syncNow.pipe(Effect.forkChild);
+      yield* Deferred.await(reading);
+      yield* box.library.updateRole({
+        ...writer,
+        instructions: "Pushed from the box.",
+        expectedRevision: original.revision,
+        enabled: true,
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: false }],
+      });
+      yield* Deferred.succeed(write, undefined);
+      yield* Fiber.join(syncing);
+
+      yield* laptop.library.syncNow;
+      expect((yield* roleOn(laptop.library, writer.id)).instructions).toBe("Pushed from the box.");
     }),
   );
 
