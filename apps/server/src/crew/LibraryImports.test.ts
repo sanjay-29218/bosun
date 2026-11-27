@@ -20,7 +20,9 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as Option from "effect/Option";
+import * as SqlClient from "effect/sql/SqlClient";
 import { describe, expect } from "vite-plus/test";
 
 import { ServerConfig } from "../config.ts";
@@ -31,6 +33,7 @@ import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
+import { CrewChanges } from "./CrewChanges.ts";
 import { CrewTestOrchestration } from "./CrewRuntime.testkit.ts";
 import { CrewService } from "./CrewService.ts";
 import { CrewStore } from "./CrewStore.ts";
@@ -51,8 +54,10 @@ interface Network {
   readonly sent: Array<LibrarySyncInput>;
   /** Run before the next calls are answered, one each, to hold a call in flight. */
   readonly beforeAnswer: Array<Effect.Effect<void>>;
-  /** Run when a machine next reads its own descriptor, one each, to hold it there. */
-  readonly onDescriptor: Map<EnvironmentId, Array<Effect.Effect<void>>>;
+  /** Run as a machine next enters a transaction, one each, to hold it at the door. */
+  readonly onTransaction: Map<EnvironmentId, Array<Effect.Effect<void>>>;
+  /** Run as a machine next reports a change, after it committed, one each, to hold it there. */
+  readonly onChange: Map<EnvironmentId, Array<Effect.Effect<void>>>;
 }
 
 /** How the source sees the importer's link: a full-access link session. */
@@ -106,6 +111,25 @@ const fakeLinks = (network: Network, environmentId: EnvironmentId) => {
   });
 };
 
+/** The real SQL client, except that a transaction can be held before it begins. */
+const heldSql = <E, R>(
+  sqlite: Layer.Layer<SqlClient.SqlClient, E, R>,
+  next: () => Effect.Effect<void> | undefined,
+) =>
+  Layer.effect(
+    SqlClient.SqlClient,
+    Effect.map(SqlClient.SqlClient, (sql) => {
+      const withTransaction: SqlClient.SqlClient["withTransaction"] = (effect) =>
+        Effect.suspend(() => next() ?? Effect.void).pipe(
+          Effect.andThen(sql.withTransaction(effect)),
+        );
+      return new Proxy(sql, {
+        get: (target, key, receiver) =>
+          key === "withTransaction" ? withTransaction : Reflect.get(target, key, receiver),
+      });
+    }),
+  ).pipe(Layer.provideMerge(sqlite));
+
 const machine = (environmentId: EnvironmentId, label: string, network: Network) =>
   Effect.gen(function* () {
     const directory = yield* Effect.promise(() =>
@@ -115,21 +139,29 @@ const machine = (environmentId: EnvironmentId, label: string, network: Network) 
       CrewTestOrchestration,
       CrewRuntimeLive.pipe(Layer.provide(CrewTestOrchestration)),
     ).pipe(
-      Layer.provideMerge(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite"))),
+      Layer.provideMerge(
+        heldSql(SqlitePersistence.layerFromPath(NodePath.join(directory, "state.sqlite")), () =>
+          network.onTransaction.get(environmentId)?.shift(),
+        ),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(CrewChanges, {
+          revision: Effect.succeed({ bots: 0, library: 0, features: 0 }),
+          changes: Stream.empty,
+          bump: () =>
+            Effect.suspend(() => network.onChange.get(environmentId)?.shift() ?? Effect.void),
+        }),
+      ),
       Layer.provideMerge(ServerConfig.layerTest(directory, { prefix: "library-imports-" })),
       Layer.provideMerge(
         Layer.mock(ServerEnvironment)({
-          getDescriptor: Effect.suspend(
-            () => network.onDescriptor.get(environmentId)?.shift() ?? Effect.void,
-          ).pipe(
-            Effect.as({
-              environmentId,
-              label,
-              platform: { os: "linux" as const, arch: "x64" as const },
-              serverVersion: "0.0.0-test",
-              capabilities: { repositoryIdentity: true },
-            }),
-          ),
+          getDescriptor: Effect.succeed({
+            environmentId,
+            label,
+            platform: { os: "linux", arch: "x64" },
+            serverVersion: "0.0.0-test",
+            capabilities: { repositoryIdentity: true },
+          }),
         }),
       ),
       Layer.provideMerge(RepositoryIdentityResolver.layer),
@@ -158,7 +190,8 @@ const twoMachines = Effect.gen(function* () {
     offline: new Set(),
     older: new Set(),
     beforeAnswer: [],
-    onDescriptor: new Map(),
+    onTransaction: new Map(),
+    onChange: new Map(),
     links: new Map([[laptopId, new Set([boxId])]]),
     sent: [],
   };
@@ -402,14 +435,15 @@ describe("LibraryImports", () => {
         roleIds: [writer.id],
       });
       yield* laptop.library.syncNow;
-      // The box is answering the laptop's sync when the person there saves and sends it.
-      const reading = yield* Deferred.make<void>();
+      // The box is answering the laptop's sync, about to write what the laptop holds, when the
+      // person there saves and sends it.
+      const answering = yield* Deferred.make<void>();
       const write = yield* Deferred.make<void>();
-      network.onDescriptor.set(boxId, [
-        Deferred.succeed(reading, undefined).pipe(Effect.andThen(Deferred.await(write))),
+      network.onTransaction.set(boxId, [
+        Deferred.succeed(answering, undefined).pipe(Effect.andThen(Deferred.await(write))),
       ]);
       const syncing = yield* laptop.library.syncNow.pipe(Effect.forkChild);
-      yield* Deferred.await(reading);
+      yield* Deferred.await(answering);
       yield* box.library.updateRole({
         ...writer,
         instructions: "Pushed from the box.",
@@ -422,6 +456,52 @@ describe("LibraryImports", () => {
 
       yield* laptop.library.syncNow;
       expect((yield* roleOn(laptop.library, writer.id)).instructions).toBe("Pushed from the box.");
+    }),
+  );
+
+  it.effect("a save whose push is written late leaves a later save's targets alone", () =>
+    Effect.gen(function* () {
+      const { network, laptop, box } = yield* twoMachines;
+      const original = yield* box.library.createRole(writer);
+      yield* laptop.library.importItems({
+        ...nothing,
+        sourceEnvironmentId: boxId,
+        roleIds: [writer.id],
+      });
+      yield* laptop.library.syncNow;
+      // The first save commits, then waits before it records whom it was sent to.
+      const committed = yield* Deferred.make<void>();
+      const record = yield* Deferred.make<void>();
+      network.onChange.set(boxId, [
+        Deferred.succeed(committed, undefined).pipe(Effect.andThen(Deferred.await(record))),
+      ]);
+      const first = yield* box.library
+        .updateRole({
+          ...writer,
+          instructions: "First, sent nowhere.",
+          expectedRevision: original.revision,
+          enabled: true,
+        })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(committed);
+      const second = yield* box.library.updateRole({
+        ...writer,
+        instructions: "Second, sent to the laptop.",
+        expectedRevision: original.revision + 1,
+        enabled: true,
+        alsoUpdateOn: [{ environmentId: laptopId, replacesEdits: false }],
+      });
+      yield* Deferred.succeed(record, undefined);
+      yield* Fiber.join(first);
+
+      expect((yield* roleOn(box.library, writer.id)).importers).toMatchObject([
+        { environmentId: laptopId, pending: true },
+      ]);
+      expect(second.revision).toBe(original.revision + 2);
+      yield* laptop.library.syncNow;
+      expect((yield* roleOn(laptop.library, writer.id)).instructions).toBe(
+        "Second, sent to the laptop.",
+      );
     }),
   );
 
