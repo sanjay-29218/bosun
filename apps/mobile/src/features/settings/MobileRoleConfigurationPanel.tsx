@@ -9,7 +9,7 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import { useGT } from "gt-react-native";
+import { T, useGT, Var } from "gt-react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -135,7 +135,7 @@ function Editor(props: {
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
-        {props.role?.name ?? "New role"}
+        {props.role?.name ?? gt("New role")}
       </Text>
       {props.role === null ? null : (
         <MobileImportBanner
@@ -147,15 +147,15 @@ function Editor(props: {
         />
       )}
       <AppTextInput
-        accessibilityLabel="Role name"
-        placeholder="Name"
+        accessibilityLabel={gt("Role name")}
+        placeholder={gt("Name")}
         value={name}
         onChangeText={setName}
         maxLength={200}
       />
       <AppTextInput
-        accessibilityLabel="Role instructions"
-        placeholder="Instructions"
+        accessibilityLabel={gt("Role instructions")}
+        placeholder={gt("Instructions")}
         value={instructions}
         onChangeText={setInstructions}
         maxLength={16000}
@@ -164,14 +164,14 @@ function Editor(props: {
         className="min-h-28"
       />
       <AppTextInput
-        accessibilityLabel="Role provider instance"
-        placeholder="Provider instance"
+        accessibilityLabel={gt("Role provider instance")}
+        placeholder={gt("Provider instance")}
         value={instanceId}
         onChangeText={setInstanceId}
       />
       <AppTextInput
-        accessibilityLabel="Role model"
-        placeholder="Model"
+        accessibilityLabel={gt("Role model")}
+        placeholder={gt("Model")}
         value={model}
         onChangeText={setModel}
       />
@@ -202,10 +202,13 @@ function Editor(props: {
         />
       ) : null}
       {props.role ? (
-        <Action label={`Enabled: ${enabled ? "on" : "off"}`} onPress={() => setEnabled(!enabled)} />
+        <Action
+          label={enabled ? gt("Enabled: on") : gt("Enabled: off")}
+          onPress={() => setEnabled(!enabled)}
+        />
       ) : null}
       <Action
-        label="Save role"
+        label={gt("Save role")}
         disabled={!canSave || props.busy}
         onPress={() => {
           if (props.role && props.role.importers.length > 0) setAsking(true);
@@ -248,6 +251,7 @@ export function MobileRolesPanel(props: {
   /** The model new roles and the starter set default to. */
   readonly modelSelection: ModelSelection | null;
 }) {
+  const gt = useGT();
   const { environmentId } = props;
   const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
   const initialize = useAtomCommand(rolesEnvironment.initialize);
@@ -263,11 +267,11 @@ export function MobileRolesPanel(props: {
   return (
     <View className="gap-3 p-4">
       <Text className="text-xs text-foreground-muted">
-        Roles are shared by every project. Edits apply to crew members created afterwards.
+        <T>Roles are shared by every project. Edits apply to crew members created afterwards.</T>
       </Text>
       {needsStarter ? (
         <Action
-          label="Add starter roles"
+          label={gt("Add starter roles")}
           disabled={busy || !props.modelSelection}
           onPress={() => {
             if (props.modelSelection)
@@ -284,7 +288,7 @@ export function MobileRolesPanel(props: {
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
       <View className="flex-row flex-wrap gap-2">
         <ImportFromAction environmentId={environmentId} />
-        <Action label="New role" selected={roleId === null} onPress={() => setRoleId(null)} />
+        <Action label={gt("New role")} selected={roleId === null} onPress={() => setRoleId(null)} />
         {roles.map((item) => (
           <Action
             key={item.id}
@@ -333,6 +337,7 @@ export function MobileCrewMembersPanel(props: {
     readonly projectId: ProjectId | null;
   }>;
 }) {
+  const gt = useGT();
   const { environmentId, projectId } = props;
   const rolesQuery = useEnvironmentQuery(rolesEnvironment.roles({ environmentId, input: {} }));
   const configuration = useEnvironmentQuery(
@@ -355,9 +360,11 @@ export function MobileCrewMembersPanel(props: {
 
   return (
     <View className="gap-3 border-t border-border-subtle pt-4">
-      <Text className="text-sm font-t3-medium text-foreground">Crew members</Text>
+      <Text className="text-sm font-t3-medium text-foreground">
+        <T>Crew members</T>
+      </Text>
       <Text className="text-xs text-foreground-muted">
-        Add a crew member from a role, then choose its parent and whom it can delegate to.
+        <T>Add a crew member from a role, then choose its parent and whom it can delegate to.</T>
       </Text>
       {rolesQuery.error || configuration.error ? (
         <Text className="text-sm text-red-500">{rolesQuery.error ?? configuration.error}</Text>
@@ -368,7 +375,7 @@ export function MobileCrewMembersPanel(props: {
           {enabledRoles.map((role) => (
             <Action
               key={role.id}
-              label={`Add ${role.name}`}
+              label={gt("Add {name}", { name: role.name })}
               disabled={busy}
               onPress={() =>
                 void run(() =>
@@ -384,9 +391,11 @@ export function MobileCrewMembersPanel(props: {
       ) : null}
       {props.members.length > 0 ? (
         <View className="gap-2 border-t border-border-subtle pt-3">
-          <Text className="text-sm font-t3-medium text-foreground">Hierarchy</Text>
+          <Text className="text-sm font-t3-medium text-foreground">
+            <T>Hierarchy</T>
+          </Text>
           <Text className="text-xs text-foreground-muted">
-            Choose a crew member, then its parent. Peers share a parent.
+            <T>Choose a crew member, then its parent. Peers share a parent.</T>
           </Text>
           <View className="flex-row flex-wrap gap-2">
             {props.members.map((member) => (
@@ -404,7 +413,9 @@ export function MobileCrewMembersPanel(props: {
           {selectedMember?.projectId === projectId ? (
             <View className="flex-row flex-wrap gap-2">
               <Action
-                label="Root"
+                label={gt("Root", {
+                  $context: "top of the crew hierarchy, a member with no parent",
+                })}
                 selected={parentId === null}
                 disabled={busy}
                 onPress={() =>
@@ -426,7 +437,7 @@ export function MobileCrewMembersPanel(props: {
                 .map((parent) => (
                   <Action
                     key={parent.id}
-                    label={`Under ${parent.name}`}
+                    label={gt("Under {name}", { name: parent.name })}
                     selected={parentId === parent.id}
                     disabled={busy}
                     onPress={() =>
@@ -449,7 +460,9 @@ export function MobileCrewMembersPanel(props: {
           {selectedMember ? (
             <View className="gap-2 border-t border-border-subtle pt-3">
               <Text className="text-xs text-foreground-muted">
-                {selectedMember.name} can delegate to
+                <T>
+                  <Var>{selectedMember.name}</Var> can delegate to
+                </T>
               </Text>
               <View className="flex-row flex-wrap gap-2">
                 {props.members
@@ -467,7 +480,7 @@ export function MobileCrewMembersPanel(props: {
               </View>
               {targetId ? (
                 <Action
-                  label={granted ? "Remove delegation" : "Allow delegation"}
+                  label={granted ? gt("Remove delegation") : gt("Allow delegation")}
                   disabled={busy}
                   onPress={() =>
                     void run(() =>

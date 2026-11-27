@@ -6,6 +6,7 @@ import {
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
+import { T, useGT } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -42,6 +43,7 @@ function Editor(props: {
   readonly onSave: (value: WorkflowFields) => Promise<boolean>;
   readonly onDelete: (workflow: WorkflowConfig) => void;
 }) {
+  const gt = useGT();
   const choices = props.roles;
   const [name, setName] = useState(props.workflow?.name ?? "");
   const [instructions, setInstructions] = useState(props.workflow?.instructions ?? "");
@@ -83,7 +85,7 @@ function Editor(props: {
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
-        {props.workflow?.name ?? "New workflow"}
+        {props.workflow?.name ?? gt("New workflow")}
       </Text>
       {props.workflow === null ? null : (
         <MobileImportBanner
@@ -95,13 +97,15 @@ function Editor(props: {
         />
       )}
       <AppTextInput
-        accessibilityLabel="Workflow name"
-        placeholder="Name"
+        accessibilityLabel={gt("Workflow name")}
+        placeholder={gt("Name")}
         value={name}
         onChangeText={setName}
         maxLength={200}
       />
-      <Text className="text-xs text-foreground-muted">Crew the lead can hand work to</Text>
+      <Text className="text-xs text-foreground-muted">
+        <T>Crew the lead can hand work to</T>
+      </Text>
       <View className="flex-row flex-wrap gap-1.5">
         {crewChoices.map((id) => {
           const selected = crewRoleIds.includes(id);
@@ -120,8 +124,8 @@ function Editor(props: {
         })}
       </View>
       <AppTextInput
-        accessibilityLabel="Workflow instructions"
-        placeholder="Instructions for the lead"
+        accessibilityLabel={gt("Workflow instructions")}
+        placeholder={gt("Instructions for the lead")}
         value={instructions}
         onChangeText={setInstructions}
         maxLength={16000}
@@ -131,7 +135,7 @@ function Editor(props: {
       />
       <View className="flex-row flex-wrap gap-2">
         <Action
-          label="Save workflow"
+          label={gt("Save workflow")}
           disabled={!canSave || props.busy}
           onPress={() => {
             if (props.workflow && props.workflow.importers.length > 0) setAsking(true);
@@ -140,7 +144,7 @@ function Editor(props: {
         />
         {props.workflow && props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID ? (
           <Action
-            label="Delete workflow"
+            label={gt("Delete workflow")}
             disabled={props.busy}
             onPress={() => props.onDelete(props.workflow!)}
           />
@@ -161,6 +165,7 @@ function Editor(props: {
 
 /** An environment's workflows: the instructions a feature's lead follows, and its crew. */
 export function MobileWorkflowsPanel(props: { readonly environmentId: EnvironmentId }) {
+  const gt = useGT();
   const { environmentId } = props;
   const workflowsQuery = useEnvironmentQuery(
     rolesEnvironment.workflows({ environmentId, input: {} }),
@@ -178,7 +183,9 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
   return (
     <View className="gap-3 p-4">
       <Text className="text-xs text-foreground-muted">
-        A feature follows one workflow. Its lead gets the instructions, the crew and the brief.
+        <T>
+          A feature follows one workflow. Its lead gets the instructions, the crew and the brief.
+        </T>
       </Text>
       {workflowsQuery.error || rolesQuery.error ? (
         <Text className="text-sm text-red-500">{workflowsQuery.error ?? rolesQuery.error}</Text>
@@ -187,7 +194,7 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
       <View className="flex-row flex-wrap gap-2">
         <ImportFromAction environmentId={environmentId} />
         <Action
-          label="New workflow"
+          label={gt("New workflow")}
           selected={workflowId === null}
           onPress={() => setWorkflowId(null)}
         />
@@ -223,9 +230,11 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
         }}
         onDelete={(target) =>
           Dialog.confirm({
-            title: "Delete workflow",
-            message: `Delete ${target.name}? New features can no longer follow it.`,
-            confirmText: "Delete",
+            title: gt("Delete workflow"),
+            message: gt("Delete {name}? New features can no longer follow it.", {
+              name: target.name,
+            }),
+            confirmText: gt("Delete", { $context: "verb, confirms deleting a workflow" }),
             destructive: true,
             onConfirm: () =>
               void run(() => remove({ environmentId, input: { id: target.id } })).then(

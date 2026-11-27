@@ -45,7 +45,7 @@ const importState = {
 const ListRoles = Tool.make("t3_role_list", {
   ...shared,
   description:
-    "List the Library: the global roles (who a crew member is) and the workflows features follow (instructions for the lead, and its crew roles), each with its current revision. importedFrom names the linked environment one was imported from, edited says it changed here since, and updateAvailable that its source has a newer one (t3_library_import takes it). importers lists the environments that imported one from here.",
+    "List the Library: the global roles (who a crew member is) and the workflows features follow (instructions for the lead, and its crew roles), each with its current revision. importedFrom: the linked environment one was imported from (edited: changed here; updateAvailable: newer there). importers: environments that imported it.",
   success: Schema.Struct({
     roles: Schema.Array(Schema.Struct({ ...RoleConfig.fields, ...importState })),
     workflows: Schema.Array(Schema.Struct({ ...WorkflowConfig.fields, ...importState })),
@@ -65,7 +65,7 @@ const CreateRole = Tool.make("t3_role_create", {
 const UpdateRole = Tool.make("t3_role_update", {
   ...shared,
   description:
-    "Change a role: send every field back, edited, with expectedRevision set to the revision from t3_role_list. Roles are not deleted; set enabled to false to retire one, and true to bring it back. fallbackModelSelection runs when its model can't (null clears it, and the Settings fallback model is used). alsoUpdateOn: importers' environmentIds that take this change too, replacing their edits. Features already started keep the crew they were given.",
+    "Change a role: send every field back, edited, with expectedRevision set to the revision from t3_role_list. Roles are not deleted; set enabled to false to retire one, and true to bring it back. fallbackModelSelection runs when its model can't (null: the Settings one). alsoUpdateOn: importers that take this save too; replacesEdits only if the person agreed. Features already started keep the crew they were given.",
   parameters: RoleUpdateInput,
   success: RoleConfig,
 });
@@ -81,7 +81,7 @@ const CreateWorkflow = Tool.make("t3_feature_workflow_create", {
 const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
   ...shared,
   description:
-    "Change a workflow: send every field back, edited, with expectedRevision set to the revision from t3_role_list. alsoUpdateOn: importers' environmentIds that take this change too, replacing their edits. Features already started keep the workflow text and crew they started with.",
+    "Change a workflow: send every field back, edited, with expectedRevision set to the revision from t3_role_list. alsoUpdateOn as for t3_role_update. Features already started keep the workflow text and crew they started with.",
   parameters: WorkflowUpdateInput,
   success: WorkflowConfig,
 });
@@ -89,7 +89,7 @@ const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
 const ImportLibrary = Tool.make("t3_library_import", {
   ...shared,
   description:
-    "Import roles and workflows from a linked environment. With no ids, lists what it has and what each would do here (new, update, current, or replaces one here). With ids, imports them; a workflow brings the roles it names that are missing here. Importing one already imported from there takes its update. One that would replace a role or workflow here is skipped unless replace is true; ask the person first.",
+    "Roles and workflows from a linked environment. No ids: list them and what importing each would do here. With ids: import them, or take their update; a workflow brings its missing roles. replace: true replaces one here; ask the person first.",
   parameters: Schema.Struct({
     environmentId: EnvironmentId,
     roleIds: Schema.optional(Schema.Array(Schema.String)),
@@ -105,7 +105,7 @@ const ImportLibrary = Tool.make("t3_library_import", {
 const DetachLibrary = Tool.make("t3_library_detach", {
   ...shared,
   description:
-    'For an imported role or workflow: mode "detach" keeps it as this environment\'s own and stops showing its source\'s updates; mode "skip" hides the update available now until a newer one.',
+    'An imported role or workflow: "detach" keeps it as this environment\'s own, without its source\'s updates; "skip" hides the current update.',
   parameters: LibraryDetachInput,
   success: Schema.Struct({}),
 }).annotate(Tool.Destructive, false);
