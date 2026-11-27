@@ -207,11 +207,12 @@ bot's or manager's thread without changing which bot you're on, the gear opens i
 bot or manager shows. On mobile, the bot button's menu lists the pinned bots and managers, then
 **Bots**, with the same pins.
 
-**Projects**, at the top of the bot list, shows every project on every connected machine, with or
-without a bot, each in a folder with its threads and features. A project on several machines is one
-folder. Right-click a folder for its project manager and its settings, and use **Add project…** in
-the project picker above the list to add one. With no bots, Projects is what the list shows. New
-projects added from it have no bot. **Show all projects** in the command palette picks it too, and
+**Projects**, at the top of the bot list, shows the threads of every project on every connected
+machine, with or without a bot. With **Settings → Labs → Boring sidebar (group by project)** on,
+each project gets a folder with its threads and features, empty ones included, and a project on
+several machines is one folder; right-click a folder for its project manager and its settings. Use
+**Add project…** in the project picker above the list to add one. With no bots, Projects is what
+the list shows. New projects added from it have no bot. **Show all projects** in the command palette picks it too, and
 on mobile it's the first entry in the bot button's menu.
 
 Clicking a bot narrows the thread list and the board to its projects and takes you back to where
