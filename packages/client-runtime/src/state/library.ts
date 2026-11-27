@@ -252,3 +252,49 @@ export function libraryImportSelection(
 /** Updates start ticked; nothing else does. */
 export const libraryImportDefaults = (items: ReadonlyArray<LibraryImportableItem>) =>
   new Set(items.filter((item) => item.status === "update").map(libraryImportKey));
+
+/** The import button: how many workflows and roles it brings. */
+export function libraryImportButtonLabel(
+  chosen: ReadonlyArray<Pick<LibraryImportableItem, "kind">>,
+  resolve: MFunctionType = mFallback,
+) {
+  const workflows = chosen.filter((item) => item.kind === "workflow").length;
+  const roles = chosen.length - workflows;
+  if (workflows === 0) {
+    return resolve(
+      msg("{roles, plural, one {Import {roles} role} other {Import {roles} roles}}", { roles }),
+    );
+  }
+  if (roles === 0) {
+    return resolve(
+      msg(
+        "{workflows, plural, one {Import {workflows} workflow} other {Import {workflows} workflows}}",
+        { workflows },
+      ),
+    );
+  }
+  return resolve(
+    msg(
+      "{workflows, plural, one {Import {workflows} workflow} other {Import {workflows} workflows}}, {roles, plural, one {{roles} role} other {{roles} roles}}",
+      { workflows, roles },
+    ),
+  );
+}
+
+/** What importing with replace overwrites here, named. */
+export function libraryReplaceWarning(
+  replacing: ReadonlyArray<LibraryImportableItem>,
+  machine: string,
+  resolve: MFunctionType = mFallback,
+) {
+  return resolve(
+    msg(
+      "Replaces {count} of {machine}''s workflows and roles: {names}. Features already running keep theirs.",
+      {
+        count: replacing.length,
+        machine,
+        names: replacing.map((item) => item.replaces?.name ?? item.name).join(", "),
+      },
+    ),
+  );
+}

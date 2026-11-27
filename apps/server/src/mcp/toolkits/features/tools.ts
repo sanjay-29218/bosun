@@ -98,7 +98,10 @@ const ImportLibrary = Tool.make("t3_library_import", {
   success: Schema.Struct({
     listed: Schema.optional(LibraryImportable),
     imported: Schema.optional(LibraryImportResult),
-    detached: Schema.optional(Schema.Number),
+    /** mode keep: how many are this environment's own now. */
+    kept: Schema.optional(Schema.Number),
+    /** mode skip: how many had their current update skipped. */
+    updatesSkipped: Schema.optional(Schema.Number),
   }),
 }).annotate(Tool.Destructive, false);
 

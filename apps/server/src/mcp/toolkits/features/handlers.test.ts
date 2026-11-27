@@ -34,8 +34,9 @@ const callImport = (params: Record<string, unknown>) => {
     const results = yield* toolkit
       .handle("t3_library_import", params as never)
       .pipe(Stream.unwrap, Stream.runCollect);
-    expect(results.at(-1)?.isFailure).toBe(false);
-    return { detached, imported };
+    const last = results.at(-1);
+    expect(last?.isFailure).toBe(false);
+    return { detached, imported, result: last?.result };
   }).pipe(
     Effect.provide(
       McpToolAccess.HandlersLayer.layer(FeaturesHandlers.layer).pipe(
@@ -84,6 +85,7 @@ it.effect("a role and a workflow that share an id are each named by their own li
       mode: "keep",
     });
     expect(keptRole.detached).toEqual([{ kind: "role", id: "review", mode: "detach" }]);
+    expect(keptRole.result).toEqual({ kept: 1 });
 
     const skippedWorkflow = yield* callImport({
       environmentId: studio,
@@ -91,6 +93,7 @@ it.effect("a role and a workflow that share an id are each named by their own li
       mode: "skip",
     });
     expect(skippedWorkflow.detached).toEqual([{ kind: "workflow", id: "review", mode: "skip" }]);
+    expect(skippedWorkflow.result).toEqual({ updatesSkipped: 1 });
 
     const importedRole = yield* callImport({ environmentId: studio, roleIds: ["review"] });
     expect(importedRole.imported).toEqual([

@@ -3,11 +3,13 @@ import { offersLinkedEnvironments } from "@t3tools/client-runtime/link-request";
 import {
   libraryImportDefaults,
   libraryImportKey,
+  libraryImportButtonLabel,
   libraryImportSelection,
+  libraryReplaceWarning,
 } from "@t3tools/client-runtime/state/library";
 import type { EnvironmentId, LibraryImportable, LibraryImportableItem } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import { T, useGT } from "gt-react-native";
+import { T, useGT, useMessages } from "gt-react-native";
 import { useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,6 +35,7 @@ export function SettingsLibraryImportRouteScreen({
 }: StaticScreenProps<{ readonly environmentId: EnvironmentId }>) {
   const { environmentId } = route.params;
   const gt = useGT();
+  const m = useMessages();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { environments } = useEnvironments();
@@ -216,12 +219,7 @@ export function SettingsLibraryImportRouteScreen({
               </SettingsSection>
             ) : null}
             {replacing.length > 0 ? (
-              <Text className="text-amber-600">
-                {gt("Replaces {names} on {machine}. Features already running keep theirs.", {
-                  machine: here,
-                  names: replacing.map((item) => item.replaces?.name ?? item.name).join(", "),
-                })}
-              </Text>
+              <Text className="text-amber-600">{libraryReplaceWarning(replacing, here, m)}</Text>
             ) : null}
             <Action
               label={
@@ -229,12 +227,7 @@ export function SettingsLibraryImportRouteScreen({
                   ? gt("Importing…")
                   : replacing.length > 0
                     ? gt("Import and replace")
-                    : gt(
-                        "{count, plural, one {Import {count} item} other {Import {count} items}}",
-                        {
-                          count: chosen.length,
-                        },
-                      )
+                    : libraryImportButtonLabel(chosen, m)
               }
               selected
               disabled={running || chosen.length === 0}

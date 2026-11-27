@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   libraryImportBanner,
+  libraryImportButtonLabel,
   libraryImportLine,
   libraryRoleEntries,
   roleAvailabilityNote,
@@ -97,5 +98,17 @@ describe("imports", () => {
         role("role:a", { importedFrom: { ...newer, problem: "expired" } }),
       ),
     ).toMatchObject({ variant: "warning", title: "Link to Studio VPS expired" });
+  });
+});
+
+describe("libraryImportButtonLabel", () => {
+  it("counts the workflows and roles an import brings", () => {
+    const workflow = { kind: "workflow" as const };
+    const role = { kind: "role" as const };
+    expect(libraryImportButtonLabel([role])).toBe("Import 1 role");
+    expect(libraryImportButtonLabel([workflow, workflow])).toBe("Import 2 workflows");
+    expect(libraryImportButtonLabel([workflow, role, role, role])).toBe(
+      "Import 1 workflow, 3 roles",
+    );
   });
 });

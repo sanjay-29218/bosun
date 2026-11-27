@@ -2,7 +2,9 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   libraryImportDefaults,
   libraryImportKey as keyOf,
+  libraryImportButtonLabel,
   libraryImportSelection,
+  libraryReplaceWarning,
 } from "@t3tools/client-runtime/state/library";
 import { peerLinkHealth } from "@t3tools/client-runtime/state/peerLinks";
 import type {
@@ -13,7 +15,7 @@ import type {
 } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
-import { T, useGT, Var } from "gt-react";
+import { T, useGT, useMessages, Var } from "gt-react";
 import { TriangleAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -101,6 +103,7 @@ function ImportForm({
   readonly onClose: () => void;
 }) {
   const gt = useGT();
+  const m = useMessages();
   const offered = useAtomValue(offersLinkedEnvironmentsAtom(environmentId));
   const links = useEnvironmentQuery(
     offered ? peerLinkEnvironment.list({ environmentId, input: {} }) : null,
@@ -124,8 +127,10 @@ function ImportForm({
     }
     const health = peerLinkHealth(link, DateTime.makeUnsafe(nowMinute));
     if (health.kind === "expired") return gt("Expired. Link it again.");
-    if (health.kind === "unreachable") return health.detail ?? gt("Not answering right now");
-    if (health.kind === "failing") return health.detail;
+    // The link's own reason is the server's English; the person reads this one.
+    if (health.kind === "unreachable" || health.kind === "failing") {
+      return gt("Not answering right now");
+    }
     if (link.access !== "full-access") {
       return gt("Needs full access. Link {machine} again with full access.", {
         machine: link.label,
@@ -213,8 +218,20 @@ function ImportForm({
       return updated;
     });
 
-  const crewCount = (count: number) =>
-    gt("{count, plural, one {{count} crew role} other {{count} crew roles}}", { count });
+  /** A workflow's crew, naming the roles it would use that this machine already has. */
+  const crewDetail = (workflow: LibraryImportableItem) => {
+    const count = workflow.crewRoleIds.length;
+    const ours = roles
+      .filter((role) => workflow.crewRoleIds.includes(role.id) && role.status !== "new")
+      .filter((role) => !chosen.some((item) => item.kind === "role" && item.id === role.id))
+      .map((role) => role.replaces?.name ?? role.name);
+    return ours.length === 0
+      ? gt("{count, plural, one {{count} crew role} other {{count} crew roles}}", { count })
+      : gt(
+          "{count, plural, one {{count} crew role · uses your {names}} other {{count} crew roles · uses your {names}}}",
+          { count, names: ours.join(", ") },
+        );
+  };
   const itemRow = (item: LibraryImportableItem) => {
     const locked = item.kind === "role" && neededBy.has(item.id) && !ticked.has(keyOf(item));
     const checked = item.status === "current" || ticked.has(keyOf(item)) || locked;
@@ -224,7 +241,7 @@ function ImportForm({
         : locked
           ? gt("Needed by {workflow}", { workflow: neededBy.get(item.id) ?? "" })
           : item.kind === "workflow"
-            ? crewCount(item.crewRoleIds.length)
+            ? crewDetail(item)
             : item.status === "new"
               ? gt("Not on {machine}", { machine: environmentLabel })
               : null;
@@ -471,10 +488,7 @@ function ImportForm({
                 <Alert variant="warning">
                   <TriangleAlertIcon />
                   <AlertDescription>
-                    {gt("Replaces {names} on {machine}. Features already running keep theirs.", {
-                      machine: environmentLabel,
-                      names: replacing.map((item) => item.replaces?.name ?? item.name).join(", "),
-                    })}
+                    {libraryReplaceWarning(replacing, environmentLabel, m)}
                   </AlertDescription>
                 </Alert>
               ) : null}
@@ -503,9 +517,7 @@ function ImportForm({
               ? gt("Import and replace")
               : chosen.length === 0
                 ? gt("Import")
-                : gt("{count, plural, one {Import {count} item} other {Import {count} items}}", {
-                    count: chosen.length,
-                  })}
+                : libraryImportButtonLabel(chosen, m)}
         </Button>
       </DialogFooter>
     </>

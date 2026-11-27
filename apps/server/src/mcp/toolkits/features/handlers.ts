@@ -176,7 +176,7 @@ const make = Effect.gen(function* () {
                 library.detach({ ...item, mode: mode === "keep" ? "detach" : "skip" }),
               );
             }
-            return { detached: items.length };
+            return mode === "keep" ? { kept: items.length } : { updatesSkipped: items.length };
           }
           if (roleIds.length + workflowIds.length === 0) {
             return { listed: yield* reading(library.importable(input.environmentId)) };
