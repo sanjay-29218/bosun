@@ -106,6 +106,7 @@ export interface FeatureCrewMember {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
+  readonly fallbackModelSelection: ModelSelection | null;
 }
 
 export interface FeatureServiceShape {
@@ -1244,6 +1245,7 @@ export const FeatureServiceLive = Layer.effect(
             name: member.name,
             instructions: member.instructions,
             modelSelection: member.modelSelection,
+            fallbackModelSelection: member.fallbackModelSelection,
           };
         }
         return null;
