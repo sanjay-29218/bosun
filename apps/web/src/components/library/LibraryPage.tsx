@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, RoleConfig } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useGT } from "gt-react";
+import { T, useGT } from "gt-react";
 import { DownloadIcon, LayersIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -49,12 +49,13 @@ export function LibraryPage({
   readonly kind: "workflow" | "role";
   readonly search: LibrarySearch;
 }) {
+  const gt = useGT();
   const navigate = useNavigate();
   const libraries = useLibraries();
   const shown = useLibraryByEnvironment();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const path = kind === "workflow" ? WORKFLOWS_SETTINGS_PATH : ROLES_SETTINGS_PATH;
-  const listTitle = kind === "workflow" ? "Workflows" : "Roles";
+  const listTitle = kind === "workflow" ? gt("Workflows") : gt("Roles");
   const creating = search.new === kind;
   const newEnvironmentId =
     search.environmentId ??
@@ -112,7 +113,7 @@ export function LibraryPage({
   const status =
     environmentId !== null && library === null
       ? live === null
-        ? "This environment isn't connected."
+        ? gt("This environment isn't connected.")
         : live.error
       : null;
 
@@ -127,7 +128,7 @@ export function LibraryPage({
               {importInto === null ? null : <ImportAction environmentId={importInto} />}
               <Button size="sm" onClick={() => void navigate({ to: path, search: { new: kind } })}>
                 <PlusIcon />
-                {kind === "workflow" ? "New workflow" : "New role"}
+                {kind === "workflow" ? gt("New workflow") : gt("New role")}
               </Button>
             </>
           )
@@ -142,7 +143,7 @@ export function LibraryPage({
     return (
       <CrewSettingsFrame
         back={back}
-        title={kind === "workflow" ? "New workflow" : "New role"}
+        title={kind === "workflow" ? gt("New workflow") : gt("New role")}
         actions={null}
       >
         <EnvironmentPicker
@@ -216,12 +217,14 @@ export function LibraryPage({
         <Empty>
           <EmptyHeader>
             <EmptyTitle>
-              {kind === "workflow" ? "Workflow unavailable" : "Role unavailable"}
+              {kind === "workflow" ? <T>Workflow unavailable</T> : <T>Role unavailable</T>}
             </EmptyTitle>
             <EmptyDescription>
-              {kind === "workflow"
-                ? "This workflow no longer exists."
-                : "This role no longer exists."}
+              {kind === "workflow" ? (
+                <T>This workflow no longer exists.</T>
+              ) : (
+                <T>This role no longer exists.</T>
+              )}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -241,12 +244,15 @@ function NewRole({
   readonly onSaved: (roleId: string) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const starterRoles = useAddStarterRoles(environmentId);
   const [adding, setAdding] = useState(false);
   if (defaultModel === null) {
     return (
-      <LibraryStatus status="Set up a provider on this environment to give new roles a model." />
+      <LibraryStatus
+        status={gt("Set up a provider on this environment to give new roles a model.")}
+      />
     );
   }
   return (
@@ -254,10 +260,14 @@ function NewRole({
       {hasStarterRoles(roles) ? null : (
         <Alert variant="info">
           <UsersIcon />
-          <AlertTitle>No starter roles yet</AlertTitle>
+          <AlertTitle>
+            <T>No starter roles yet</T>
+          </AlertTitle>
           <AlertDescription>
-            Add a Planner, Designer, Builder, QA Tester and Reviewer, then change each one as you
-            like.
+            <T>
+              Add a Planner, Designer, Builder, QA Tester and Reviewer, then change each one as you
+              like.
+            </T>
           </AlertDescription>
           <AlertAction>
             <Button
@@ -269,7 +279,7 @@ function NewRole({
                 void starterRoles.add().then(() => setAdding(false));
               }}
             >
-              Add starter roles
+              <T>Add starter roles</T>
             </Button>
           </AlertAction>
         </Alert>
@@ -296,8 +306,9 @@ function NewWorkflow({
   readonly onSaved: (workflowId: string) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   if (!roles.some((role) => role.enabled)) {
-    return <LibraryStatus status="Add a role first. A workflow's crew are roles." />;
+    return <LibraryStatus status={gt("Add a role first. A workflow's crew are roles.")} />;
   }
   return (
     <WorkflowEditorForm
@@ -320,6 +331,7 @@ function EnvironmentPicker({
   readonly value: EnvironmentId;
   readonly onChange: (environmentId: EnvironmentId) => void;
 }) {
+  const gt = useGT();
   const identities = useEnvironmentIdentities();
   if (libraries.length < 2) return null;
   const labelOf = (environmentId: EnvironmentId) =>
@@ -333,7 +345,7 @@ function EnvironmentPicker({
           if (match) onChange(match.environmentId);
         }}
       >
-        <SelectTrigger size="sm" aria-label="Environment">
+        <SelectTrigger size="sm" aria-label={gt("Environment")}>
           <SelectValue>{labelOf(value)}</SelectValue>
         </SelectTrigger>
         <SelectPopup>
@@ -381,7 +393,7 @@ function ImportAction({ environmentId }: { readonly environmentId: EnvironmentId
 function LibraryStatus({ status }: { readonly status: string | null }) {
   return (
     <p className="text-sm text-muted-foreground" role="status">
-      {status ?? "Loading…"}
+      {status ?? <T>Loading…</T>}
     </p>
   );
 }
@@ -393,9 +405,11 @@ function NoEnvironments() {
         <EmptyMedia variant="icon">
           <LayersIcon />
         </EmptyMedia>
-        <EmptyTitle>No environments available</EmptyTitle>
+        <EmptyTitle>
+          <T>No environments available</T>
+        </EmptyTitle>
         <EmptyDescription>
-          Connect an environment that runs feature crews to edit its workflows and roles.
+          <T>Connect an environment that runs feature crews to edit its workflows and roles.</T>
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

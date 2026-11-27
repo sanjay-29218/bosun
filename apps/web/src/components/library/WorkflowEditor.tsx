@@ -6,10 +6,12 @@ import {
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
+import { msg, useGT } from "gt-react";
 import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
+import { m } from "../../i18n/messages";
 import { cn, randomUUID } from "../../lib/utils";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
@@ -53,6 +55,7 @@ export function WorkflowEditorForm({
   readonly onCancel: () => void;
   readonly onDeleted?: () => void;
 }) {
+  const gt = useGT();
   const create = useAtomCommand(rolesEnvironment.createWorkflow);
   const update = useAtomCommand(rolesEnvironment.updateWorkflow);
   const remove = useAtomCommand(rolesEnvironment.deleteWorkflow);
@@ -87,7 +90,7 @@ export function WorkflowEditorForm({
   useUnsavedChangesGuard({
     unsaved: edited,
     saving: busy,
-    message: "Leave without saving this workflow?",
+    message: gt("Leave without saving this workflow?"),
   });
 
   const submit = async (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
@@ -113,7 +116,7 @@ export function WorkflowEditorForm({
         if (result._tag === "Success") return workflow.id;
         toastManager.add({
           type: "error",
-          title: `Could not save ${workflow.name}`,
+          title: m(msg("Could not save {name}", { name: workflow.name })),
           description: formatEnvironmentQueryError(result.cause),
         });
         return null;
@@ -123,7 +126,7 @@ export function WorkflowEditorForm({
       if (result._tag === "Success") return id;
       toastManager.add({
         type: "error",
-        title: "Could not add the workflow",
+        title: m(msg("Could not add the workflow")),
         description: formatEnvironmentQueryError(result.cause),
       });
       return null;
@@ -136,7 +139,7 @@ export function WorkflowEditorForm({
   const deleteWorkflow = async () => {
     if (!workflow) return;
     const confirmed = await requestConfirmDialog(
-      `Delete ${workflow.name}?\nFeatures already running on it keep going.`,
+      gt("Delete {name}?\nFeatures already running on it keep going.", { name: workflow.name }),
       { variant: "destructive" },
     );
     if (confirmed !== true) return;
@@ -147,7 +150,7 @@ export function WorkflowEditorForm({
     } else {
       toastManager.add({
         type: "error",
-        title: `Could not delete ${workflow.name}`,
+        title: m(msg("Could not delete {name}", { name: workflow.name })),
         description: formatEnvironmentQueryError(result.cause),
       });
     }
@@ -171,35 +174,42 @@ export function WorkflowEditorForm({
         />
       )}
       <fieldset disabled={busy || !canEdit} className="min-w-0 space-y-6">
-        <SettingsSection title="Workflow" hideTitle>
+        <SettingsSection
+          title={gt("Workflow", {
+            $context: "section heading for a workflow's name and instructions",
+          })}
+          hideTitle
+        >
           <div className="space-y-5 px-3 py-4 sm:px-4">
-            <EditorField label="Name" htmlFor="crew-workflow-name">
+            <EditorField label={gt("Name")} htmlFor="crew-workflow-name">
               <Input
                 id="crew-workflow-name"
                 value={name}
                 maxLength={200}
-                placeholder="Bug fix"
+                placeholder={gt("Bug fix", { $context: "example name for a workflow" })}
                 onChange={(event) => setName(event.target.value)}
               />
             </EditorField>
-            <EditorField label="Instructions" htmlFor="crew-workflow-instructions">
+            <EditorField label={gt("Instructions")} htmlFor="crew-workflow-instructions">
               <InstructionsEditor
                 id="crew-workflow-instructions"
-                label="Instructions"
+                label={gt("Instructions")}
                 value={instructions}
                 maxLength={16_000}
                 size="lg"
                 disabled={busy || !canEdit}
-                placeholder="How the feature's lead runs the work and when to hand it to the crew"
+                placeholder={gt(
+                  "How the feature's lead runs the work and when to hand it to the crew",
+                )}
                 onChange={setInstructions}
               />
             </EditorField>
           </div>
         </SettingsSection>
-        <SettingsSection title={`Crew · ${fields.crewRoleIds.length}`}>
+        <SettingsSection title={gt("Crew · {count}", { count: fields.crewRoleIds.length })}>
           <div className="px-3 py-4 sm:px-4">
             {crewOptions.length === 0 ? (
-              <p className="px-2.5 text-sm text-muted-foreground">No roles yet.</p>
+              <p className="px-2.5 text-sm text-muted-foreground">{gt("No roles yet.")}</p>
             ) : (
               <div className="grid gap-0.5 sm:grid-cols-2">
                 {crewOptions.map((role) => {
@@ -225,7 +235,10 @@ export function WorkflowEditorForm({
                       <span className="min-w-0 truncate text-sm">
                         {role.name}
                         {role.enabled ? null : (
-                          <span className="text-muted-foreground"> · Off</span>
+                          <span className="text-muted-foreground">
+                            {" · "}
+                            {gt("Off", { $context: "a role that is switched off" })}
+                          </span>
                         )}
                       </span>
                     </label>
@@ -256,7 +269,7 @@ export function WorkflowEditorForm({
               disabled={busy}
               onClick={() => void deleteWorkflow()}
             >
-              Delete workflow
+              {gt("Delete workflow")}
             </Button>
           ) : null}
         </div>
@@ -268,10 +281,10 @@ export function WorkflowEditorForm({
             disabled={busy || (workflow !== null && !edited)}
             onClick={onCancel}
           >
-            {workflow ? "Discard" : "Cancel"}
+            {workflow ? gt("Discard", { $context: "verb, discards unsaved edits" }) : gt("Cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={!canSave}>
-            {workflow ? "Save workflow" : "Add workflow"}
+            {workflow ? gt("Save workflow") : gt("Add workflow")}
           </Button>
         </div>
       </div>

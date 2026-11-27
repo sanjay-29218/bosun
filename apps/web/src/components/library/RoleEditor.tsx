@@ -10,11 +10,12 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import { modelDisplayName } from "@t3tools/shared/usageLimits";
 import { Link } from "@tanstack/react-router";
-import { T, useGT, Var } from "gt-react";
+import { msg, T, useGT, Var } from "gt-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
+import { m } from "../../i18n/messages";
 import { randomUUID } from "../../lib/utils";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -66,6 +67,7 @@ export function RoleModelPicker({
   readonly triggerLabel?: string;
   readonly onChange: (selection: ModelSelection) => void;
 }) {
+  const gt = useGT();
   const { entries, modelOptions } = useModelPickerData(environmentId, selection);
   return (
     <SettingsModelPicker
@@ -75,7 +77,7 @@ export function RoleModelPicker({
       lockedProvider={null}
       instanceEntries={entries}
       modelOptionsByInstance={modelOptions}
-      triggerAriaLabel={ariaLabel ?? "Model"}
+      triggerAriaLabel={ariaLabel ?? gt("Model")}
       {...(triggerLabel === undefined ? {} : { triggerLabel })}
       {...(disabled ? { disabled } : {})}
       onInstanceModelChange={(instanceId: ProviderInstanceId, model: string) =>
@@ -116,7 +118,7 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
       if (result._tag === "Success") return true;
       toastManager.add({
         type: "error",
-        title: "Could not add the starter roles",
+        title: m(msg("Could not add the starter roles")),
         description: formatEnvironmentQueryError(result.cause),
       });
       return false;
@@ -158,7 +160,7 @@ export function useSaveRole(environmentId: EnvironmentId) {
     if (result._tag === "Success") return true;
     toastManager.add({
       type: "error",
-      title: `Could not save ${role.name}`,
+      title: m(msg("Could not save {name}", { name: role.name })),
       description: formatEnvironmentQueryError(result.cause),
     });
     return false;
@@ -230,7 +232,7 @@ export function RoleEditorForm({
       if (result._tag === "Success") return id;
       toastManager.add({
         type: "error",
-        title: "Could not add the role",
+        title: m(msg("Could not add the role")),
         description: formatEnvironmentQueryError(result.cause),
       });
       return null;
@@ -257,35 +259,42 @@ export function RoleEditorForm({
         />
       )}
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
-        <SettingsSection title="Role" hideTitle>
+        <SettingsSection
+          title={gt("Role", { $context: "section heading for a role's name and instructions" })}
+          hideTitle
+        >
           <div className="space-y-5 px-3 py-4 sm:px-4">
-            <EditorField label="Name" htmlFor="crew-role-name">
+            <EditorField label={gt("Name")} htmlFor="crew-role-name">
               <Input
                 id="crew-role-name"
                 value={name}
                 maxLength={200}
-                placeholder="Security reviewer"
+                placeholder={gt("Security reviewer")}
                 onChange={(event) => setName(event.target.value)}
               />
             </EditorField>
-            <EditorField label="Instructions" htmlFor="crew-role-instructions">
+            <EditorField label={gt("Instructions")} htmlFor="crew-role-instructions">
               <InstructionsEditor
                 id="crew-role-instructions"
-                label="Instructions"
+                label={gt("Instructions")}
                 value={instructions}
                 maxLength={16_000}
                 size="lg"
                 disabled={saving || !canEdit}
-                placeholder="What this role does and how it reports back"
+                placeholder={gt("What this role does and how it reports back")}
                 onChange={setInstructions}
               />
             </EditorField>
           </div>
         </SettingsSection>
-        <SettingsSection title="Runs with">
+        <SettingsSection
+          title={gt("Runs with", { $context: "section heading: the models a role runs with" })}
+        >
           <SettingsRow
-            title="Model"
-            description="Model, reasoning and speed for this role's threads. They get every tool, with full access."
+            title={gt("Model")}
+            description={gt(
+              "Model, reasoning and speed for this role's threads. They get every tool, with full access.",
+            )}
             control={
               <RoleModelPicker
                 environmentId={environmentId}
@@ -323,10 +332,10 @@ export function RoleEditorForm({
           disabled={saving || (role !== null && !edited)}
           onClick={onCancel}
         >
-          {role ? "Discard" : "Cancel"}
+          {role ? gt("Discard", { $context: "verb, discards unsaved edits" }) : gt("Cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={!canSave}>
-          {role ? "Save role" : "Add role"}
+          {role ? gt("Save role") : gt("Add role")}
         </Button>
       </div>
     </form>

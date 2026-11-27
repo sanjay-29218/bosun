@@ -19,10 +19,11 @@ const libraryItemKey = (environmentId: EnvironmentId, id: string) => `${environm
 export function roleAvailabilityNote(
   role: RoleConfig,
   workflows: ReadonlyArray<WorkflowConfig>,
+  resolve: MFunctionType = mFallback,
 ): string | null {
-  if (!role.enabled) return "Off";
+  if (!role.enabled) return resolve(msg("Off", { $context: "a role that is switched off" }));
   const used = workflows.some((workflow) => workflow.crewRoleIds.includes(role.id));
-  return used ? null : "Not in a workflow";
+  return used ? null : resolve(msg("Not in a workflow"));
 }
 
 export interface EnvironmentLibrary {
