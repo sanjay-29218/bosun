@@ -157,38 +157,35 @@ const make = Effect.gen(function* () {
     t3_library_import: McpToolAccess.writesWithCapability(
       (input: {
         readonly environmentId: EnvironmentId;
-        readonly ids?: ReadonlyArray<string> | undefined;
+        readonly roleIds?: ReadonlyArray<string> | undefined;
+        readonly workflowIds?: ReadonlyArray<string> | undefined;
         readonly mode?: "replace" | "keep" | "skip" | undefined;
       }) =>
         Effect.gen(function* () {
-          const ids = input.ids ?? [];
+          // A role and a workflow may share an id, so each list names its kind.
+          const roleIds = input.roleIds ?? [];
+          const workflowIds = input.workflowIds ?? [];
           const mode = input.mode;
           if (mode === "keep" || mode === "skip") {
-            // Agents name ids alone; a workflow's id is told from the workflows here.
-            const workflows = new Set(
-              (yield* reading(library.listWorkflows)).map((workflow) => workflow.id),
-            );
-            for (const id of ids) {
+            const items = [
+              ...roleIds.map((id) => ({ kind: "role" as const, id })),
+              ...workflowIds.map((id) => ({ kind: "workflow" as const, id })),
+            ];
+            for (const item of items) {
               yield* writing(
-                library.detach({
-                  kind: workflows.has(id) ? "workflow" : "role",
-                  id,
-                  mode: mode === "keep" ? "detach" : "skip",
-                }),
+                library.detach({ ...item, mode: mode === "keep" ? "detach" : "skip" }),
               );
             }
-            return { detached: ids.length };
+            return { detached: items.length };
           }
-          const listed = yield* reading(library.importable(input.environmentId));
-          if (ids.length === 0) return { listed };
-          const workflows = new Set(
-            listed.items.filter((item) => item.kind === "workflow").map((item) => item.id),
-          );
+          if (roleIds.length + workflowIds.length === 0) {
+            return { listed: yield* reading(library.importable(input.environmentId)) };
+          }
           const imported = yield* writing(
             library.importItems({
               sourceEnvironmentId: input.environmentId,
-              roleIds: ids.filter((id) => !workflows.has(id)),
-              workflowIds: ids.filter((id) => workflows.has(id)),
+              roleIds,
+              workflowIds,
               replace: mode === "replace",
             }),
           );

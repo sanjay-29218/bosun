@@ -88,10 +88,11 @@ const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
 const ImportLibrary = Tool.make("t3_library_import", {
   ...shared,
   description:
-    "A linked environment's roles and workflows. No ids: list them and what importing would do. ids: import them or take updates (a workflow brings missing roles); mode: replace overwrites ours (ask first); keep stops following; skip skips the update.",
+    "A linked environment's roles and workflows. No ids: list them and what importing would do. roleIds/workflowIds: import them or take updates (a workflow brings missing roles); mode: replace overwrites ours (ask first); keep stops following; skip skips the update.",
   parameters: Schema.Struct({
     environmentId: EnvironmentId,
-    ids: Schema.optional(Schema.Array(Schema.String)),
+    roleIds: Schema.optional(Schema.Array(Schema.String)),
+    workflowIds: Schema.optional(Schema.Array(Schema.String)),
     mode: Schema.optional(Schema.Literals(["replace", "keep", "skip"])),
   }),
   success: Schema.Struct({
