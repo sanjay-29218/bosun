@@ -70,6 +70,10 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.workflowsCreate]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsUpdate]: AuthOrchestrationOperateScope,
   [WS_METHODS.workflowsDelete]: AuthOrchestrationOperateScope,
+  // Asks a linked machine over this machine's link, which only the import dialog needs.
+  [WS_METHODS.libraryImportable]: AuthOrchestrationOperateScope,
+  [WS_METHODS.libraryImport]: AuthOrchestrationOperateScope,
+  [WS_METHODS.libraryDetach]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewConfiguration]: AuthOrchestrationReadScope,
   [WS_METHODS.crewInitialize]: AuthOrchestrationOperateScope,
   [WS_METHODS.crewInstantiate]: AuthOrchestrationOperateScope,

@@ -84,6 +84,7 @@ import NoLongConversation from "./Migrations/124_NoLongConversation.ts";
 import BotTransfers from "./Migrations/125_BotTransfers.ts";
 import LibraryCopies from "./Migrations/126_LibraryCopies.ts";
 import NoLeadRole from "./Migrations/127_NoLeadRole.ts";
+import LibraryImports from "./Migrations/128_LibraryImports.ts";
 
 const migrationEntries = [
   [55, "Bots", Bots],
@@ -158,6 +159,7 @@ const migrationEntries = [
   [125, "BotTransfers", BotTransfers],
   [126, "LibraryCopies", LibraryCopies],
   [127, "NoLeadRole", NoLeadRole],
+  [128, "LibraryImports", LibraryImports],
 ] as const;
 
 const legacyNames = new Set([

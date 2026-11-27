@@ -37,7 +37,7 @@ import * as BotService from "../bots/BotService.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { crewMcpCapabilities } from "../crew/crewMcpCapabilities.ts";
 import { CrewService } from "../crew/CrewService.ts";
-import { LibraryCopies } from "../crew/LibraryCopies.ts";
+import { LibraryImports } from "../crew/LibraryImports.ts";
 import { ProjectRequests } from "../crew/ProjectRequests.ts";
 import * as BotReach from "../bots/BotReach.ts";
 import * as BotTransfer from "../bots/BotTransfer.ts";
@@ -2369,7 +2369,7 @@ it.effect("lists Bosun's tools to every thread, and the crew's own only to crew 
             }),
             Layer.mock(CrewApprovals)({}),
             Layer.mock(CrewService)({}),
-            Layer.mock(LibraryCopies)({}),
+            Layer.mock(LibraryImports)({}),
             Layer.mock(CrewStore)({}),
             Layer.mock(ProjectRequests)({
               get: (projectId, requestId) =>

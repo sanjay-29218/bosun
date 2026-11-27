@@ -89,6 +89,11 @@ import {
   WorkflowUpdateInput,
   RoleCreateInput,
   RoleUpdateInput,
+  LibraryDetachInput,
+  LibraryImportable,
+  LibraryImportableInput,
+  LibraryImportInput,
+  LibraryImportResult,
 } from "./crew.ts";
 import {
   FeatureCreateInput,
@@ -610,6 +615,9 @@ export const WS_METHODS = {
   workflowsCreate: "workflows.create",
   workflowsUpdate: "workflows.update",
   workflowsDelete: "workflows.delete",
+  libraryImportable: "library.importable",
+  libraryImport: "library.import",
+  libraryDetach: "library.detach",
   crewConfiguration: "crew.configuration",
   crewInitialize: "crew.initialize",
   crewInstantiate: "crew.instantiate",
@@ -1576,6 +1584,21 @@ const WsWorkflowsUpdateRpc = Rpc.make(WS_METHODS.workflowsUpdate, {
 });
 const WsWorkflowsDeleteRpc = Rpc.make(WS_METHODS.workflowsDelete, {
   payload: WorkflowDeleteInput,
+  success: Schema.Void,
+  error: CrewRpcError,
+});
+const WsLibraryImportableRpc = Rpc.make(WS_METHODS.libraryImportable, {
+  payload: LibraryImportableInput,
+  success: LibraryImportable,
+  error: CrewRpcError,
+});
+const WsLibraryImportRpc = Rpc.make(WS_METHODS.libraryImport, {
+  payload: LibraryImportInput,
+  success: LibraryImportResult,
+  error: CrewRpcError,
+});
+const WsLibraryDetachRpc = Rpc.make(WS_METHODS.libraryDetach, {
+  payload: LibraryDetachInput,
   success: Schema.Void,
   error: CrewRpcError,
 });
@@ -2944,6 +2967,9 @@ export const BosunWsRpcGroup = RpcGroup.make(
   WsWorkflowsCreateRpc,
   WsWorkflowsUpdateRpc,
   WsWorkflowsDeleteRpc,
+  WsLibraryImportableRpc,
+  WsLibraryImportRpc,
+  WsLibraryDetachRpc,
   WsCrewConfigurationRpc,
   WsCrewInitializeRpc,
   WsCrewInstantiateRpc,

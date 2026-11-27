@@ -1,7 +1,7 @@
 import {
   BOT_HEADQUARTERS_RUN_PREFIX,
   CREW_DISPATCH_STATE,
-  LibraryOwner,
+  ImportedFrom,
   ModelSelection,
   ProjectId,
   ProjectManagerIcon,
@@ -37,6 +37,8 @@ export interface CrewMember {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
+  /** Its role's fallback model when it was made, tried before the Settings fallback model. */
+  readonly fallbackModelSelection: ModelSelection | null;
   readonly enabled: boolean;
   /** A project manager's chosen look; null for every other member. */
   readonly icon: ProjectManagerIcon | null;
@@ -52,9 +54,10 @@ export interface Role {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
+  readonly fallbackModelSelection: ModelSelection | null;
   readonly enabled: boolean;
-  /** Set on a copy of another machine's role, which is edited there. */
-  readonly managedFrom: LibraryOwner | null;
+  /** Set on one imported from a linked machine. */
+  readonly importedFrom: ImportedFrom | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -65,8 +68,8 @@ export interface Workflow {
   readonly name: string;
   readonly instructions: string;
   readonly crewRoleIds: ReadonlyArray<string>;
-  /** Set on a copy of another machine's workflow, which is edited there. */
-  readonly managedFrom: LibraryOwner | null;
+  /** Set on one imported from a linked machine. */
+  readonly importedFrom: ImportedFrom | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -121,6 +124,7 @@ interface CrewMemberRow {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelectionJson: string;
+  readonly fallbackModelSelectionJson: string | null;
   readonly enabled: number;
   readonly iconJson: string | null;
   readonly customizedAt: string | null;
@@ -134,8 +138,9 @@ interface RoleRow {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelectionJson: string;
+  readonly fallbackModelSelectionJson: string | null;
   readonly enabled: number;
-  readonly managedFromJson: string | null;
+  readonly importedFromJson: string | null;
   readonly revision: number;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -167,9 +172,15 @@ const parseModelSelection = Schema.decodeUnknownSync(ModelSelection);
 const parseRuntimeMode = Schema.decodeUnknownSync(RuntimeMode);
 const decodeModelSelection = (json: string) => parseModelSelection(JSON.parse(json));
 const parseIcon = Schema.decodeUnknownSync(ProjectManagerIcon);
-const parseOwner = Schema.decodeUnknownSync(LibraryOwner);
-const decodeOwner = (json: string | null) => (json === null ? null : parseOwner(JSON.parse(json)));
-const encodeOwner = (owner: LibraryOwner | null) => (owner === null ? null : JSON.stringify(owner));
+const parseImportedFrom = Schema.decodeUnknownSync(ImportedFrom);
+const decodeImportedFrom = (json: string | null) =>
+  json === null ? null : parseImportedFrom(JSON.parse(json));
+const encodeImportedFrom = (source: ImportedFrom | null) =>
+  source === null ? null : JSON.stringify(source);
+const decodeFallback = (json: string | null | undefined) =>
+  json == null ? null : decodeModelSelection(json);
+const encodeFallback = (selection: ModelSelection | null) =>
+  selection === null ? null : JSON.stringify(selection);
 const decodeIcon = (json: string | null) => (json === null ? null : parseIcon(JSON.parse(json)));
 const encodeIcon = (icon: ProjectManagerIcon | null) =>
   icon === null ? null : JSON.stringify(icon);
@@ -183,6 +194,7 @@ const decodeMember = (row: CrewMemberRow): CrewMember => ({
   name: row.name,
   instructions: row.instructions,
   modelSelection: decodeModelSelection(row.modelSelectionJson),
+  fallbackModelSelection: decodeFallback(row.fallbackModelSelectionJson),
   enabled: row.enabled === 1,
   icon: decodeIcon(row.iconJson),
   customizedAt: row.customizedAt,
@@ -196,23 +208,24 @@ const decodeRole = (row: RoleRow): Role => ({
   name: row.name,
   instructions: row.instructions,
   modelSelection: decodeModelSelection(row.modelSelectionJson),
+  fallbackModelSelection: decodeFallback(row.fallbackModelSelectionJson),
   enabled: row.enabled === 1,
-  managedFrom: decodeOwner(row.managedFromJson),
+  importedFrom: decodeImportedFrom(row.importedFromJson),
   revision: row.revision,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
-interface WorkflowRow extends Omit<Workflow, "crewRoleIds" | "managedFrom"> {
+interface WorkflowRow extends Omit<Workflow, "crewRoleIds" | "importedFrom"> {
   readonly crewRoleIdsJson: string;
-  readonly managedFromJson: string | null;
+  readonly importedFromJson: string | null;
 }
 
-const decodeWorkflow = ({ crewRoleIdsJson, managedFromJson, ...row }: WorkflowRow): Workflow => {
+const decodeWorkflow = ({ crewRoleIdsJson, importedFromJson, ...row }: WorkflowRow): Workflow => {
   const crewRoleIds: unknown = JSON.parse(crewRoleIdsJson);
   return {
     ...row,
-    managedFrom: decodeOwner(managedFromJson),
+    importedFrom: decodeImportedFrom(importedFromJson),
     crewRoleIds: Array.isArray(crewRoleIds)
       ? crewRoleIds.filter((id): id is string => typeof id === "string")
       : [],
@@ -258,6 +271,12 @@ export interface CrewStoreShape {
   readonly listRoles: () => Effect.Effect<ReadonlyArray<Role>, PersistenceSqlError>;
   /** Members made from it keep what they hold, no longer following it. */
   readonly deleteRole: (id: string) => Effect.Effect<void, PersistenceSqlError>;
+  /** Changes only where one came from, so it neither counts as an edit nor bumps the revision. */
+  readonly setImportedFrom: (
+    kind: "role" | "workflow",
+    id: string,
+    importedFrom: ImportedFrom | null,
+  ) => Effect.Effect<void, PersistenceSqlError>;
   readonly insertWorkflow: (workflow: Workflow) => Effect.Effect<void, PersistenceSqlError>;
   readonly updateWorkflow: (
     workflow: Workflow,
@@ -378,6 +397,7 @@ export const CrewStoreLive = Layer.effect(
         SELECT id, project_id AS projectId, feature_id AS featureId,
           role_id AS roleId, role_revision AS roleRevision, name, instructions,
           model_selection_json AS modelSelectionJson,
+          fallback_model_selection_json AS fallbackModelSelectionJson,
           enabled, icon_json AS iconJson,
           customized_at AS customizedAt,
           revision, created_at AS createdAt, updated_at AS updatedAt
@@ -396,7 +416,8 @@ export const CrewStoreLive = Layer.effect(
       sql<RoleRow>`
         SELECT id, name, instructions,
           model_selection_json AS modelSelectionJson,
-          enabled, managed_from_json AS managedFromJson,
+          fallback_model_selection_json AS fallbackModelSelectionJson,
+          enabled, imported_from_json AS importedFromJson,
           revision, created_at AS createdAt, updated_at AS updatedAt
         FROM roles WHERE id = ${id}
       `.pipe(
@@ -435,11 +456,12 @@ export const CrewStoreLive = Layer.effect(
       insertRole: (role) =>
         sql`
           INSERT INTO roles (
-            id, name, instructions, model_selection_json, enabled, auto_create_for_feature,
-            managed_from_json, revision, created_at, updated_at
+            id, name, instructions, model_selection_json, fallback_model_selection_json,
+            enabled, auto_create_for_feature, imported_from_json, revision, created_at, updated_at
           ) VALUES (
             ${role.id}, ${role.name}, ${role.instructions}, ${JSON.stringify(role.modelSelection)},
-            ${role.enabled ? 1 : 0}, 0, ${encodeOwner(role.managedFrom)}, ${role.revision},
+            ${encodeFallback(role.fallbackModelSelection)},
+            ${role.enabled ? 1 : 0}, 0, ${encodeImportedFrom(role.importedFrom)}, ${role.revision},
             ${role.createdAt}, ${role.updatedAt}
           )
         `.pipe(Effect.asVoid, Effect.mapError(queryError)),
@@ -448,7 +470,9 @@ export const CrewStoreLive = Layer.effect(
           UPDATE roles SET
             name = ${role.name}, instructions = ${role.instructions},
             model_selection_json = ${JSON.stringify(role.modelSelection)},
-            enabled = ${role.enabled ? 1 : 0}, managed_from_json = ${encodeOwner(role.managedFrom)},
+            fallback_model_selection_json = ${encodeFallback(role.fallbackModelSelection)},
+            enabled = ${role.enabled ? 1 : 0},
+            imported_from_json = ${encodeImportedFrom(role.importedFrom)},
             revision = ${role.revision}, updated_at = ${role.updatedAt}
           WHERE id = ${role.id} AND revision = ${expectedRevision}
           RETURNING id
@@ -461,7 +485,8 @@ export const CrewStoreLive = Layer.effect(
         sql<RoleRow>`
           SELECT id, name, instructions,
             model_selection_json AS modelSelectionJson,
-            enabled, managed_from_json AS managedFromJson,
+            fallback_model_selection_json AS fallbackModelSelectionJson,
+          enabled, imported_from_json AS importedFromJson,
             revision, created_at AS createdAt, updated_at AS updatedAt
           FROM roles
           ORDER BY name, id
@@ -474,11 +499,11 @@ export const CrewStoreLive = Layer.effect(
       insertWorkflow: (workflow) =>
         sql`
           INSERT INTO workflows (
-            id, name, instructions, crew_role_ids_json, managed_from_json, revision,
+            id, name, instructions, crew_role_ids_json, imported_from_json, revision,
             created_at, updated_at
           ) VALUES (
             ${workflow.id}, ${workflow.name}, ${workflow.instructions},
-            ${JSON.stringify(workflow.crewRoleIds)}, ${encodeOwner(workflow.managedFrom)},
+            ${JSON.stringify(workflow.crewRoleIds)}, ${encodeImportedFrom(workflow.importedFrom)},
             ${workflow.revision},
             ${workflow.createdAt}, ${workflow.updatedAt}
           )
@@ -488,7 +513,7 @@ export const CrewStoreLive = Layer.effect(
           UPDATE workflows SET
             name = ${workflow.name}, instructions = ${workflow.instructions},
             crew_role_ids_json = ${JSON.stringify(workflow.crewRoleIds)},
-            managed_from_json = ${encodeOwner(workflow.managedFrom)},
+            imported_from_json = ${encodeImportedFrom(workflow.importedFrom)},
             revision = ${workflow.revision}, updated_at = ${workflow.updatedAt}
           WHERE id = ${workflow.id} AND revision = ${expectedRevision}
           RETURNING id
@@ -502,6 +527,11 @@ export const CrewStoreLive = Layer.effect(
           Effect.asVoid,
           Effect.mapError(queryError),
         ),
+      setImportedFrom: (kind, id, importedFrom) =>
+        (kind === "role"
+          ? sql`UPDATE roles SET imported_from_json = ${encodeImportedFrom(importedFrom)} WHERE id = ${id}`
+          : sql`UPDATE workflows SET imported_from_json = ${encodeImportedFrom(importedFrom)} WHERE id = ${id}`
+        ).pipe(Effect.asVoid, Effect.mapError(queryError)),
       deleteWorkflow: (id) =>
         sql`DELETE FROM workflows WHERE id = ${id}`.pipe(
           Effect.asVoid,
@@ -510,7 +540,7 @@ export const CrewStoreLive = Layer.effect(
       getWorkflow: (id) =>
         sql<WorkflowRow>`
           SELECT id, name, instructions,
-            crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
+            crew_role_ids_json AS crewRoleIdsJson, imported_from_json AS importedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows WHERE id = ${id}
         `.pipe(
@@ -525,7 +555,7 @@ export const CrewStoreLive = Layer.effect(
       listWorkflows: () =>
         sql<WorkflowRow>`
           SELECT id, name, instructions,
-            crew_role_ids_json AS crewRoleIdsJson, managed_from_json AS managedFromJson, revision, created_at AS createdAt,
+            crew_role_ids_json AS crewRoleIdsJson, imported_from_json AS importedFromJson, revision, created_at AS createdAt,
             updated_at AS updatedAt
           FROM workflows ORDER BY name, id
         `.pipe(
@@ -538,12 +568,13 @@ export const CrewStoreLive = Layer.effect(
         sql`
           INSERT INTO crew_members (
             id, project_id, feature_id, role_id, role_revision, name, instructions,
-            model_selection_json, enabled,
+            model_selection_json, fallback_model_selection_json, enabled,
             icon_json, customized_at, revision, created_at, updated_at
           ) VALUES (
             ${member.id}, ${member.projectId}, ${member.featureId},
             ${member.roleId}, ${member.roleRevision}, ${member.name},
             ${member.instructions}, ${JSON.stringify(member.modelSelection)},
+            ${encodeFallback(member.fallbackModelSelection)},
             ${member.enabled ? 1 : 0},
             ${encodeIcon(member.icon)}, ${member.customizedAt},
             ${member.revision},
@@ -556,6 +587,7 @@ export const CrewStoreLive = Layer.effect(
             role_id = ${member.roleId}, role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
+            fallback_model_selection_json = ${encodeFallback(member.fallbackModelSelection)},
             enabled = ${member.enabled ? 1 : 0},
             revision = ${member.revision}, updated_at = ${member.updatedAt}
           WHERE id = ${member.id} AND revision = ${expectedRevision} AND customized_at IS NULL
@@ -570,6 +602,7 @@ export const CrewStoreLive = Layer.effect(
             role_revision = ${member.roleRevision}, name = ${member.name},
             instructions = ${member.instructions},
             model_selection_json = ${JSON.stringify(member.modelSelection)},
+            fallback_model_selection_json = ${encodeFallback(member.fallbackModelSelection)},
             enabled = ${member.enabled ? 1 : 0},
             icon_json = ${encodeIcon(member.icon)},
             customized_at = ${member.customizedAt},
@@ -592,6 +625,7 @@ export const CrewStoreLive = Layer.effect(
           SELECT id, project_id AS projectId, feature_id AS featureId,
             role_id AS roleId, role_revision AS roleRevision, name, instructions,
             model_selection_json AS modelSelectionJson,
+            fallback_model_selection_json AS fallbackModelSelectionJson,
             enabled, icon_json AS iconJson,
           customized_at AS customizedAt,
             revision, created_at AS createdAt, updated_at AS updatedAt

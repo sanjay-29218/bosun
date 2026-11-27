@@ -188,7 +188,7 @@ import * as BotStore from "./bots/BotStore.ts";
 import * as BotService from "./bots/BotService.ts";
 import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { LibraryCopies } from "./crew/LibraryCopies.ts";
+import { LibraryImports } from "./crew/LibraryImports.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as BoardIssueService from "./issues/IssueService.ts";
@@ -1008,7 +1008,7 @@ it.live.each([
         Layer.mock(BotService.BotService)({}),
         Layer.mock(BotTransfer.BotTransfer)({}),
         Layer.mock(CrewService)({}),
-        Layer.mock(LibraryCopies)({}),
+        Layer.mock(LibraryImports)({}),
         Layer.mock(FeatureService)({}),
         Layer.mock(BoardIssueService.IssueService)({}),
         Layer.mock(ProjectRequests)({}),

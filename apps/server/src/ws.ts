@@ -125,7 +125,7 @@ import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
 import * as BotService from "./bots/BotService.ts";
 import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { LibraryCopies } from "./crew/LibraryCopies.ts";
+import { LibraryImports } from "./crew/LibraryImports.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { CrewChanges } from "./crew/CrewChanges.ts";
 import { FeatureService } from "./features/FeatureService.ts";
@@ -1608,8 +1608,8 @@ export const layerWsRpc = (
       const hostEnvironment = yield* HostProcess.Environment;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
-      // The server runs it, so unlinking removes this machine's copies there first.
-      const library = yield* Effect.serviceOption(LibraryCopies);
+      // The server runs it, so unlinking tells that machine this one imports nothing from it.
+      const library = yield* Effect.serviceOption(LibraryImports);
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
       const peerThreadRelay = yield* PeerThreadRelay.PeerThreadRelay;
       const peerClientPairing = yield* PeerClientPairing.PeerClientPairing;
@@ -3856,7 +3856,7 @@ export const layer = Layer.unwrap(
       bots: yield* BotService.BotService,
       botTransfer: yield* BotTransfer.BotTransfer,
       crew: yield* CrewService,
-      library: yield* LibraryCopies,
+      library: yield* LibraryImports,
       projectRequests: yield* ProjectRequests,
       features: yield* FeatureService,
       issues: yield* BoardIssueService.IssueService,

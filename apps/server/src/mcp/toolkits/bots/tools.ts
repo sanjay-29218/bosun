@@ -21,6 +21,7 @@ import {
   LinkBotImport,
   LinkBotNotices,
   LinkLibrary,
+  LinkLibrarySync,
   LinkBotProjects,
   LinkBotRehome,
   LinkBotTask,
@@ -128,6 +129,7 @@ export const BotsToolkit = Toolkit.make(
   LinkBotTask,
   LinkBotNotices,
   LinkLibrary,
+  LinkLibrarySync,
   LinkBotImport,
   LinkBotRehome,
 );

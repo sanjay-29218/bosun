@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 
 import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../../peer/PeerLinkRequests.ts";
-import { unlinkEnvironment } from "../../../crew/LibraryCopies.ts";
+import { unlinkEnvironment } from "../../../crew/LibraryImports.ts";
 import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
 import { readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";

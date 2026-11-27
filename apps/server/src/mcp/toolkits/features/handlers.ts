@@ -14,7 +14,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { LibraryCopies } from "../../../crew/LibraryCopies.ts";
+import { LibraryImports } from "../../../crew/LibraryImports.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -126,7 +126,7 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
 });
 
 const make = Effect.gen(function* () {
-  const library = yield* LibraryCopies;
+  const library = yield* LibraryImports;
   const features = yield* FeatureService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   return {
