@@ -145,16 +145,14 @@ const make = Effect.gen(function* () {
     t3_role_create: McpToolAccess.writesWithCapability((input: typeof RoleCreateInput.Type) =>
       writing(library.createRole(input)),
     ),
-    t3_role_update: McpToolAccess.writesWithCapability(
-      (input: Omit<typeof RoleUpdateInput.Type, "alsoUpdateOn">) =>
-        writing(library.updateRole(input)),
+    t3_role_update: McpToolAccess.writesWithCapability((input: typeof RoleUpdateInput.Type) =>
+      writing(library.updateRole(input)),
     ),
     t3_feature_workflow_create: McpToolAccess.writesWithCapability(
       (input: typeof WorkflowCreateInput.Type) => writing(library.createWorkflow(input)),
     ),
     t3_feature_workflow_update: McpToolAccess.writesWithCapability(
-      (input: Omit<typeof WorkflowUpdateInput.Type, "alsoUpdateOn">) =>
-        writing(library.updateWorkflow(input)),
+      (input: typeof WorkflowUpdateInput.Type) => writing(library.updateWorkflow(input)),
     ),
     t3_library_import: McpToolAccess.writesWithCapability(
       (input: {

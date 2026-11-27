@@ -14,7 +14,6 @@ import {
   WorkflowUpdateInput,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import * as Struct from "effect/Struct";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
 
 import { CrewService } from "../../../crew/CrewService.ts";
@@ -58,22 +57,15 @@ const CreateRole = Tool.make("t3_role_create", {
   ...shared,
   description:
     'Create a role with an id like "role:qa-tester"; add it to a workflow\'s crewRoleIds to give its features a member of it. Copy modelSelection from an existing role unless asked otherwise. Members get every tool and full access.',
-  // Set its fallback model with t3_role_update; listing it here too costs every thread context.
-  parameters: Schema.Struct({
-    id: RoleCreateInput.fields.id,
-    name: RoleCreateInput.fields.name,
-    instructions: RoleCreateInput.fields.instructions,
-    modelSelection: RoleCreateInput.fields.modelSelection,
-  }),
+  parameters: RoleCreateInput,
   success: RoleConfig,
 });
 
 const UpdateRole = Tool.make("t3_role_update", {
   ...shared,
   description:
-    "Change a role: send every field back, edited, with expectedRevision from t3_role_list. Roles aren't deleted: enabled false retires one, true restores it. Started features keep their crew.",
-  // Sending a save to the machines that imported it is the person's choice, in the save dialog.
-  parameters: Schema.Struct(Struct.omit(RoleUpdateInput.fields, ["alsoUpdateOn"])),
+    "Change a role: send every field back, edited, with expectedRevision from t3_role_list. Roles aren't deleted: enabled false retires one, true restores it. alsoUpdateOn: importers that also take this save; replacesEdits only if the person agreed. Started features keep their crew.",
+  parameters: RoleUpdateInput,
   success: RoleConfig,
 });
 
@@ -88,8 +80,8 @@ const CreateWorkflow = Tool.make("t3_feature_workflow_create", {
 const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
   ...shared,
   description:
-    "Change a workflow: send every field back, edited, with expectedRevision from t3_role_list. Started features keep the text and crew they started with.",
-  parameters: Schema.Struct(Struct.omit(WorkflowUpdateInput.fields, ["alsoUpdateOn"])),
+    "Change a workflow: send every field back, edited, with expectedRevision from t3_role_list. alsoUpdateOn as for roles. Started features keep the text and crew they started with.",
+  parameters: WorkflowUpdateInput,
   success: WorkflowConfig,
 });
 
