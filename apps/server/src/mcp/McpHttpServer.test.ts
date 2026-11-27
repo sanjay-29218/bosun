@@ -2485,6 +2485,8 @@ it.effect("lists Bosun's tools to every thread, and the crew's own only to crew 
         "t3_feature_start",
         "t3_feature_workflow_create",
         "t3_feature_workflow_update",
+        "t3_library_detach",
+        "t3_library_import",
         "t3_project_reply",
         "t3_project_requests",
         "t3_project_send",

@@ -7,6 +7,7 @@ import * as Stream from "effect/Stream";
 import * as BotReach from "../../../bots/BotReach.ts";
 import * as BotService from "../../../bots/BotService.ts";
 import * as BotTransfer from "../../../bots/BotTransfer.ts";
+import { LibraryImports } from "../../../crew/LibraryImports.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -50,6 +51,7 @@ const reorder = (
             }),
             Layer.mock(BotReach.BotReach)({}),
             Layer.mock(BotTransfer.BotTransfer)({}),
+            Layer.mock(LibraryImports)({}),
             Layer.mock(BotService.BotService)({
               reorder: (botIds) => {
                 reordered.push(botIds);

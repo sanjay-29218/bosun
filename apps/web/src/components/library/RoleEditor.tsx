@@ -7,6 +7,9 @@ import {
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
+import { modelDisplayName } from "@t3tools/shared/usageLimits";
+import { Link } from "@tanstack/react-router";
+import { T, useGT, Var } from "gt-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -23,12 +26,12 @@ import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { EditorField } from "../settings/EditorField";
 import { SettingsModelPicker } from "../settings/SettingsModelPicker";
-import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { SettingResetButton, SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
-import { LibraryMachines, ManagedFromNotice } from "./LibraryMachines";
+import { AlsoUpdateOnDialog, LibraryImportBanner, LibraryImportedOn } from "./LibraryImport";
 
 /** The composer's provider and model choices for one environment. */
 function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
@@ -50,11 +53,16 @@ export function RoleModelPicker({
   environmentId,
   selection,
   disabled,
+  ariaLabel,
+  triggerLabel,
   onChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly selection: ModelSelection;
   readonly disabled?: boolean;
+  readonly ariaLabel?: string;
+  /** Shown instead of the model, for a picker with nothing chosen yet. */
+  readonly triggerLabel?: string;
   readonly onChange: (selection: ModelSelection) => void;
 }) {
   const { entries, modelOptions } = useModelPickerData(environmentId, selection);
@@ -66,7 +74,8 @@ export function RoleModelPicker({
       lockedProvider={null}
       instanceEntries={entries}
       modelOptionsByInstance={modelOptions}
-      triggerAriaLabel="Model"
+      triggerAriaLabel={ariaLabel ?? "Model"}
+      {...(triggerLabel === undefined ? {} : { triggerLabel })}
       {...(disabled ? { disabled } : {})}
       onInstanceModelChange={(instanceId: ProviderInstanceId, model: string) =>
         onChange(
@@ -75,11 +84,15 @@ export function RoleModelPicker({
             : createModelSelection(instanceId, model),
         )
       }
-      traits={{
-        options: selection.options,
-        onChange: (options) =>
-          onChange(createModelSelection(selection.instanceId, selection.model, options)),
-      }}
+      traits={
+        triggerLabel === undefined
+          ? {
+              options: selection.options,
+              onChange: (options) =>
+                onChange(createModelSelection(selection.instanceId, selection.model, options)),
+            }
+          : null
+      }
     />
   );
 }
@@ -113,11 +126,20 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
 export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
   roles.some((role) => role.id === PLANNER_ROLE_ID);
 
-type RoleChange = Partial<Pick<RoleConfig, "name" | "instructions" | "modelSelection" | "enabled">>;
+type RoleChange = Partial<
+  Pick<
+    RoleConfig,
+    "name" | "instructions" | "modelSelection" | "fallbackModelSelection" | "enabled"
+  >
+>;
 
 export function useSaveRole(environmentId: EnvironmentId) {
   const update = useAtomCommand(rolesEnvironment.update);
-  return async (role: RoleConfig, change: RoleChange) => {
+  return async (
+    role: RoleConfig,
+    change: RoleChange,
+    alsoUpdateOn: ReadonlyArray<EnvironmentId> = [],
+  ) => {
     const next = { ...role, ...change };
     const result = await update({
       environmentId,
@@ -126,8 +148,10 @@ export function useSaveRole(environmentId: EnvironmentId) {
         name: next.name,
         instructions: next.instructions,
         modelSelection: next.modelSelection,
+        fallbackModelSelection: next.fallbackModelSelection,
         enabled: next.enabled,
         expectedRevision: role.revision,
+        ...(alsoUpdateOn.length > 0 ? { alsoUpdateOn: [...alsoUpdateOn] } : {}),
       },
     });
     if (result._tag === "Success") return true;
@@ -154,37 +178,52 @@ export function RoleEditorForm({
   readonly onSaved: (roleId: string) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   const create = useAtomCommand(rolesEnvironment.create);
   const save = useSaveRole(environmentId);
-  const managedFrom = role?.managedFrom ?? null;
-  const permitted = useAtomValue(
+  const canEdit = useAtomValue(
     (role ? rolesEnvironment.update : rolesEnvironment.create).permissionAtom(environmentId),
   );
-  const canEdit = permitted && managedFrom === null;
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
+  const [fallbackModelSelection, setFallbackModelSelection] = useState(
+    role?.fallbackModelSelection ?? null,
+  );
   const [saving, setSaving] = useState(false);
+  // Saving one that linked machines imported asks which of them take the change.
+  const [asking, setAsking] = useState(false);
   const fields = {
     name: name.trim(),
     instructions: instructions.trim(),
     modelSelection,
+    fallbackModelSelection,
   };
   const edited = role
     ? fields.name !== role.name ||
       fields.instructions !== role.instructions ||
-      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection)
+      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection) ||
+      JSON.stringify(fields.fallbackModelSelection) !== JSON.stringify(role.fallbackModelSelection)
     : fields.name.length > 0 || fields.instructions.length > 0;
   const canSave =
     edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !saving;
 
-  useUnsavedChangesGuard({ unsaved: edited, saving, message: "Leave without saving this role?" });
+  useUnsavedChangesGuard({
+    unsaved: edited,
+    saving,
+    message: gt("Leave without saving this role?"),
+  });
 
-  const submit = async () => {
+  const submit = async (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
     if (!canSave) return;
+    if (role && role.importers.length > 0 && alsoUpdateOn === undefined) {
+      setAsking(true);
+      return;
+    }
+    setAsking(false);
     setSaving(true);
     const savedId = await (async () => {
-      if (role) return (await save(role, fields)) ? role.id : null;
+      if (role) return (await save(role, fields, alsoUpdateOn)) ? role.id : null;
       const id = `role:${randomUUID()}`;
       const result = await create({ environmentId, input: { id, ...fields } });
       if (result._tag === "Success") return id;
@@ -208,7 +247,14 @@ export function RoleEditorForm({
         void submit();
       }}
     >
-      {managedFrom === null ? null : <ManagedFromNotice noun="role" owner={managedFrom} />}
+      {role === null ? null : (
+        <LibraryImportBanner
+          environmentId={environmentId}
+          kind="role"
+          item={role}
+          unsaved={edited}
+        />
+      )}
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
         <SettingsSection title="Role" hideTitle>
           <div className="space-y-5 px-3 py-4 sm:px-4">
@@ -248,11 +294,25 @@ export function RoleEditorForm({
               />
             }
           />
+          <FallbackModelRow
+            environmentId={environmentId}
+            selection={fallbackModelSelection}
+            roleModel={modelSelection}
+            disabled={saving || !canEdit}
+            onChange={setFallbackModelSelection}
+          />
         </SettingsSection>
-        {role !== null && managedFrom === null ? (
-          <LibraryMachines environmentId={environmentId} item={role} />
-        ) : null}
+        {role === null ? null : <LibraryImportedOn item={role} />}
       </fieldset>
+      {role === null ? null : (
+        <AlsoUpdateOnDialog
+          name={role.name}
+          importers={role.importers}
+          open={asking}
+          onCancel={() => setAsking(false)}
+          onSave={(alsoUpdateOn) => void submit(alsoUpdateOn)}
+        />
+      )}
       {/* Pinned to the pane's bottom, so Save stays in reach below long instructions. */}
       <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <Button
@@ -269,5 +329,78 @@ export function RoleEditorForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * A role's own fallback model, tried before the one in Settings when the role's model can't run
+ * here. Unset, the row names the Settings one it falls back to.
+ */
+function FallbackModelRow({
+  environmentId,
+  selection,
+  roleModel,
+  disabled,
+  onChange,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly selection: ModelSelection | null;
+  readonly roleModel: ModelSelection;
+  readonly disabled: boolean;
+  readonly onChange: (selection: ModelSelection | null) => void;
+}) {
+  const gt = useGT();
+  const { settings, providers } = useModelPickerData(environmentId, selection);
+  const global = settings.fallbackModelSelection;
+  const settingsLink = (
+    <Link to="/settings/threads" className="underline underline-offset-2">
+      <T>Settings → Threads</T>
+    </Link>
+  );
+  const notHere =
+    selection !== null &&
+    !providers.some((provider) => provider.instanceId === selection.instanceId);
+  const status = notHere ? (
+    <span className="text-warning-foreground">
+      <T>Not set up on this machine. Uses the Settings fallback instead.</T>
+    </span>
+  ) : selection !== null ? null : global === null ? (
+    <T>
+      <Var>{settingsLink}</Var> has no fallback model either.
+    </T>
+  ) : (
+    <T>
+      Uses the fallback model in <Var>{settingsLink}</Var>:{" "}
+      <Var>{modelDisplayName(global, providers)}</Var>.
+    </T>
+  );
+  return (
+    <SettingsRow
+      title={gt("Fallback model")}
+      description={gt(
+        "Used when this role's model can't run here, such as when its provider is out of usage.",
+      )}
+      status={status}
+      resetAction={
+        selection === null ? null : (
+          <SettingResetButton
+            ariaLabel={gt("Use the Settings fallback")}
+            tooltip={gt("Use the Settings fallback")}
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          />
+        )
+      }
+      control={
+        <RoleModelPicker
+          environmentId={environmentId}
+          selection={selection ?? global ?? roleModel}
+          disabled={disabled}
+          ariaLabel={gt("Fallback model")}
+          {...(selection === null ? { triggerLabel: gt("Settings fallback") } : {})}
+          onChange={onChange}
+        />
+      }
+    />
   );
 }

@@ -91,6 +91,7 @@ export interface CrewThreadRuntimeShape {
   readonly runModelSelection: (
     projectId: ProjectId,
     chosen: ModelSelection | null,
+    roleFallback?: ModelSelection | null,
   ) => Effect.Effect<RunModel | null, CrewReadError>;
   /**
    * Shows `notice` in the thread's latest run while it is unfinished and runs on `selection`; an
@@ -383,7 +384,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
         },
       ),
       runModelSelection: Effect.fn("CrewThreadRuntime.runModelSelection")(
-        function* (projectId, chosen) {
+        function* (projectId, chosen, roleFallback) {
           const readError = toPersistenceSqlError("CrewThreadRuntime.runModelSelection");
           const project = Option.getOrNull(
             yield* projects.get(projectId).pipe(Effect.mapError(readError)),
@@ -391,6 +392,7 @@ export const CrewThreadRuntimeV2 = Layer.effect(
           const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(readError));
           return resolveRunModelSelection({
             chosen,
+            roleFallback: roleFallback ?? null,
             providers: yield* providerRegistry.getProviders,
             settings,
             projectId,

@@ -2,10 +2,12 @@ import {
   type EnvironmentId,
   headquartersBotId,
   headquartersProjectId,
+  libraryImportState,
   type ThreadId,
   OrchestratorMcpFailure,
   ProjectId,
   type FeatureWorkspace,
+  type LibraryDetachInput,
   type RoleCreateInput,
   type RoleUpdateInput,
   type WorkflowCreateInput,
@@ -59,6 +61,9 @@ const guarded =
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     check.pipe(Effect.andThen(effect), Effect.mapError(asMcpFailure));
 const reading = guarded(Effect.void);
+const withImportState = <T extends Parameters<typeof libraryImportState>[0]>(
+  items: ReadonlyArray<T>,
+) => items.map((item) => ({ ...item, ...libraryImportState(item) }));
 const writing = guarded(checkWrite);
 
 /**
@@ -131,7 +136,12 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   return {
     t3_role_list: McpToolAccess.reads(() =>
-      reading(Effect.all({ roles: library.listRoles, workflows: library.listWorkflows })),
+      reading(
+        Effect.all({
+          roles: library.listRoles.pipe(Effect.map(withImportState)),
+          workflows: library.listWorkflows.pipe(Effect.map(withImportState)),
+        }),
+      ),
     ),
     t3_role_create: McpToolAccess.writesWithCapability((input: typeof RoleCreateInput.Type) =>
       writing(library.createRole(input)),
@@ -144,6 +154,29 @@ const make = Effect.gen(function* () {
     ),
     t3_feature_workflow_update: McpToolAccess.writesWithCapability(
       (input: typeof WorkflowUpdateInput.Type) => writing(library.updateWorkflow(input)),
+    ),
+    t3_library_import: McpToolAccess.writesWithCapability(
+      (input: {
+        readonly environmentId: EnvironmentId;
+        readonly roleIds?: ReadonlyArray<string> | undefined;
+        readonly workflowIds?: ReadonlyArray<string> | undefined;
+        readonly replace?: boolean | undefined;
+      }) =>
+        (input.roleIds?.length ?? 0) + (input.workflowIds?.length ?? 0) === 0
+          ? reading(library.importable(input.environmentId)).pipe(
+              Effect.map((listed) => ({ listed })),
+            )
+          : writing(
+              library.importItems({
+                sourceEnvironmentId: input.environmentId,
+                roleIds: input.roleIds ?? [],
+                workflowIds: input.workflowIds ?? [],
+                replace: input.replace ?? false,
+              }),
+            ).pipe(Effect.map((imported) => ({ imported }))),
+    ),
+    t3_library_detach: McpToolAccess.writesWithCapability((input: typeof LibraryDetachInput.Type) =>
+      writing(library.detach(input)).pipe(Effect.as({})),
     ),
     t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {

@@ -998,11 +998,19 @@ export const CrewServiceLive = Layer.effect(
      * model stays as it is.
      */
     const modelFor = Effect.fn("CrewService.modelFor")(function* (
-      actor: { readonly name: string; readonly modelSelection: ModelSelection | null },
+      actor: {
+        readonly name: string;
+        readonly modelSelection: ModelSelection | null;
+        readonly fallbackModelSelection?: ModelSelection | null;
+      },
       requested: ModelSelection | undefined,
       projectId: ProjectId,
     ) {
-      const model = yield* runtime.runModelSelection(projectId, requested ?? actor.modelSelection);
+      const model = yield* runtime.runModelSelection(
+        projectId,
+        requested ?? actor.modelSelection,
+        actor.fallbackModelSelection,
+      );
       if (model === null) {
         return yield* Effect.fail(
           new CrewValidationError(

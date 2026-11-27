@@ -1,4 +1,5 @@
 import {
+  libraryImportLine,
   libraryRoleEntries,
   libraryWorkflowEntries,
   roleAvailabilityNote,
@@ -6,7 +7,8 @@ import {
   type LibraryWorkflowEntry,
 } from "@t3tools/client-runtime/state/library";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, WorkflowConfig } from "@t3tools/contracts";
+import { type EnvironmentId, libraryImportState, type WorkflowConfig } from "@t3tools/contracts";
+import { T, useMessages } from "gt-react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 import { memo, useState } from "react";
@@ -17,6 +19,7 @@ import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../stat
 import { rolesEnvironment } from "../../state/roles";
 import { SettingsSection } from "../settings/settingsLayout";
 import { ROLES_SETTINGS_PATH, WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { Badge } from "../ui/badge";
 import { Switch } from "../ui/switch";
 import { useSaveRole } from "./RoleEditor";
 
@@ -108,6 +111,7 @@ const WorkflowRow = memo(function WorkflowRow({
   readonly environmentLabel: string | null;
 }) {
   const workflow = entry.item;
+  const m = useMessages();
   return (
     <li>
       <Link
@@ -120,14 +124,12 @@ const WorkflowRow = memo(function WorkflowRow({
             {workflow.name}
           </span>
           <span className="truncate text-xs text-muted-foreground">
-            {[
-              crewLabel(workflow),
-              workflow.managedFrom ? `From ${workflow.managedFrom.label}` : null,
-            ]
+            {[crewLabel(workflow), libraryImportLine(workflow, m)]
               .filter((part) => part !== null)
               .join(" · ")}
           </span>
         </span>
+        <UpdateBadge item={workflow} />
         {environmentLabel ? (
           <span className="shrink-0 truncate text-xs text-muted-foreground">
             {environmentLabel}
@@ -153,6 +155,8 @@ const RoleRow = memo(function RoleRow({
   readonly environmentLabel: string | null;
 }) {
   const role = entry.item;
+  const m = useMessages();
+  const importLine = libraryImportLine(role, m);
   const save = useSaveRole(entry.environmentId);
   const canEdit = useAtomValue(rolesEnvironment.update.permissionAtom(entry.environmentId));
   const [saving, setSaving] = useState(false);
@@ -173,14 +177,13 @@ const RoleRow = memo(function RoleRow({
         >
           {role.name}
         </span>
-        {note || role.managedFrom ? (
+        {note || importLine ? (
           <span className="truncate text-xs text-muted-foreground">
-            {[note, role.managedFrom ? `From ${role.managedFrom.label}` : null]
-              .filter((part) => part)
-              .join(" · ")}
+            {[note, importLine].filter((part) => part).join(" · ")}
           </span>
         ) : null}
       </span>
+      <UpdateBadge item={role} />
       {environmentLabel ? (
         <span className="pointer-events-none shrink-0 truncate text-xs text-muted-foreground">
           {environmentLabel}
@@ -191,7 +194,7 @@ const RoleRow = memo(function RoleRow({
         <Switch
           aria-label={`New features use ${role.name}`}
           checked={role.enabled}
-          disabled={!canEdit || saving || role.managedFrom !== null}
+          disabled={!canEdit || saving}
           onCheckedChange={(enabled) => {
             setSaving(true);
             void save(role, { enabled }).then(() => setSaving(false));
@@ -205,3 +208,13 @@ const RoleRow = memo(function RoleRow({
     </li>
   );
 });
+
+/** An imported one whose source has a newer version. */
+function UpdateBadge({ item }: { readonly item: Parameters<typeof libraryImportState>[0] }) {
+  if (!libraryImportState(item).updateAvailable) return null;
+  return (
+    <Badge variant="info" size="sm" className="pointer-events-none shrink-0">
+      <T>Update available</T>
+    </Badge>
+  );
+}

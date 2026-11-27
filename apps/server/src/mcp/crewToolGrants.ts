@@ -104,6 +104,8 @@ export const CrewGatedToolkits = {
     t3_role_update: "thread",
     t3_feature_workflow_create: "thread",
     t3_feature_workflow_update: "thread",
+    t3_library_import: "thread",
+    t3_library_detach: "thread",
     t3_feature_start: "thread",
     t3_feature_finish: "thread",
     t3_feature_list: "thread",

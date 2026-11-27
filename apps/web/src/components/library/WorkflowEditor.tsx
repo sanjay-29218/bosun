@@ -20,7 +20,7 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
-import { LibraryMachines, ManagedFromNotice } from "./LibraryMachines";
+import { AlsoUpdateOnDialog, LibraryImportBanner, LibraryImportedOn } from "./LibraryImport";
 
 /** A readable id that stays unique when two workflows share a name. */
 function newWorkflowId(name: string) {
@@ -55,13 +55,13 @@ export function WorkflowEditorForm({
   const create = useAtomCommand(rolesEnvironment.createWorkflow);
   const update = useAtomCommand(rolesEnvironment.updateWorkflow);
   const remove = useAtomCommand(rolesEnvironment.deleteWorkflow);
-  const managedFrom = workflow?.managedFrom ?? null;
-  const permitted = useAtomValue(
+  const canEdit = useAtomValue(
     (workflow ? rolesEnvironment.updateWorkflow : rolesEnvironment.createWorkflow).permissionAtom(
       environmentId,
     ),
   );
-  const canEdit = permitted && managedFrom === null;
+  // Saving one that linked machines imported asks which of them take the change.
+  const [asking, setAsking] = useState(false);
   const canDelete = useAtomValue(rolesEnvironment.deleteWorkflow.permissionAtom(environmentId));
   const [name, setName] = useState(workflow?.name ?? "");
   const [instructions, setInstructions] = useState(workflow?.instructions ?? "");
@@ -89,15 +89,25 @@ export function WorkflowEditorForm({
     message: "Leave without saving this workflow?",
   });
 
-  const submit = async () => {
+  const submit = async (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
     if (!canSave) return;
+    if (workflow && workflow.importers.length > 0 && alsoUpdateOn === undefined) {
+      setAsking(true);
+      return;
+    }
+    setAsking(false);
     setBusy(true);
     const input = { ...fields, crewRoleIds: [...fields.crewRoleIds] };
     const savedId = await (async () => {
       if (workflow) {
         const result = await update({
           environmentId,
-          input: { id: workflow.id, ...input, expectedRevision: workflow.revision },
+          input: {
+            id: workflow.id,
+            ...input,
+            expectedRevision: workflow.revision,
+            ...(alsoUpdateOn && alsoUpdateOn.length > 0 ? { alsoUpdateOn: [...alsoUpdateOn] } : {}),
+          },
         });
         if (result._tag === "Success") return workflow.id;
         toastManager.add({
@@ -151,7 +161,14 @@ export function WorkflowEditorForm({
         void submit();
       }}
     >
-      {managedFrom === null ? null : <ManagedFromNotice noun="workflow" owner={managedFrom} />}
+      {workflow === null ? null : (
+        <LibraryImportBanner
+          environmentId={environmentId}
+          kind="workflow"
+          item={workflow}
+          unsaved={edited}
+        />
+      )}
       <fieldset disabled={busy || !canEdit} className="min-w-0 space-y-6">
         <SettingsSection title="Workflow" hideTitle>
           <div className="space-y-5 px-3 py-4 sm:px-4">
@@ -217,16 +234,20 @@ export function WorkflowEditorForm({
             )}
           </div>
         </SettingsSection>
-        {workflow !== null && managedFrom === null ? (
-          <LibraryMachines environmentId={environmentId} item={workflow} />
-        ) : null}
+        {workflow === null ? null : <LibraryImportedOn item={workflow} />}
       </fieldset>
+      {workflow === null ? null : (
+        <AlsoUpdateOnDialog
+          name={workflow.name}
+          importers={workflow.importers}
+          open={asking}
+          onCancel={() => setAsking(false)}
+          onSave={(alsoUpdateOn) => void submit(alsoUpdateOn)}
+        />
+      )}
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <div>
-          {workflow &&
-          workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID &&
-          canDelete &&
-          managedFrom === null ? (
+          {workflow && workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID && canDelete ? (
             <Button
               type="button"
               variant="ghost-destructive"

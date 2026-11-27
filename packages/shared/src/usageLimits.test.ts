@@ -168,6 +168,43 @@ describe("new thread model fallback", () => {
       "gpt-6.1-sol (codex) can't run: Codex isn't signed in here. The fallback model, claude-fable-5-1 (claude), can't run either: Claude isn't signed in here.",
     );
   });
+  describe("with a role's fallback model", () => {
+    const roleFallback = { instanceId: ProviderInstanceId.make("grok"), model: "grok-5" };
+    const grok = provider({
+      instanceId: roleFallback.instanceId,
+      driver: ProviderDriverKind.make("grok"),
+    });
+    it("tries the role's fallback before the Settings one", () => {
+      const resolved = resolveNewThreadModelSelection({
+        ...defaults,
+        roleFallbackSelection: roleFallback,
+        providers: [limited, available, grok],
+      });
+      expect(resolved).toMatchObject({ selection: roleFallback, fallback: { from: selection } });
+    });
+    it("uses the Settings fallback when the role's can't run", () => {
+      expect(
+        resolveNewThreadModelSelection({
+          ...defaults,
+          roleFallbackSelection: roleFallback,
+          providers: [limited, available, { ...grok, enabled: false }],
+        }).selection,
+      ).toEqual(fallback);
+    });
+    it("names every model tried when none can run", () => {
+      const signedOut = { auth: { status: "unauthenticated" as const } };
+      const providers = [
+        provider(signedOut),
+        { ...available, ...signedOut },
+        { ...grok, ...signedOut },
+      ];
+      const input = { ...defaults, roleFallbackSelection: roleFallback, providers };
+      const resolved = resolveNewThreadModelSelection(input);
+      expect(noRunnableModelText({ ...input, selection, blocked: resolved.blocked! })).toBe(
+        "gpt-6.1-sol (codex) can't run: Codex isn't signed in here. Its role's fallback model, grok-5 (grok), can't run either: Grok isn't signed in here. The Settings fallback model, claude-fable-5-1 (claude), can't run either: Claude isn't signed in here.",
+      );
+    });
+  });
   it.each([undefined, "invalid"])("treats an unknown reset as exhausted: %s", (resetsAt) => {
     expect(
       exhaustedUsageWindow(

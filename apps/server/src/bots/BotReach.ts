@@ -488,6 +488,7 @@ const make = Effect.gen(function* () {
                   name: role.name,
                   instructions: role.instructions,
                   modelSelection: role.modelSelection,
+                  fallbackModelSelection: role.fallbackModelSelection ?? null,
                   // Older peers require it.
                   runtimeMode: "full-access" as const,
                 },

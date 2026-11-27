@@ -1,6 +1,8 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, RoleConfig } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { LayersIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { useGT } from "gt-react";
+import { DownloadIcon, LayersIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -9,12 +11,15 @@ import {
   type EnvironmentLibraryState,
 } from "../../state/library";
 import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../../state/environments";
+import { rolesEnvironment } from "../../state/roles";
+import { environmentServerConfigsAtom } from "../../state/server";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { CrewSettingsFrame } from "../settings/CrewSettingsFrame";
 import { ROLES_SETTINGS_PATH, WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { LibraryImportDialog } from "./LibraryImportDialog";
 import { LibraryList } from "./LibraryList";
 import type { LibrarySearch } from "./librarySearch";
 import {
@@ -85,6 +90,11 @@ export function LibraryPage({
       ? null
       : (library?.roles.find((candidate) => candidate.id === selectedId) ?? null);
   const selecting = selectedId !== undefined;
+  // Imports go to the primary environment while the page lists several.
+  const importInto =
+    shown.find((state) => state.environmentId === primaryEnvironmentId)?.environmentId ??
+    shown[0]?.environmentId ??
+    null;
 
   // Bumped to remount the open form, which discards its draft.
   const [formRevision, setFormRevision] = useState(0);
@@ -112,10 +122,13 @@ export function LibraryPage({
         title={listTitle}
         actions={
           libraries.length === 0 ? null : (
-            <Button size="sm" onClick={() => void navigate({ to: path, search: { new: kind } })}>
-              <PlusIcon />
-              {kind === "workflow" ? "New workflow" : "New role"}
-            </Button>
+            <>
+              {importInto === null ? null : <ImportAction environmentId={importInto} />}
+              <Button size="sm" onClick={() => void navigate({ to: path, search: { new: kind } })}>
+                <PlusIcon />
+                {kind === "workflow" ? "New workflow" : "New role"}
+              </Button>
+            </>
           )
         }
       >
@@ -331,6 +344,36 @@ function EnvironmentPicker({
         </SelectPopup>
       </Select>
     </div>
+  );
+}
+
+/**
+ * Imports workflows and roles into `environmentId` from a machine it links to. Hidden on servers
+ * from before imports and for clients that may not change the library.
+ */
+function ImportAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const gt = useGT();
+  const [open, setOpen] = useState(false);
+  const configs = useAtomValue(environmentServerConfigsAtom);
+  const identities = useEnvironmentIdentities();
+  const permitted = useAtomValue(rolesEnvironment.importItems.permissionAtom(environmentId));
+  if (!permitted) return null;
+  if (configs.get(environmentId)?.environment.capabilities.libraryImports !== true) return null;
+  const label =
+    identities.find((identity) => identity.environmentId === environmentId)?.label ?? environmentId;
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <DownloadIcon />
+        {gt("Import from…")}
+      </Button>
+      <LibraryImportDialog
+        environmentId={environmentId}
+        environmentLabel={label}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
   );
 }
 

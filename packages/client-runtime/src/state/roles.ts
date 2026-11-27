@@ -142,6 +142,25 @@ export function createRoleAtoms<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegi
       tag: WS_METHODS.workflowsDelete,
       onSuccess: refreshWorkflows,
     }),
+    /** What a linked machine has that this environment could import. Asks that machine. */
+    importable: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:library:importable",
+      tag: WS_METHODS.libraryImportable,
+    }),
+    /** Imports from a linked machine, or takes the update of ones that came from it. */
+    importItems: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:library:import",
+      tag: WS_METHODS.libraryImport,
+      onSuccess: (target, registry) =>
+        Effect.andThen(refreshRoles(target, registry), refreshWorkflows(target, registry)),
+    }),
+    /** Keeps an import as this environment's own, or skips the update available now. */
+    detach: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:library:detach",
+      tag: WS_METHODS.libraryDetach,
+      onSuccess: (target, registry) =>
+        Effect.andThen(refreshRoles(target, registry), refreshWorkflows(target, registry)),
+    }),
     /** Creates the missing default roles and Feature delivery, and gives bots without a model one. */
     initialize: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:crew:initialize",

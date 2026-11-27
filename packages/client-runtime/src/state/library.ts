@@ -1,4 +1,15 @@
-import { type EnvironmentId, type RoleConfig, type WorkflowConfig } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type ImportedFrom,
+  type LibraryImporter,
+  type LibraryImportProblem,
+  type LibraryItemKind,
+  libraryImportState,
+  type RoleConfig,
+  type WorkflowConfig,
+} from "@t3tools/contracts";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 
 /** Roles and workflows are environment-local, so their ids only mean something with it. */
 const libraryItemKey = (environmentId: EnvironmentId, id: string) => `${environmentId}:${id}`;
@@ -50,3 +61,156 @@ export const libraryRoleEntries = (environments: ReadonlyArray<EnvironmentLibrar
 
 export const libraryWorkflowEntries = (environments: ReadonlyArray<EnvironmentLibrary>) =>
   libraryEntries(environments, (library) => library.workflows);
+
+interface Imported {
+  readonly revision: number;
+  readonly importedFrom: ImportedFrom | null;
+}
+
+const problemLine = (problem: LibraryImportProblem, machine: string, resolve: MFunctionType) => {
+  switch (problem) {
+    case "unreachable":
+      return resolve(msg("From {machine} · Couldn't reach it", { machine }));
+    case "expired":
+      return resolve(msg("From {machine} · Link expired", { machine }));
+    case "denied":
+      return resolve(msg("From {machine} · Needs a full-access link", { machine }));
+    case "outdated":
+      return resolve(msg("From {machine} · Update Bosun there", { machine }));
+    case "removed":
+      return resolve(msg("From {machine} · Removed there", { machine }));
+    case "notLinked":
+      return resolve(msg("From {machine} · Link it to get updates", { machine }));
+  }
+};
+
+/** The muted line under an imported workflow or role in a list; null for one made here. */
+export function libraryImportLine(item: Imported, resolve: MFunctionType = mFallback) {
+  const from = item.importedFrom;
+  if (from === null) return null;
+  const machine = from.label;
+  if (from.problem !== null) return problemLine(from.problem, machine, resolve);
+  return libraryImportState(item).edited
+    ? resolve(msg("From {machine} · Changed here", { machine }))
+    : resolve(msg("From {machine}", { machine }));
+}
+
+export type LibraryImportAction = "take" | "skip" | "detach" | "link";
+
+export interface LibraryImportBanner {
+  readonly variant: "default" | "info" | "warning";
+  readonly title: string;
+  readonly description: string;
+  readonly actions: ReadonlyArray<LibraryImportAction>;
+}
+
+const problemTitle = (problem: LibraryImportProblem, machine: string, resolve: MFunctionType) => {
+  switch (problem) {
+    case "unreachable":
+      return resolve(msg("Couldn't reach {machine}", { machine }));
+    case "expired":
+      return resolve(msg("Link to {machine} expired", { machine }));
+    case "denied":
+      return resolve(msg("{machine} needs a full-access link", { machine }));
+    case "outdated":
+      return resolve(msg("Update Bosun on {machine}", { machine }));
+    case "removed":
+      return resolve(msg("Removed on {machine}", { machine }));
+    case "notLinked":
+      return resolve(msg("Link {machine} to get its updates", { machine }));
+  }
+};
+
+/** What an imported workflow's or role's editor says about its source, and what it offers. */
+export function libraryImportBanner(
+  kind: LibraryItemKind,
+  item: Imported,
+  resolve: MFunctionType = mFallback,
+): LibraryImportBanner | null {
+  const from = item.importedFrom;
+  if (from === null) return null;
+  const machine = from.label;
+  const { edited, updateAvailable } = libraryImportState(item);
+  if (from.problem === "notLinked") {
+    return {
+      variant: "info",
+      title: problemTitle(from.problem, machine, resolve),
+      description: resolve(
+        msg("This came from {machine}. Link {machine} from this machine to see its updates.", {
+          machine,
+        }),
+      ),
+      actions: ["link", "detach"],
+    };
+  }
+  if (from.problem !== null) {
+    return {
+      variant: "warning",
+      title: problemTitle(from.problem, machine, resolve),
+      description:
+        from.problem === "removed"
+          ? resolve(msg("It keeps working here, as your copy."))
+          : resolve(msg("It keeps working here. Its updates show again once this is fixed.")),
+      actions: ["detach"],
+    };
+  }
+  if (updateAvailable) {
+    const description =
+      kind === "role"
+        ? edited
+          ? resolve(
+              msg(
+                "Taking it replaces this role's name, instructions, model and fallback model, and your changes here.",
+              ),
+            )
+          : resolve(
+              msg("Taking it replaces this role's name, instructions, model and fallback model."),
+            )
+        : edited
+          ? resolve(
+              msg(
+                "Taking it replaces this workflow's name, instructions and crew, and your changes here.",
+              ),
+            )
+          : resolve(msg("Taking it replaces this workflow's name, instructions and crew."));
+    return {
+      variant: "info",
+      title: resolve(msg("Update available from {machine}", { machine })),
+      description,
+      actions: ["take", "skip"],
+    };
+  }
+  return edited
+    ? {
+        variant: "default",
+        title: resolve(msg("Imported from {machine} · changed here", { machine })),
+        description: resolve(
+          msg("Your edits stay until you take an update from {machine}.", { machine }),
+        ),
+        actions: ["detach"],
+      }
+    : {
+        variant: "default",
+        title: resolve(msg("Imported from {machine}", { machine })),
+        description: resolve(
+          msg("You can edit it here. You'll see Update available when {machine} changes it.", {
+            machine,
+          }),
+        ),
+        actions: ["detach"],
+      };
+}
+
+/** How one machine that imported it stands, for the source's "Imported on" list. */
+export function libraryImporterLine(
+  importer: LibraryImporter,
+  revision: number,
+  when: string,
+  resolve: MFunctionType = mFallback,
+) {
+  if (importer.pending) return resolve(msg("Update waiting · last seen {when}", { when }));
+  if (importer.edited) return resolve(msg("Changed there · checked {when}", { when }));
+  return importer.revision === revision
+    ? resolve(msg("Has this version · checked {when}", { when }))
+    : resolve(msg("Has an older version · checked {when}", { when }));
+}

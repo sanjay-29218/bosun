@@ -807,6 +807,7 @@ export const FeatureServiceLive = Layer.effect(
           name: role.name,
           instructions: role.instructions,
           modelSelection: role.modelSelection,
+          fallbackModelSelection: role.fallbackModelSelection ?? null,
         });
         bindings.set(role.id, id);
       }
