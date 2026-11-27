@@ -13,7 +13,7 @@ import { rolesEnvironment } from "../../state/roles";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
-import { Action, useRun } from "./MobileRoleConfigurationPanel";
+import { Action, useRun } from "./SettingsActions";
 
 /** The project's manager: its standing thread and the settings it runs with here. */
 export function MobileProjectManagerSection(props: {

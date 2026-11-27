@@ -20,7 +20,7 @@ import { useNowMinuteMs } from "../../lib/clock";
 import { relativeTime } from "../../lib/time";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { Action, useRun } from "./MobileRoleConfigurationPanel";
+import { Action, useRun } from "./SettingsActions";
 
 /**
  * Whether this client may import into `environmentId`: its server serves imports and this

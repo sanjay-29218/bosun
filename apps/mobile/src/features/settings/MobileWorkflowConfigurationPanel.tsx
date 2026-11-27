@@ -23,7 +23,7 @@ import {
   MobileImportedOn,
   withUpdateDot,
 } from "./MobileLibraryImport";
-import { Action, useRun } from "./MobileRoleConfigurationPanel";
+import { Action, useRun } from "./SettingsActions";
 
 interface WorkflowFields {
   readonly id: string;

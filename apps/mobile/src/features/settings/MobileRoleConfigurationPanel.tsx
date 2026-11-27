@@ -8,10 +8,9 @@ import {
   type ModelSelection,
   type ProjectId,
 } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
 import { T, useGT, Var } from "gt-react-native";
 import { useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 
 import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { uuidv4 } from "../../lib/uuid";
@@ -25,26 +24,7 @@ import {
   MobileImportedOn,
   withUpdateDot,
 } from "./MobileLibraryImport";
-
-export function Action(props: {
-  readonly label: string;
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly selected?: boolean;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={props.label}
-      accessibilityState={{ disabled: props.disabled, selected: props.selected }}
-      disabled={props.disabled}
-      onPress={props.onPress}
-      className={`rounded-full px-3 py-2 active:opacity-70 disabled:opacity-40 ${props.selected ? "bg-subtle-strong" : "bg-card"}`}
-    >
-      <Text className="text-sm text-foreground">{props.label}</Text>
-    </Pressable>
-  );
-}
+import { Action, useRun } from "./SettingsActions";
 
 /** Two inputs as one model choice; both empty is none. */
 const modelFrom = (
@@ -226,23 +206,6 @@ function Editor(props: {
       ) : null}
     </View>
   );
-}
-
-export function useRun(onSuccess: () => void) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const run = async (
-    action: () => Promise<{ readonly _tag: string; readonly cause?: unknown }>,
-  ) => {
-    setBusy(true);
-    setError(null);
-    const result = await action();
-    setBusy(false);
-    if (result._tag !== "Success") setError(Cause.pretty(result.cause as Cause.Cause<unknown>));
-    else onSuccess();
-    return result._tag === "Success";
-  };
-  return { busy, error, run };
 }
 
 /** An environment's roles, shared by every project: the starter set and the role editor. */

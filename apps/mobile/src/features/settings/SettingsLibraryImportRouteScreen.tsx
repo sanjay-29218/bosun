@@ -22,7 +22,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { useCanImport } from "./MobileLibraryImport";
-import { Action } from "./MobileRoleConfigurationPanel";
+import { Action } from "./SettingsActions";
 
 /**
  * Imports workflows and roles into one environment from a machine it links to: pick the machine,
