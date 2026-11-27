@@ -1,4 +1,9 @@
 import { useAtomValue } from "@effect/atom-react";
+import {
+  libraryImportDefaults,
+  libraryImportKey as keyOf,
+  libraryImportSelection,
+} from "@t3tools/client-runtime/state/library";
 import { peerLinkHealth } from "@t3tools/client-runtime/state/peerLinks";
 import type {
   EnvironmentId,
@@ -42,8 +47,6 @@ type Listing =
   | { readonly key: string; readonly status: "checking" }
   | { readonly key: string; readonly status: "ready"; readonly listed: LibraryImportable }
   | { readonly key: string; readonly status: "failed"; readonly message: string };
-
-const keyOf = (item: Pick<LibraryImportableItem, "kind" | "id">) => `${item.kind}\n${item.id}`;
 
 /**
  * Imports workflows and roles from one of this machine's linked machines: pick the machine, then
@@ -159,12 +162,7 @@ function ImportForm({
       if (result.value.problem === "outdated") {
         setOlder((known) => new Set(known).add(source));
       }
-      // Updates start ticked; nothing else does.
-      setTicked(
-        new Set(
-          result.value.items.filter((item) => item.status === "update").map((item) => keyOf(item)),
-        ),
-      );
+      setTicked(libraryImportDefaults(result.value.items));
       setListing({ key, status: "ready", listed: result.value });
     });
     return () => {
@@ -177,21 +175,7 @@ function ImportForm({
   const items = listed?.items ?? [];
   const workflows = items.filter((item) => item.kind === "workflow");
   const roles = items.filter((item) => item.kind === "role");
-  const tickedWorkflows = workflows.filter((item) => ticked.has(keyOf(item)));
-  // A ticked workflow brings the roles it needs that this machine lacks.
-  const neededBy = new Map<string, string>();
-  for (const workflow of tickedWorkflows) {
-    for (const roleId of workflow.crewRoleIds) {
-      const role = roles.find((candidate) => candidate.id === roleId);
-      if (role?.status === "new" && !neededBy.has(role.id)) neededBy.set(role.id, workflow.name);
-    }
-  }
-  const chosen = items.filter(
-    (item) =>
-      item.status !== "current" &&
-      (ticked.has(keyOf(item)) || (item.kind === "role" && neededBy.has(item.id))),
-  );
-  const replacing = chosen.filter((item) => item.status === "replaces");
+  const { neededBy, chosen, replacing } = libraryImportSelection(items, ticked);
 
   const submit = async () => {
     if (source === null || chosen.length === 0) return;

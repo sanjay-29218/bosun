@@ -1,4 +1,5 @@
 import {
+  libraryImportState,
   PLANNER_ROLE_ID,
   ProviderInstanceId,
   type RoleConfig,
@@ -7,6 +8,7 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import { useGT } from "gt-react-native";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 
@@ -15,6 +17,13 @@ import { uuidv4 } from "../../lib/uuid";
 import { rolesEnvironment } from "../../state/roles";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
+import {
+  AlsoUpdateOnSheet,
+  ImportFromAction,
+  MobileImportBanner,
+  MobileImportedOn,
+  withUpdateDot,
+} from "./MobileLibraryImport";
 
 export function Action(props: {
   readonly label: string;
@@ -36,20 +45,49 @@ export function Action(props: {
   );
 }
 
+/** Two inputs as one model choice; both empty is none. */
+const modelFrom = (
+  instanceId: string,
+  model: string,
+  previous: ModelSelection | null | undefined,
+): ModelSelection | null =>
+  !instanceId.trim() || !model.trim()
+    ? null
+    : {
+        instanceId: ProviderInstanceId.make(instanceId.trim()),
+        model: model.trim(),
+        ...(previous?.instanceId === instanceId.trim() &&
+        previous.model === model.trim() &&
+        previous.options
+          ? { options: previous.options }
+          : {}),
+      };
+
 function Editor(props: {
+  readonly environmentId: EnvironmentId;
   readonly role: RoleConfig | null;
   readonly modelSelection: ModelSelection | null;
   readonly busy: boolean;
+  readonly onChanged: () => void;
   readonly onSave: (value: {
     readonly id: string;
     readonly name: string;
     readonly instructions: string;
     readonly modelSelection: ModelSelection;
+    readonly fallbackModelSelection: ModelSelection | null;
     readonly enabled: boolean;
     readonly expectedRevision?: number;
+    readonly alsoUpdateOn?: ReadonlyArray<EnvironmentId>;
   }) => Promise<boolean>;
 }) {
+  const gt = useGT();
   const initialModel = props.role?.modelSelection ?? props.modelSelection;
+  const initialFallback = props.role?.fallbackModelSelection ?? null;
+  const [fallbackInstanceId, setFallbackInstanceId] = useState<string>(
+    initialFallback?.instanceId ?? "",
+  );
+  const [fallbackModel, setFallbackModel] = useState(initialFallback?.model ?? "");
+  const [asking, setAsking] = useState(false);
   const [name, setName] = useState(props.role?.name ?? "");
   const [instructions, setInstructions] = useState(props.role?.instructions ?? "");
   const [instanceId, setInstanceId] = useState(initialModel?.instanceId ?? "");
@@ -60,14 +98,42 @@ function Editor(props: {
   const [baseRevision, setBaseRevision] = useState(props.role?.revision);
   const canSave = !!name.trim() && !!instructions.trim() && !!instanceId.trim() && !!model.trim();
 
-  const managedFrom = props.role?.managedFrom ?? null;
+  const save = (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
+    const modelSelection = modelFrom(instanceId, model, props.role?.modelSelection)!;
+    setAsking(false);
+    void props
+      .onSave({
+        id: props.role?.id ?? `role:${uuidv4()}`,
+        name: name.trim(),
+        instructions: instructions.trim(),
+        modelSelection,
+        fallbackModelSelection: modelFrom(
+          fallbackInstanceId,
+          fallbackModel,
+          props.role?.fallbackModelSelection,
+        ),
+        enabled,
+        ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
+        ...(alsoUpdateOn && alsoUpdateOn.length > 0 ? { alsoUpdateOn } : {}),
+      })
+      .then((saved) => {
+        if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
+      });
+  };
 
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
         {props.role?.name ?? "New role"}
       </Text>
-      {managedFrom === null ? null : <ManagedFrom noun="role" label={managedFrom.label} />}
+      {props.role === null ? null : (
+        <MobileImportBanner
+          environmentId={props.environmentId}
+          kind="role"
+          item={props.role}
+          onChanged={props.onChanged}
+        />
+      )}
       <AppTextInput
         accessibilityLabel="Role name"
         placeholder="Name"
@@ -97,46 +163,53 @@ function Editor(props: {
         value={model}
         onChangeText={setModel}
       />
-      {props.role && managedFrom === null ? (
+      <Text className="text-xs text-foreground-muted">
+        {gt(
+          "Fallback model: used when this role's model can't run here. Leave both empty to use the Settings fallback.",
+        )}
+      </Text>
+      <AppTextInput
+        accessibilityLabel={gt("Fallback provider instance")}
+        placeholder={gt("Settings fallback")}
+        value={fallbackInstanceId}
+        onChangeText={setFallbackInstanceId}
+      />
+      <AppTextInput
+        accessibilityLabel={gt("Fallback model")}
+        placeholder={gt("Settings fallback")}
+        value={fallbackModel}
+        onChangeText={setFallbackModel}
+      />
+      {fallbackInstanceId || fallbackModel ? (
+        <Action
+          label={gt("Clear fallback")}
+          onPress={() => {
+            setFallbackInstanceId("");
+            setFallbackModel("");
+          }}
+        />
+      ) : null}
+      {props.role ? (
         <Action label={`Enabled: ${enabled ? "on" : "off"}`} onPress={() => setEnabled(!enabled)} />
       ) : null}
       <Action
         label="Save role"
-        disabled={!canSave || props.busy || managedFrom !== null}
+        disabled={!canSave || props.busy}
         onPress={() => {
-          const modelSelection: ModelSelection = {
-            instanceId: ProviderInstanceId.make(instanceId.trim()),
-            model: model.trim(),
-            ...(props.role?.modelSelection.instanceId === instanceId.trim() &&
-            props.role.modelSelection.model === model.trim() &&
-            props.role.modelSelection.options
-              ? { options: props.role.modelSelection.options }
-              : {}),
-          };
-          void props
-            .onSave({
-              id: props.role?.id ?? `role:${uuidv4()}`,
-              name: name.trim(),
-              instructions: instructions.trim(),
-              modelSelection,
-              enabled,
-              ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
-            })
-            .then((saved) => {
-              if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
-            });
+          if (props.role && props.role.importers.length > 0) setAsking(true);
+          else save();
         }}
       />
+      {props.role === null ? null : <MobileImportedOn item={props.role} />}
+      {asking && props.role ? (
+        <AlsoUpdateOnSheet
+          name={props.role.name}
+          importers={props.role.importers}
+          onCancel={() => setAsking(false)}
+          onSave={save}
+        />
+      ) : null}
     </View>
-  );
-}
-
-/** A copy of another machine's workflow or role, edited on that machine. */
-export function ManagedFrom(props: { readonly noun: "workflow" | "role"; readonly label: string }) {
-  return (
-    <Text className="text-xs text-foreground-muted">
-      Managed from {props.label}. This {props.noun} is a copy; edit it on {props.label}.
-    </Text>
   );
 }
 
@@ -198,21 +271,24 @@ export function MobileRolesPanel(props: {
       {rolesQuery.error ? <Text className="text-sm text-red-500">{rolesQuery.error}</Text> : null}
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
       <View className="flex-row flex-wrap gap-2">
+        <ImportFromAction environmentId={environmentId} />
         <Action label="New role" selected={roleId === null} onPress={() => setRoleId(null)} />
         {roles.map((item) => (
           <Action
             key={item.id}
-            label={item.name}
+            label={withUpdateDot(item.name, libraryImportState(item).updateAvailable)}
             selected={roleId === item.id}
             onPress={() => setRoleId(item.id)}
           />
         ))}
       </View>
       <Editor
-        key={role?.id ?? "new"}
+        key={`${role?.id ?? "new"}:${role?.revision ?? 0}`}
+        environmentId={environmentId}
         role={role}
         modelSelection={props.modelSelection}
         busy={busy}
+        onChanged={rolesQuery.refresh}
         onSave={(value) => {
           if (value.expectedRevision !== undefined) {
             return run(() =>

@@ -1,6 +1,7 @@
 import {
   type EnvironmentId,
   type ImportedFrom,
+  type LibraryImportableItem,
   type LibraryImporter,
   type LibraryImportProblem,
   type LibraryItemKind,
@@ -214,3 +215,39 @@ export function libraryImporterLine(
     ? resolve(msg("Has this version · checked {when}", { when }))
     : resolve(msg("Has an older version · checked {when}", { when }));
 }
+
+export const libraryImportKey = (item: Pick<LibraryImportableItem, "kind" | "id">) =>
+  `${item.kind}\n${item.id}`;
+
+/**
+ * What an import of the ticked items brings: a ticked workflow also brings the roles it names
+ * that this machine lacks (`neededBy`, by the workflow's name), and one already current stays.
+ */
+export function libraryImportSelection(
+  items: ReadonlyArray<LibraryImportableItem>,
+  ticked: ReadonlySet<string>,
+) {
+  const roles = items.filter((item) => item.kind === "role");
+  const neededBy = new Map<string, string>();
+  for (const workflow of items) {
+    if (workflow.kind !== "workflow" || !ticked.has(libraryImportKey(workflow))) continue;
+    for (const roleId of workflow.crewRoleIds) {
+      const role = roles.find((candidate) => candidate.id === roleId);
+      if (role?.status === "new" && !neededBy.has(role.id)) neededBy.set(role.id, workflow.name);
+    }
+  }
+  const chosen = items.filter(
+    (item) =>
+      item.status !== "current" &&
+      (ticked.has(libraryImportKey(item)) || (item.kind === "role" && neededBy.has(item.id))),
+  );
+  return {
+    neededBy: neededBy as ReadonlyMap<string, string>,
+    chosen,
+    replacing: chosen.filter((item) => item.status === "replaces"),
+  };
+}
+
+/** Updates start ticked; nothing else does. */
+export const libraryImportDefaults = (items: ReadonlyArray<LibraryImportableItem>) =>
+  new Set(items.filter((item) => item.status === "update").map(libraryImportKey));

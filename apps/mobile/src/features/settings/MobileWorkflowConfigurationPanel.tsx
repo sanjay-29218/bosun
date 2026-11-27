@@ -1,5 +1,6 @@
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
+  libraryImportState,
   type EnvironmentId,
   type RoleConfig,
   type WorkflowConfig,
@@ -13,7 +14,14 @@ import { uuidv4 } from "../../lib/uuid";
 import { useEnvironmentQuery } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { Action, ManagedFrom, useRun } from "./MobileRoleConfigurationPanel";
+import {
+  AlsoUpdateOnSheet,
+  ImportFromAction,
+  MobileImportBanner,
+  MobileImportedOn,
+  withUpdateDot,
+} from "./MobileLibraryImport";
+import { Action, useRun } from "./MobileRoleConfigurationPanel";
 
 interface WorkflowFields {
   readonly id: string;
@@ -21,9 +29,12 @@ interface WorkflowFields {
   readonly instructions: string;
   readonly crewRoleIds: Array<string>;
   readonly expectedRevision?: number;
+  readonly alsoUpdateOn?: ReadonlyArray<EnvironmentId>;
 }
 
 function Editor(props: {
+  readonly environmentId: EnvironmentId;
+  readonly onChanged: () => void;
   readonly workflow: WorkflowConfig | null;
   readonly roles: ReadonlyArray<RoleConfig>;
   readonly busy: boolean;
@@ -46,14 +57,36 @@ function Editor(props: {
     ...crewRoleIds.filter((id) => !choices.some((role) => role.enabled && role.id === id)),
   ];
 
-  const managedFrom = props.workflow?.managedFrom ?? null;
+  const [asking, setAsking] = useState(false);
+  const save = (alsoUpdateOn?: ReadonlyArray<EnvironmentId>) => {
+    setAsking(false);
+    void props
+      .onSave({
+        id: props.workflow?.id ?? `workflow:${uuidv4()}`,
+        name: name.trim(),
+        instructions: instructions.trim(),
+        crewRoleIds: [...crewRoleIds],
+        ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
+        ...(alsoUpdateOn && alsoUpdateOn.length > 0 ? { alsoUpdateOn } : {}),
+      })
+      .then((saved) => {
+        if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
+      });
+  };
 
   return (
     <View className="gap-2 rounded-xl border border-border-subtle p-3">
       <Text className="text-sm font-t3-medium text-foreground">
         {props.workflow?.name ?? "New workflow"}
       </Text>
-      {managedFrom === null ? null : <ManagedFrom noun="workflow" label={managedFrom.label} />}
+      {props.workflow === null ? null : (
+        <MobileImportBanner
+          environmentId={props.environmentId}
+          kind="workflow"
+          item={props.workflow}
+          onChanged={props.onChanged}
+        />
+      )}
       <AppTextInput
         accessibilityLabel="Workflow name"
         placeholder="Name"
@@ -92,24 +125,13 @@ function Editor(props: {
       <View className="flex-row flex-wrap gap-2">
         <Action
           label="Save workflow"
-          disabled={!canSave || props.busy || managedFrom !== null}
+          disabled={!canSave || props.busy}
           onPress={() => {
-            void props
-              .onSave({
-                id: props.workflow?.id ?? `workflow:${uuidv4()}`,
-                name: name.trim(),
-                instructions: instructions.trim(),
-                crewRoleIds: [...crewRoleIds],
-                ...(baseRevision !== undefined ? { expectedRevision: baseRevision } : {}),
-              })
-              .then((saved) => {
-                if (saved && baseRevision !== undefined) setBaseRevision(baseRevision + 1);
-              });
+            if (props.workflow && props.workflow.importers.length > 0) setAsking(true);
+            else save();
           }}
         />
-        {props.workflow &&
-        props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID &&
-        managedFrom === null ? (
+        {props.workflow && props.workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID ? (
           <Action
             label="Delete workflow"
             disabled={props.busy}
@@ -117,6 +139,15 @@ function Editor(props: {
           />
         ) : null}
       </View>
+      {props.workflow === null ? null : <MobileImportedOn item={props.workflow} />}
+      {asking && props.workflow ? (
+        <AlsoUpdateOnSheet
+          name={props.workflow.name}
+          importers={props.workflow.importers}
+          onCancel={() => setAsking(false)}
+          onSave={save}
+        />
+      ) : null}
     </View>
   );
 }
@@ -147,6 +178,7 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
       ) : null}
       {error ? <Text className="text-sm text-red-500">{error}</Text> : null}
       <View className="flex-row flex-wrap gap-2">
+        <ImportFromAction environmentId={environmentId} />
         <Action
           label="New workflow"
           selected={workflowId === null}
@@ -155,14 +187,16 @@ export function MobileWorkflowsPanel(props: { readonly environmentId: Environmen
         {workflows.map((item) => (
           <Action
             key={item.id}
-            label={item.name}
+            label={withUpdateDot(item.name, libraryImportState(item).updateAvailable)}
             selected={workflowId === item.id}
             onPress={() => setWorkflowId(item.id)}
           />
         ))}
       </View>
       <Editor
-        key={`${workflow?.id ?? "new"}:${rolesQuery.isSuccess}`}
+        key={`${workflow?.id ?? "new"}:${workflow?.revision ?? 0}:${rolesQuery.isSuccess}`}
+        environmentId={environmentId}
+        onChanged={workflowsQuery.refresh}
         workflow={workflow}
         roles={roles}
         busy={busy}
