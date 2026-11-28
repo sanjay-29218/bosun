@@ -227,7 +227,9 @@ export function SettingsLibraryImportRouteScreen({
                   ? gt("Importing…")
                   : replacing.length > 0
                     ? gt("Import and replace")
-                    : libraryImportButtonLabel(chosen, m)
+                    : chosen.length === 0
+                      ? gt("Import")
+                      : libraryImportButtonLabel(chosen, m)
               }
               selected
               disabled={running || chosen.length === 0}
