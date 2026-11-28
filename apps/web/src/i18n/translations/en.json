@@ -53,7 +53,6 @@
   "929a11e234f6e5d9": "Install the Azure command-line tools ({cli}), then enable Azure DevOps support with {command}.",
   "ad599e9de33538dd": "Add a Bitbucket token in Settings → Source control & issues.",
   "d810ecd91e8cf9d0": "Install the Origin CLI with {install}, then run {login}.",
-  "eb0f60ef4f92ab7d": "Install {fj} 0.6 or later from {fjUrl} and run {fjLogin}, or install {tea} 0.16 or later from {teaUrl} and run {teaLogin} for each Forgejo or Gitea server.",
   "d026a85e2e50e675": "Install the GitCafe CLI with {install}, then run {login}, save a token in Settings, or set {variable} on the server.",
   "22d3c0c48a34b5b3": "Install the TanStack Source CLI with {install}, then run {login}, save a token in Settings, or set {variable} on the server.",
   "756c80ad262ef315": "Waiting in the original thread",
@@ -3476,7 +3475,6 @@
   "12170596ff889d5b": "Attach again",
   "748efc40dc99b309": "Remove to send",
   "fd3d4318e7b094fa": "Draft",
-  "9c421cab815b9905": "{count, plural, one {Show {count} more image attachments} other {Show {count} more image attachments}}",
   "ae136257600738d3": "Attach files",
   "3e04fb123bbf31b4": "Draft attachment could not be saved locally and may be lost on navigation.",
   "81709882b9996586": "Attach files",
@@ -4944,7 +4942,6 @@
   "55b562c00e37321b": "Could not force stop the agent",
   "ede15a83eedec569": "Turn stopped; the agent is still shutting down",
   "f360accf1ccac178": "Turn stopped; the agent process kept running",
-  "5b660a378c56cc91": "{others, plural, =0 {It is shared with other working threads. Stop those to free it.} one {It is shared with {others} working thread. Stop those to free it.} other {It is shared with {others} working threads. Stop those to free it.}}",
   "f5948facf9a10261": "{count, plural, one {Started {count} thread in background} other {Started {count} threads in background}}",
   "d2a83704191622a6": "Failed to send messages.",
   "c11072d4a6072902": "A background prompt could not be sent",
@@ -6829,8 +6826,6 @@
   "0e3eede94227c151": "Preparing the {term, select, mr {merge request} cr {change request} other {pull request}} checkout...",
   "f5fd3733da6e3556": "Could not open a thread for the checkout",
   "09f38e303898401f": "Could not prepare the {term, select, mr {merge request} cr {change request} other {pull request}} checkout",
-  "853a77d42f86c918": "Checked out, but the thread stayed where it was",
-  "0746dfa692f895cc": "The checkout is ready on `{branch}`. Point a thread at it from the branch picker, then ask again.",
   "88db70a96177d202": "Checked out here",
   "baa66fde3613022b": "Checked out",
   "10feb68552356a08": "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s branch, with a thread open on it.",
@@ -7541,16 +7536,6 @@
       "v": "v"
     },
     "."
-  ],
-  "432e85a50e2e7964": [
-    "Show the quota of every account the hub pools, next to the providers on",
-    " ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    ". The key stays on that server."
   ],
   "2324770ba91371ac": "Endpoint URL",
   "556a695b117565ac": "Hub URL",
@@ -13074,5 +13059,49 @@
   "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
   "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
   "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
-  "8147f8cf8b1ddd7d": "Update: {tooltip}"
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "Scroll to read all of it.",
+  "035aab5e99159bd8": "{count, plural, one {… {hidden} character in the middle is not shown.} other {… {hidden} characters in the middle are not shown.}} The text ends with:",
+  "011b1ef726fa9928": "Scroll each part to read all of it.",
+  "1a04c8d36a7b29d3": "Install {fj} 0.6 or later from {fjUrl} and run {fjLogin}, or install {gt} 2.0 or later from {gtUrl} and run {gtLogin} for each Forgejo or Gitea server.",
+  "161135f0aea4d1ca": "{source}: No Codex, Claude, or Grok accounts. Skipped {providers}.",
+  "c7f5c98f1e79cc6c": "{count, plural, one {Show {count} more image attachment} other {Show {count} more image attachments}}",
+  "7b8a7cd89a22d822": "Copy as PNG",
+  "46f927ee332c1065": "{others, plural, =0 {It is shared with other working threads. Stop those to free it.} one {It is shared with {others} working thread. Stop that thread to free it.} other {It is shared with {others} working threads. Stop those to free it.}}",
+  "31a71fec6b5f2bf3": "Android Devices",
+  "a766a8ac2670096c": "{count, plural, one {{count} merge loaded} other {{count} merges loaded}}",
+  "28988b067c83383c": [
+    "Show the quota of every Codex, Claude, and Grok account the hub pools, next to the providers on ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ". The key stays on that server."
+  ],
+  "6394fa415ab91b34": "Terminal: Previous",
+  "2f766180f9d12615": "Terminal: Next",
+  "9fd31461cee8ff82": "{count, plural, one {{count} process} other {{count} processes}}",
+  "dc52330df5cc4586": "{bytes} observed",
+  "cb9f65e224af203d": "{retained}/{scanned} retained",
+  "36d52134b8b8d455": "{count, plural, one {{count} route} other {{count} routes}}",
+  "652e3aad21933d17": "{summary} · {count, plural, one {{count} project override} other {{count} project overrides}}",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " more"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " more in Linked items"
+  ]
 }

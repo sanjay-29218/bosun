@@ -53,7 +53,6 @@
   "929a11e234f6e5d9": "Installiere die Azure-Kommandozeilentools ({cli}) und aktiviere dann die Azure-DevOps-Unterstützung mit {command}.",
   "ad599e9de33538dd": "Füge unter Einstellungen → Versionskontrolle & Issues ein Bitbucket-Token hinzu.",
   "d810ecd91e8cf9d0": "Installiere die Origin CLI mit {install} und führe dann {login} aus.",
-  "eb0f60ef4f92ab7d": "Installiere {fj} 0.6 oder neuer von {fjUrl} und führe {fjLogin} aus, oder installiere {tea} 0.16 oder neuer von {teaUrl} und führe {teaLogin} für jeden Forgejo- oder Gitea-Server aus.",
   "d026a85e2e50e675": "Installiere die GitCafe CLI mit {install} und führe dann {login} aus, speichere ein Token in den Einstellungen oder setze {variable} auf dem Server.",
   "22d3c0c48a34b5b3": "Installiere die TanStack Source CLI mit {install} und führe dann {login} aus, speichere ein Token in den Einstellungen oder setze {variable} auf dem Server.",
   "756c80ad262ef315": "Wartet im ursprünglichen Thread",
@@ -3477,7 +3476,6 @@
   "12170596ff889d5b": "Erneut anhängen",
   "748efc40dc99b309": "Zum Senden entfernen",
   "fd3d4318e7b094fa": "Entwurf",
-  "9c421cab815b9905": "{count, plural, one {{count} weiteren Bildanhang anzeigen} other {{count} weitere Bildanhänge anzeigen}}",
   "ae136257600738d3": "Dateien anhängen",
   "3e04fb123bbf31b4": "Der Entwurfsanhang konnte nicht lokal gespeichert werden und geht beim Navigieren möglicherweise verloren.",
   "81709882b9996586": "Dateien anhängen",
@@ -4945,7 +4943,6 @@
   "55b562c00e37321b": "Der Agent konnte nicht zwangsweise gestoppt werden",
   "ede15a83eedec569": "Runde gestoppt; der Agent wird noch beendet",
   "f360accf1ccac178": "Runde gestoppt; der Agentenprozess läuft weiter",
-  "5b660a378c56cc91": "{others, plural, =0 {Er wird mit anderen arbeitenden Threads geteilt. Stoppe diese, um ihn freizugeben.} one {Er wird mit {others} arbeitenden Thread geteilt. Stoppe diesen, um ihn freizugeben.} other {Er wird mit {others} arbeitenden Threads geteilt. Stoppe diese, um ihn freizugeben.}}",
   "f5948facf9a10261": "{count, plural, one {{count} Thread im Hintergrund gestartet} other {{count} Threads im Hintergrund gestartet}}",
   "d2a83704191622a6": "Nachrichten konnten nicht gesendet werden.",
   "c11072d4a6072902": "Ein Prompt im Hintergrund konnte nicht gesendet werden",
@@ -6822,8 +6819,6 @@
   "0e3eede94227c151": "{term, select, mr {Checkout des Merge Requests wird vorbereitet...} cr {Checkout der Änderungsanfrage wird vorbereitet...} other {Checkout des Pull Requests wird vorbereitet...}}",
   "f5fd3733da6e3556": "Für den Checkout konnte kein Thread geöffnet werden",
   "09f38e303898401f": "{term, select, mr {Checkout des Merge Requests konnte nicht vorbereitet werden} cr {Checkout der Änderungsanfrage konnte nicht vorbereitet werden} other {Checkout des Pull Requests konnte nicht vorbereitet werden}}",
-  "853a77d42f86c918": "Ausgecheckt, aber der Thread ist geblieben, wo er war",
-  "0746dfa692f895cc": "Der Checkout ist auf `{branch}` bereit. Richte einen Thread über die Branch-Auswahl darauf aus und frage dann erneut.",
   "88db70a96177d202": "Hier ausgecheckt",
   "baa66fde3613022b": "Ausgecheckt",
   "10feb68552356a08": "{term, select, mr {Dieses Repository ist auf dem Branch des Merge Requests, mit einem darauf geöffneten Thread.} cr {Dieses Repository ist auf dem Branch der Änderungsanfrage, mit einem darauf geöffneten Thread.} other {Dieses Repository ist auf dem Branch des Pull Requests, mit einem darauf geöffneten Thread.}}",
@@ -7533,16 +7528,6 @@
       "v": "v"
     },
     " abrufen."
-  ],
-  "432e85a50e2e7964": [
-    "Zeige das Kontingent jedes Kontos, das der Hub bündelt, neben den Anbietern auf",
-    " ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    ". Der Schlüssel bleibt auf diesem Server."
   ],
   "2324770ba91371ac": "Endpunkt-URL",
   "556a695b117565ac": "Hub-URL",
@@ -13065,5 +13050,50 @@
   "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
   "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
   "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
-  "8147f8cf8b1ddd7d": "Update: {tooltip}"
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "Scrolle, um alles zu lesen.",
+  "035aab5e99159bd8": "{count, plural, one {… {hidden} Zeichen in der Mitte wird nicht angezeigt.} other {… {hidden} Zeichen in der Mitte werden nicht angezeigt.}} Der Text endet mit:",
+  "011b1ef726fa9928": "Scrolle in beiden Teilen, um alles zu lesen.",
+  "1a04c8d36a7b29d3": "Installiere {fj} 0.6 oder neuer von {fjUrl} und führe {fjLogin} aus, oder installiere {gt} 2.0 oder neuer von {gtUrl} und führe {gtLogin} für jeden Forgejo- oder Gitea-Server aus.",
+  "161135f0aea4d1ca": "{source}: Keine Codex-, Claude- oder Grok-Konten. Übersprungen: {providers}.",
+  "c7f5c98f1e79cc6c": "{count, plural, one {{count} weiteren Bildanhang anzeigen} other {{count} weitere Bildanhänge anzeigen}}",
+  "7b8a7cd89a22d822": "Als PNG kopieren",
+  "46f927ee332c1065": "{others, plural, =0 {Er wird mit anderen arbeitenden Threads geteilt. Stoppe diese, um ihn freizugeben.} one {Er wird mit {others} arbeitenden Thread geteilt. Stoppe diesen, um ihn freizugeben.} other {Er wird mit {others} arbeitenden Threads geteilt. Stoppe diese, um ihn freizugeben.}}",
+  "31a71fec6b5f2bf3": "Android-Geräte",
+  "a766a8ac2670096c": "{count, plural, one {{count} Merge geladen} other {{count} Merges geladen}}",
+  "28988b067c83383c": [
+    "Zeige das Kontingent jedes Codex-, Claude- und Grok-Kontos, das der Hub bündelt, neben den Anbietern auf",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ". Der Schlüssel bleibt auf diesem Server."
+  ],
+  "6394fa415ab91b34": "Terminal: Vorheriges",
+  "2f766180f9d12615": "Terminal: Nächstes",
+  "9fd31461cee8ff82": "{count, plural, one {{count} Prozess} other {{count} Prozesse}}",
+  "dc52330df5cc4586": "{bytes} beobachtet",
+  "cb9f65e224af203d": "{retained}/{scanned} gespeichert",
+  "36d52134b8b8d455": "{count, plural, one {{count} Route} other {{count} Routen}}",
+  "652e3aad21933d17": "{summary} · {count, plural, one {{count} Projektüberschreibung} other {{count} Projektüberschreibungen}}",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " weitere"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " weitere unter Verknüpfte Elemente"
+  ]
 }

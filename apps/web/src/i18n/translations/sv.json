@@ -53,7 +53,6 @@
   "929a11e234f6e5d9": "Installera Azures kommandoradsverktyg ({cli}) och aktivera sedan stöd för Azure DevOps med {command}.",
   "ad599e9de33538dd": "Lägg till en Bitbucket-token i Inställningar → Versionshantering och ärenden.",
   "d810ecd91e8cf9d0": "Installera Origin CLI med {install} och kör sedan {login}.",
-  "eb0f60ef4f92ab7d": "Installera {fj} 0.6 eller senare från {fjUrl} och kör {fjLogin}, eller installera {tea} 0.16 eller senare från {teaUrl} och kör {teaLogin} för varje Forgejo- eller Gitea-server.",
   "d026a85e2e50e675": "Installera GitCafe CLI med {install} och kör sedan {login}, spara en token i Inställningar eller ange {variable} på servern.",
   "22d3c0c48a34b5b3": "Installera TanStack Source CLI med {install} och kör sedan {login}, spara en token i Inställningar eller ange {variable} på servern.",
   "756c80ad262ef315": "Väntar i den ursprungliga tråden",
@@ -3476,7 +3475,6 @@
   "12170596ff889d5b": "Bifoga igen",
   "748efc40dc99b309": "Ta bort för att skicka",
   "fd3d4318e7b094fa": "Utkast",
-  "9c421cab815b9905": "{count, plural, one {Visa {count} bildbilaga till} other {Visa {count} bildbilagor till}}",
   "ae136257600738d3": "Bifoga filer",
   "3e04fb123bbf31b4": "Utkastets bilaga kunde inte sparas lokalt och kan gå förlorad vid navigering.",
   "81709882b9996586": "Bifoga filer",
@@ -4943,7 +4941,6 @@
   "55b562c00e37321b": "Kunde inte tvångsstoppa agenten",
   "ede15a83eedec569": "Omgången stoppades; agenten håller fortfarande på att stängas av",
   "f360accf1ccac178": "Omgången stoppades; agentprocessen fortsatte att köras",
-  "5b660a378c56cc91": "{others, plural, =0 {Den delas med andra arbetande trådar. Stoppa dem för att frigöra den.} one {Den delas med {others} arbetande tråd. Stoppa den för att frigöra den.} other {Den delas med {others} arbetande trådar. Stoppa dem för att frigöra den.}}",
   "f5948facf9a10261": "{count, plural, one {Startade {count} tråd i bakgrunden} other {Startade {count} trådar i bakgrunden}}",
   "d2a83704191622a6": "Det gick inte att skicka meddelandena.",
   "c11072d4a6072902": "En bakgrundsprompt kunde inte skickas",
@@ -6828,8 +6825,6 @@
   "0e3eede94227c151": "Förbereder utcheckning av {term, select, mr {merge requesten} cr {ändringsbegäran} other {pull requesten}}...",
   "f5fd3733da6e3556": "Kunde inte öppna en tråd för utcheckningen",
   "09f38e303898401f": "Kunde inte förbereda utcheckning av {term, select, mr {merge requesten} cr {ändringsbegäran} other {pull requesten}}",
-  "853a77d42f86c918": "Utcheckad, men tråden stannade där den var",
-  "0746dfa692f895cc": "Utcheckningen är redo på `{branch}`. Peka en tråd mot den från grenväljaren och fråga sedan igen.",
   "88db70a96177d202": "Utcheckad här",
   "baa66fde3613022b": "Utcheckad",
   "10feb68552356a08": "Det här repot är på grenen för {term, select, mr {merge requesten} cr {ändringsbegäran} other {pull requesten}}, med en tråd öppen på den.",
@@ -7540,16 +7535,6 @@
       "v": "v"
     },
     "."
-  ],
-  "432e85a50e2e7964": [
-    "Visa kvoten för alla konton som hubben samlar, bredvid leverantörerna på",
-    " ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    ". Nyckeln stannar på den servern."
   ],
   "2324770ba91371ac": "Slutpunktens URL",
   "556a695b117565ac": "Hubb-URL",
@@ -13072,5 +13057,50 @@
   "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
   "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
   "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
-  "8147f8cf8b1ddd7d": "Update: {tooltip}"
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "Scrolla för att läsa allt.",
+  "035aab5e99159bd8": "{count, plural, one {… {hidden} tecken i mitten visas inte.} other {… {hidden} tecken i mitten visas inte.}} Texten slutar med:",
+  "011b1ef726fa9928": "Scrolla i varje del för att läsa allt.",
+  "1a04c8d36a7b29d3": "Installera {fj} 0.6 eller senare från {fjUrl} och kör {fjLogin}, eller installera {gt} 2.0 eller senare från {gtUrl} och kör {gtLogin} för varje Forgejo- eller Gitea-server.",
+  "161135f0aea4d1ca": "{source}: inga Codex-, Claude- eller Grok-konton. Hoppade över {providers}.",
+  "c7f5c98f1e79cc6c": "{count, plural, one {Visa {count} bildbilaga till} other {Visa {count} bildbilagor till}}",
+  "7b8a7cd89a22d822": "Kopiera som PNG",
+  "46f927ee332c1065": "{others, plural, =0 {Den delas med andra arbetande trådar. Stoppa dem för att frigöra den.} one {Den delas med {others} arbetande tråd. Stoppa den för att frigöra den.} other {Den delas med {others} arbetande trådar. Stoppa dem för att frigöra den.}}",
+  "31a71fec6b5f2bf3": "Android-enheter",
+  "a766a8ac2670096c": "{count, plural, one {{count} merge inläst} other {{count} merges inlästa}}",
+  "28988b067c83383c": [
+    "Visa kvoten för alla Codex-, Claude- och Grok-konton som hubben samlar, bredvid leverantörerna på",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ". Nyckeln stannar på den servern."
+  ],
+  "6394fa415ab91b34": "Terminal: föregående",
+  "2f766180f9d12615": "Terminal: nästa",
+  "9fd31461cee8ff82": "{count, plural, one {{count} process} other {{count} processer}}",
+  "dc52330df5cc4586": "{bytes} observerade",
+  "cb9f65e224af203d": "{retained}/{scanned} sparade",
+  "36d52134b8b8d455": "{count, plural, one {{count} rutt} other {{count} rutter}}",
+  "652e3aad21933d17": "{summary} · {count, plural, one {{count} projektåsidosättning} other {{count} projektåsidosättningar}}",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " till"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " till i Länkade objekt"
+  ]
 }

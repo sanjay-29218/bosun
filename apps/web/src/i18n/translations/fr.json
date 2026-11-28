@@ -53,7 +53,6 @@
   "929a11e234f6e5d9": "Installez les outils en ligne de commande Azure ({cli}), puis activez la prise en charge d’Azure DevOps avec {command}.",
   "ad599e9de33538dd": "Ajoutez un jeton Bitbucket dans Paramètres → Gestion de versions et tickets.",
   "d810ecd91e8cf9d0": "Installez la CLI Origin avec {install}, puis exécutez {login}.",
-  "eb0f60ef4f92ab7d": "Installez {fj} 0.6 ou version ultérieure depuis {fjUrl} et exécutez {fjLogin}, ou installez {tea} 0.16 ou version ultérieure depuis {teaUrl} et exécutez {teaLogin} pour chaque serveur Forgejo ou Gitea.",
   "d026a85e2e50e675": "Installez la CLI GitCafe avec {install}, puis exécutez {login}, enregistrez un jeton dans Paramètres ou définissez {variable} sur le serveur.",
   "22d3c0c48a34b5b3": "Installez la CLI TanStack Source avec {install}, puis exécutez {login}, enregistrez un jeton dans Paramètres ou définissez {variable} sur le serveur.",
   "756c80ad262ef315": "En attente dans le fil d'origine",
@@ -3476,7 +3475,6 @@
   "12170596ff889d5b": "Joindre à nouveau",
   "748efc40dc99b309": "Retirez pour envoyer",
   "fd3d4318e7b094fa": "Brouillon",
-  "9c421cab815b9905": "{count, plural, one {Afficher {count} image jointe de plus} other {Afficher {count} images jointes de plus}}",
   "ae136257600738d3": "Joindre des fichiers",
   "3e04fb123bbf31b4": "La pièce jointe du brouillon n’a pas pu être enregistrée localement et risque d’être perdue en changeant de page.",
   "81709882b9996586": "Joindre des fichiers",
@@ -4943,7 +4941,6 @@
   "55b562c00e37321b": "Impossible de forcer l’arrêt de l’agent",
   "ede15a83eedec569": "Tour arrêté ; l’agent est encore en train de s’arrêter",
   "f360accf1ccac178": "Tour arrêté ; le processus de l’agent continue de tourner",
-  "5b660a378c56cc91": "{others, plural, =0 {Il est partagé avec d’autres fils en cours. Arrêtez-les pour le libérer.} one {Il est partagé avec {others} fil en cours. Arrêtez-le pour le libérer.} other {Il est partagé avec {others} fils en cours. Arrêtez-les pour le libérer.}}",
   "f5948facf9a10261": "{count, plural, one {{count} fil démarré en arrière-plan} other {{count} fils démarrés en arrière-plan}}",
   "d2a83704191622a6": "Échec de l’envoi des messages.",
   "c11072d4a6072902": "Un prompt en arrière-plan n’a pas pu être envoyé",
@@ -6823,8 +6820,6 @@
   "0e3eede94227c151": "Préparation de l’extraction de la {term, select, mr {merge request} cr {demande de modification} other {pull request}}...",
   "f5fd3733da6e3556": "Impossible d’ouvrir un fil pour le checkout",
   "09f38e303898401f": "Impossible de préparer l’extraction de la {term, select, mr {merge request} cr {demande de modification} other {pull request}}",
-  "853a77d42f86c918": "Récupérée, mais le fil est resté où il était",
-  "0746dfa692f895cc": "Le checkout est prêt sur `{branch}`. Pointez un fil dessus depuis le sélecteur de branche, puis reposez la question.",
   "88db70a96177d202": "Récupérée ici",
   "baa66fde3613022b": "Récupérée",
   "10feb68552356a08": "Ce dépôt est sur la branche de la {term, select, mr {merge request} cr {demande de modification} other {pull request}}, avec un fil ouvert dessus.",
@@ -7535,16 +7530,6 @@
       "v": "v"
     },
     "."
-  ],
-  "432e85a50e2e7964": [
-    "Affichez le quota de chaque compte regroupé par le hub, à côté des fournisseurs sur",
-    " ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    ". La clé reste sur ce serveur."
   ],
   "2324770ba91371ac": "URL du point de terminaison",
   "556a695b117565ac": "URL du hub",
@@ -13065,5 +13050,50 @@
   "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
   "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
   "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
-  "8147f8cf8b1ddd7d": "Update: {tooltip}"
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "Faites défiler pour tout lire.",
+  "035aab5e99159bd8": "{count, plural, one {… {hidden} caractère au milieu n’est pas affiché.} other {… {hidden} caractères au milieu ne sont pas affichés.}} Le texte se termine par :",
+  "011b1ef726fa9928": "Faites défiler chaque partie pour la lire en entier.",
+  "1a04c8d36a7b29d3": "Installez {fj} 0.6 ou version ultérieure depuis {fjUrl} et exécutez {fjLogin}, ou installez {gt} 2.0 ou version ultérieure depuis {gtUrl} et exécutez {gtLogin} pour chaque serveur Forgejo ou Gitea.",
+  "161135f0aea4d1ca": "{source} : aucun compte Codex, Claude ou Grok. Ignorés : {providers}.",
+  "c7f5c98f1e79cc6c": "{count, plural, one {Afficher {count} image jointe de plus} other {Afficher {count} images jointes de plus}}",
+  "7b8a7cd89a22d822": "Copier en PNG",
+  "46f927ee332c1065": "{others, plural, =0 {Il est partagé avec d’autres fils en cours. Arrêtez-les pour le libérer.} one {Il est partagé avec {others} fil en cours. Arrêtez-le pour le libérer.} other {Il est partagé avec {others} fils en cours. Arrêtez-les pour le libérer.}}",
+  "31a71fec6b5f2bf3": "Appareils Android",
+  "a766a8ac2670096c": "{count, plural, one {{count} fusion chargée} other {{count} fusions chargées}}",
+  "28988b067c83383c": [
+    "Affichez le quota de chaque compte Codex, Claude et Grok regroupé par le hub, à côté des fournisseurs sur",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ". La clé reste sur ce serveur."
+  ],
+  "6394fa415ab91b34": "Terminal : précédent",
+  "2f766180f9d12615": "Terminal : suivant",
+  "9fd31461cee8ff82": "{count, plural, one {{count} processus} other {{count} processus}}",
+  "dc52330df5cc4586": "{bytes} observés",
+  "cb9f65e224af203d": "{retained}/{scanned} conservés",
+  "36d52134b8b8d455": "{count, plural, one {{count} route} other {{count} routes}}",
+  "652e3aad21933d17": "{summary} · {count, plural, one {{count} remplacement de projet} other {{count} remplacements de projet}}",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " de plus"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " de plus dans Éléments associés"
+  ]
 }

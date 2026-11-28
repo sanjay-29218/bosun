@@ -53,7 +53,6 @@
   "929a11e234f6e5d9": "请安装 Azure 命令行工具（{cli}），然后使用 {command} 启用 Azure DevOps 支持。",
   "ad599e9de33538dd": "请在“设置 → 版本控制与 issue”中添加 Bitbucket token。",
   "d810ecd91e8cf9d0": "请使用 {install} 安装 Origin CLI，然后运行 {login}。",
-  "eb0f60ef4f92ab7d": "请从 {fjUrl} 安装 {fj} 0.6 或更高版本并运行 {fjLogin}，或从 {teaUrl} 安装 {tea} 0.16 或更高版本，并为每个 Forgejo 或 Gitea 服务器运行 {teaLogin}。",
   "d026a85e2e50e675": "请使用 {install} 安装 GitCafe CLI，然后运行 {login}、在设置中保存 token，或在服务器上设置 {variable}。",
   "22d3c0c48a34b5b3": "请使用 {install} 安装 TanStack Source CLI，然后运行 {login}、在设置中保存 token，或在服务器上设置 {variable}。",
   "756c80ad262ef315": "正在原始对话中等待",
@@ -3481,7 +3480,6 @@
   "12170596ff889d5b": "重新添加附件",
   "748efc40dc99b309": "移除后才能发送",
   "fd3d4318e7b094fa": "草稿",
-  "9c421cab815b9905": "{count, plural, other {再显示 {count} 个图片附件}}",
   "ae136257600738d3": "添加附件",
   "3e04fb123bbf31b4": "草稿附件无法保存到本地，离开当前页面后可能丢失。",
   "81709882b9996586": "添加附件",
@@ -4948,7 +4946,6 @@
   "55b562c00e37321b": "无法强制停止智能体",
   "ede15a83eedec569": "这一轮已停止，智能体仍在关闭中",
   "f360accf1ccac178": "这一轮已停止，但智能体进程仍在运行",
-  "5b660a378c56cc91": "{others, plural, =0 {它与其他运行中的会话共享。停止那些会话即可释放它。} other {它与另外 {others} 个运行中的会话共享。停止那些会话即可释放它。}}",
   "f5948facf9a10261": "{count, plural, other {已在后台开始 {count} 个会话}}",
   "d2a83704191622a6": "无法发送消息。",
   "c11072d4a6072902": "有一条后台提示词没能发送",
@@ -6834,8 +6831,6 @@
   "0e3eede94227c151": "正在准备 {term, select, mr {merge request} cr {change request} other {pull request}} 工作副本...",
   "f5fd3733da6e3556": "无法为工作副本打开会话",
   "09f38e303898401f": "无法准备 {term, select, mr {MR} cr {change request} other {PR}} 工作副本",
-  "853a77d42f86c918": "已检出，但会话仍在原处",
-  "0746dfa692f895cc": "工作副本已在 `{branch}` 上准备好。请从分支选择器将会话指向它，然后再次提问。",
   "88db70a96177d202": "已在此检出",
   "baa66fde3613022b": "已检出",
   "10feb68552356a08": "此仓库位于该 {term, select, mr {merge request} cr {change request} other {pull request}} 的分支上，并已在其上打开一个会话。",
@@ -7548,16 +7543,6 @@
       "v": "v"
     },
     " 上的端点读取配额。"
-  ],
-  "432e85a50e2e7964": [
-    "在",
-    " ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    " 上的提供方旁显示该中转站汇集的每个账户的配额。密钥保留在该服务器上。"
   ],
   "2324770ba91371ac": "端点 URL",
   "556a695b117565ac": "中转站 URL",
@@ -13079,5 +13064,50 @@
   "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
   "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
   "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
-  "8147f8cf8b1ddd7d": "Update: {tooltip}"
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "滚动以阅读全部内容。",
+  "035aab5e99159bd8": "{count, plural, other {… 中间的 {hidden} 个字符未显示。}} 文本结尾为：",
+  "011b1ef726fa9928": "滚动每个部分以阅读全部内容。",
+  "1a04c8d36a7b29d3": "请从 {fjUrl} 安装 {fj} 0.6 或更高版本并运行 {fjLogin}，或从 {gtUrl} 安装 {gt} 2.0 或更高版本，并为每个 Forgejo 或 Gitea 服务器运行 {gtLogin}。",
+  "161135f0aea4d1ca": "{source}：没有 Codex、Claude 或 Grok 账户。已跳过：{providers}。",
+  "c7f5c98f1e79cc6c": "{count, plural, other {再显示 {count} 个图片附件}}",
+  "7b8a7cd89a22d822": "复制为 PNG",
+  "46f927ee332c1065": "{others, plural, =0 {它与其他运行中的会话共享。停止那些会话即可释放它。} other {它与另外 {others} 个运行中的会话共享。停止那些会话即可释放它。}}",
+  "31a71fec6b5f2bf3": "Android 设备",
+  "a766a8ac2670096c": "{count, plural, other {已加载 {count} 次合并}}",
+  "28988b067c83383c": [
+    "在",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 上的提供方旁显示该中转站汇集的每个 Codex、Claude 和 Grok 账户的配额。密钥保留在该服务器上。"
+  ],
+  "6394fa415ab91b34": "终端：上一个",
+  "2f766180f9d12615": "终端：下一个",
+  "9fd31461cee8ff82": "{count, plural, other {{count} 个进程}}",
+  "dc52330df5cc4586": "已观测 {bytes}",
+  "cb9f65e224af203d": "已保留 {retained}/{scanned}",
+  "36d52134b8b8d455": "{count, plural, other {{count} 条线路}}",
+  "652e3aad21933d17": "{summary} · {count, plural, other {{count} 个项目覆盖}}",
+  "06d3fe3e6b255d15": [
+    "还有 ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 项"
+  ],
+  "f1b18820c0ab93ac": [
+    "在已关联项中查看另外 ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 项"
+  ]
 }

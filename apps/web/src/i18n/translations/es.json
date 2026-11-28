@@ -53,7 +53,6 @@
   "929a11e234f6e5d9": "Instala las herramientas de línea de comandos de Azure ({cli}) y activa la compatibilidad con Azure DevOps con {command}.",
   "ad599e9de33538dd": "Añade un token de Bitbucket en Ajustes → Control de versiones e issues.",
   "d810ecd91e8cf9d0": "Instala la CLI de Origin con {install} y ejecuta {login}.",
-  "eb0f60ef4f92ab7d": "Instala {fj} 0.6 o posterior desde {fjUrl} y ejecuta {fjLogin}, o instala {tea} 0.16 o posterior desde {teaUrl} y ejecuta {teaLogin} para cada servidor de Forgejo o Gitea.",
   "d026a85e2e50e675": "Instala la CLI de GitCafe con {install} y ejecuta {login}, guarda un token en Ajustes o define {variable} en el servidor.",
   "22d3c0c48a34b5b3": "Instala la CLI de TanStack Source con {install} y ejecuta {login}, guarda un token en Ajustes o define {variable} en el servidor.",
   "756c80ad262ef315": "En espera en el hilo original",
@@ -3476,7 +3475,6 @@
   "12170596ff889d5b": "Volver a adjuntar",
   "748efc40dc99b309": "Quítalo para enviar",
   "fd3d4318e7b094fa": "Borrador",
-  "9c421cab815b9905": "{count, plural, one {Mostrar {count} imagen adjunta más} other {Mostrar {count} imágenes adjuntas más}}",
   "ae136257600738d3": "Adjuntar archivos",
   "3e04fb123bbf31b4": "No se pudo guardar localmente el adjunto del borrador y puede perderse al navegar.",
   "81709882b9996586": "Adjuntar archivos",
@@ -4942,7 +4940,6 @@
   "55b562c00e37321b": "No se pudo forzar la detención del agente",
   "ede15a83eedec569": "Turno detenido; el agente aún se está cerrando",
   "f360accf1ccac178": "Turno detenido; el proceso del agente siguió ejecutándose",
-  "5b660a378c56cc91": "{others, plural, =0 {Se comparte con otros hilos en curso. Detenlos para liberarlo.} one {Se comparte con {others} hilo en curso. Detenlo para liberarlo.} other {Se comparte con {others} hilos en curso. Detenlos para liberarlo.}}",
   "f5948facf9a10261": "{count, plural, one {Se inició {count} hilo en segundo plano} other {Se iniciaron {count} hilos en segundo plano}}",
   "d2a83704191622a6": "No se pudieron enviar los mensajes.",
   "c11072d4a6072902": "No se pudo enviar un prompt en segundo plano",
@@ -6822,8 +6819,6 @@
   "0e3eede94227c151": "Preparando el checkout de la {term, select, mr {merge request} cr {solicitud de cambios} other {pull request}}...",
   "f5fd3733da6e3556": "No se pudo abrir un hilo para el checkout",
   "09f38e303898401f": "No se pudo preparar el checkout de la {term, select, mr {merge request} cr {solicitud de cambios} other {pull request}}",
-  "853a77d42f86c918": "Checkout hecho, pero el hilo se quedó donde estaba",
-  "0746dfa692f895cc": "El checkout está listo en `{branch}`. Apunta un hilo a él desde el selector de ramas y vuelve a preguntar.",
   "88db70a96177d202": "Checkout hecho aquí",
   "baa66fde3613022b": "Checkout hecho",
   "10feb68552356a08": "Este repositorio está en la rama de la {term, select, mr {merge request} cr {solicitud de cambios} other {pull request}}, con un hilo abierto en ella.",
@@ -7534,16 +7529,6 @@
       "v": "v"
     },
     "."
-  ],
-  "432e85a50e2e7964": [
-    "Muestra la cuota de cada cuenta que agrupa el hub, junto a los proveedores en",
-    " ",
-    {
-      "i": 1,
-      "k": "_gt_value_1",
-      "v": "v"
-    },
-    ". La clave se queda en ese servidor."
   ],
   "2324770ba91371ac": "URL del punto de conexión",
   "556a695b117565ac": "URL del hub",
@@ -13060,5 +13045,50 @@
   "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
   "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
   "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
-  "8147f8cf8b1ddd7d": "Update: {tooltip}"
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "Desplázate para leerlo todo.",
+  "035aab5e99159bd8": "{count, plural, one {… No se muestra {hidden} carácter del medio.} other {… No se muestran {hidden} caracteres del medio.}} El texto termina con:",
+  "011b1ef726fa9928": "Desplázate en cada parte para leerla entera.",
+  "1a04c8d36a7b29d3": "Instala {fj} 0.6 o posterior desde {fjUrl} y ejecuta {fjLogin}, o instala {gt} 2.0 o posterior desde {gtUrl} y ejecuta {gtLogin} para cada servidor de Forgejo o Gitea.",
+  "161135f0aea4d1ca": "{source}: no hay cuentas de Codex, Claude ni Grok. Se omitieron: {providers}.",
+  "c7f5c98f1e79cc6c": "{count, plural, one {Mostrar {count} imagen adjunta más} other {Mostrar {count} imágenes adjuntas más}}",
+  "7b8a7cd89a22d822": "Copiar como PNG",
+  "46f927ee332c1065": "{others, plural, =0 {Se comparte con otros hilos en curso. Detenlos para liberarlo.} one {Se comparte con {others} hilo en curso. Detenlo para liberarlo.} other {Se comparte con {others} hilos en curso. Detenlos para liberarlo.}}",
+  "31a71fec6b5f2bf3": "Dispositivos Android",
+  "a766a8ac2670096c": "{count, plural, one {{count} fusión cargada} other {{count} fusiones cargadas}}",
+  "28988b067c83383c": [
+    "Muestra la cuota de cada cuenta de Codex, Claude y Grok que agrupa el hub, junto a los proveedores en",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ". La clave se queda en ese servidor."
+  ],
+  "6394fa415ab91b34": "Terminal: anterior",
+  "2f766180f9d12615": "Terminal: siguiente",
+  "9fd31461cee8ff82": "{count, plural, one {{count} proceso} other {{count} procesos}}",
+  "dc52330df5cc4586": "{bytes} observados",
+  "cb9f65e224af203d": "{retained}/{scanned} guardados",
+  "36d52134b8b8d455": "{count, plural, one {{count} ruta} other {{count} rutas}}",
+  "652e3aad21933d17": "{summary} · {count, plural, one {{count} anulación de proyecto} other {{count} anulaciones de proyecto}}",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " más"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " más en Elementos vinculados"
+  ]
 }

@@ -19,7 +19,7 @@ import {
   getProviderOptionCurrentLabel,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
-  normalizeModelSlug,
+  resolveSelectableModel,
 } from "@t3tools/shared/model";
 import { msg, useMessages } from "gt-react";
 import { m, type MessageResolver } from "~/i18n/messages";
@@ -104,7 +104,7 @@ function getSelectedTraits(
   const caps = getProviderModelCapabilities(models, model, provider, includePlanAgent);
   const modelIsUnavailable =
     keepsUnavailableModelOptions(provider, model) &&
-    !models.some((candidate) => candidate.slug === normalizeModelSlug(model, provider));
+    resolveSelectableModel(provider, model, models) === null;
   const descriptors = modelIsUnavailable
     ? buildUnavailableModelOptionDescriptors(
         includePlanAgent
