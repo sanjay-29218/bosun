@@ -1,6 +1,8 @@
 import {
   botHeadquartersThreadId,
   EnvironmentId,
+  projectHeadquartersThreadId,
+  RunId,
   ProjectId,
   ProviderInstanceId,
   ThreadId,
@@ -12,6 +14,7 @@ import {
   botNeedsYouKey,
   collectNeedsYou,
   countNeedsYouByBot,
+  countNeedsYouByProject,
   featureCardActions,
   featureCardKey,
   featureColumn,
@@ -27,9 +30,11 @@ import {
   groupFeaturesByColumn,
   matchesFeatureSearch,
   nestFeatureChildren,
-  oldestNeedsYouItem,
+  oldestAsk,
+  threadAsksYou,
   threadBoardColumn,
   threadsByFeature,
+  type AskShell,
   type BoardThreadShell,
   type EnvironmentFeatureCard,
   type NeedsYouShell,
@@ -408,7 +413,6 @@ describe("needs you", () => {
       ["approval", ["early-approval", "late-approval"]],
       ["question", ["question"]],
     ]);
-    expect(oldestNeedsYouItem(groups)?.shell.id).toBe("question");
   });
 });
 
@@ -455,6 +459,32 @@ describe("drag and actions", () => {
   });
 });
 
+const askShell = (
+  id: string,
+  overrides: Partial<AskShell> = {},
+): AskShell & { readonly projectId: ProjectId } => ({
+  ...shell(id),
+  projectId,
+  runtime: null,
+  lineage: { relationshipToParent: null },
+  interactionMode: "default",
+  hasActionableProposedPlan: false,
+  latestRun: null,
+  ...overrides,
+});
+const settledRun = {
+  runId: RunId.make("run-1"),
+  status: "completed" as const,
+};
+const planReady: Partial<AskShell> = {
+  interactionMode: "plan",
+  hasActionableProposedPlan: true,
+  latestRun: settledRun,
+};
+const nestedSubagent: Partial<AskShell> = {
+  lineage: { relationshipToParent: "subagent" },
+};
+
 describe("countNeedsYouByBot", () => {
   it("counts waiting threads under the bot that owns their project", () => {
     const social = ProjectId.make("social-site");
@@ -462,12 +492,12 @@ describe("countNeedsYouByBot", () => {
     const other = EnvironmentId.make("env-2");
     const counts = countNeedsYouByBot(
       [
-        { ...shell("approval", { hasPendingApprovals: true }), projectId: social },
-        { ...shell("question", { hasPendingUserInput: true }), projectId: social },
-        { ...shell("idle"), projectId: social },
-        { ...shell("no-bot", { hasPendingApprovals: true }), projectId: loose },
+        { ...askShell("approval", { hasPendingApprovals: true }), projectId: social },
+        { ...askShell("question", { hasPendingUserInput: true }), projectId: social },
+        { ...askShell("idle"), projectId: social },
+        { ...askShell("no-bot", { hasPendingApprovals: true }), projectId: loose },
         {
-          ...shell("elsewhere", { hasPendingApprovals: true, environmentId: other }),
+          ...askShell("elsewhere", { hasPendingApprovals: true, environmentId: other }),
           projectId: social,
         },
       ],
@@ -489,7 +519,7 @@ describe("countNeedsYouByBot", () => {
     const counts = countNeedsYouByBot(
       [
         {
-          ...shell(botHeadquartersThreadId("bot:social"), { hasPendingApprovals: true }),
+          ...askShell(botHeadquartersThreadId("bot:social"), { hasPendingApprovals: true }),
           projectId: scratch,
         },
       ],
@@ -497,6 +527,128 @@ describe("countNeedsYouByBot", () => {
     );
     expect(Object.fromEntries(counts)).toEqual({
       [botNeedsYouKey(environmentId, "bot:social")]: 1,
+    });
+  });
+});
+
+describe("threadAsksYou", () => {
+  it("counts an approval, a question and a plan ready for review", () => {
+    expect(threadAsksYou(askShell("approval", { hasPendingApprovals: true }))).toBe(true);
+    expect(threadAsksYou(askShell("question", { hasPendingUserInput: true }))).toBe(true);
+    expect(threadAsksYou(askShell("plan", planReady))).toBe(true);
+    expect(threadAsksYou(askShell("idle"))).toBe(false);
+  });
+
+  it("waits for the plan's run to settle", () => {
+    expect(
+      threadAsksYou(
+        askShell("planning", { ...planReady, latestRun: { ...settledRun, status: "running" } }),
+      ),
+    ).toBe(false);
+    expect(
+      threadAsksYou(askShell("no-plan", { ...planReady, hasActionableProposedPlan: false })),
+    ).toBe(false);
+    expect(
+      threadAsksYou(askShell("default-mode", { ...planReady, interactionMode: "default" })),
+    ).toBe(false);
+  });
+
+  it("leaves a nested subagent's plain question to its coordinator", () => {
+    expect(
+      threadAsksYou(askShell("child-question", { ...nestedSubagent, hasPendingUserInput: true })),
+    ).toBe(false);
+    expect(
+      threadAsksYou(
+        askShell("child-user-only", {
+          ...nestedSubagent,
+          hasPendingUserInput: true,
+          pendingUserInputUserOnly: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      threadAsksYou(askShell("child-approval", { ...nestedSubagent, hasPendingApprovals: true })),
+    ).toBe(true);
+    // A subagent handed to another project is listed there and asks the person itself.
+    expect(
+      threadAsksYou(
+        askShell("listed-child", {
+          lineage: { relationshipToParent: "subagent", listed: true },
+          hasPendingUserInput: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("never counts a child's rolled-up ask or an archived thread", () => {
+    expect(threadAsksYou(askShell("lead", { pendingSubagentRequest: "approval" }))).toBe(false);
+    expect(
+      threadAsksYou(
+        askShell("archived", { hasPendingApprovals: true, archivedAt: "2026-10-02T00:00:00.000Z" }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("oldestAsk", () => {
+  it("opens the ask that has waited longest, plan reviews included", () => {
+    expect(
+      oldestAsk([
+        askShell("late-approval", { hasPendingApprovals: true, updatedAt: "2026-10-03" }),
+        askShell("plan", { ...planReady, updatedAt: "2026-10-02" }),
+        // Its coordinator answers it, so ⌘⇧Y skips it as the badge does.
+        askShell("child-question", {
+          ...nestedSubagent,
+          hasPendingUserInput: true,
+          updatedAt: "2026-10-01",
+        }),
+        askShell("idle", { updatedAt: "2026-09-01" }),
+      ])?.id,
+    ).toBe("plan");
+    expect(oldestAsk([askShell("idle")])).toBeNull();
+  });
+});
+
+describe("asks per bot and project", () => {
+  const owned = [{ environmentId, id: projectId, botId: "bot:social" }];
+
+  it("counts a plan ready for review, and a crew ask once though its lead rolls it up", () => {
+    const counts = countNeedsYouByBot(
+      [
+        askShell("plan", planReady),
+        askShell("lead", { pendingSubagentRequest: "approval" }),
+        askShell("crew", { ...nestedSubagent, hasPendingApprovals: true }),
+      ],
+      owned,
+    );
+    expect(Object.fromEntries(counts)).toEqual({
+      [botNeedsYouKey(environmentId, "bot:social")]: 2,
+    });
+  });
+
+  it("leaves a project manager's ask to the manager", () => {
+    const counts = countNeedsYouByBot(
+      [askShell(projectHeadquartersThreadId(projectId), { hasPendingApprovals: true })],
+      owned,
+    );
+    expect(counts.size).toBe(0);
+  });
+
+  it("counts asks per project, the manager's own and projects with no bot included", () => {
+    const loose = ProjectId.make("loose");
+    const counts = countNeedsYouByProject([
+      askShell(projectHeadquartersThreadId(projectId), { hasPendingUserInput: true }),
+      askShell("plan", planReady),
+      askShell("idle"),
+      { ...askShell("loose", { hasPendingApprovals: true }), projectId: loose },
+      {
+        ...askShell("loose-child", { ...nestedSubagent, hasPendingUserInput: true }),
+        projectId: loose,
+      },
+    ]);
+    expect(Object.fromEntries(counts)).toEqual({
+      [`${environmentId}:${projectId}`]: 2,
+      [`${environmentId}:${loose}`]: 1,
     });
   });
 });

@@ -2,6 +2,7 @@ import {
   botHeadquartersThreadId,
   headquartersBotId,
   headquartersProjectId,
+  isStandingThread,
   type Bot,
   type BotAvatar,
   type EnvironmentId,
@@ -9,11 +10,15 @@ import {
   type ProjectId,
   type ProjectRemoteBot,
   type ProjectRemoteManager,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 import type { EnvironmentThreadShell } from "./models.ts";
 import { botNeedsYouKey, createThreadBotKeyResolver, type BotOwnedProject } from "./crewBoard.ts";
+import { threadKey } from "./entities.ts";
 import { hasUnseenCompletion, hasUnseenFailure, isThreadWorking } from "./threadInbox.ts";
+import { isShownUnderParent } from "./threadShell.ts";
+import { groupWorkThreads, nestChildFeatureGroups, type WorkGroupThread } from "./workGroups.ts";
 
 /** A project's owner, or null when it has none. */
 export function projectBotId(project: {
@@ -187,6 +192,54 @@ export function resolveActiveLogicalBot(
     if (match) return match;
   }
   return bots[0] ?? null;
+}
+
+/**
+ * A machine, as far as the rail knows which bots it has. `connecting` is its first attempt still
+ * underway; `unreachable` is offline, retrying after a failure, or disabled, so its cached
+ * knowledge is all there is for now. `shown` bots are loaded and include one the rail shows: pinned,
+ * on an environment the filter keeps whatever else connects.
+ */
+export interface RailBotSource {
+  readonly connection: "connecting" | "connected" | "unreachable";
+  readonly configured: boolean;
+  readonly bots: "none" | "loading" | "loaded" | "shown";
+}
+
+/**
+ * Whether the rail knows enough to choose the layout, and from then on: once a connected machine
+ * shows a bot (any shown bot makes it cards), or no machine is still on its first attempt and every
+ * connected one has sent its config and bot list. A machine connecting later doesn't unsettle it,
+ * so the thread list doesn't fold into Projects and back while its bots load.
+ */
+export function railBotsSettled(settled: boolean, machines: ReadonlyArray<RailBotSource>): boolean {
+  return (
+    settled ||
+    machines.some((machine) => machine.connection === "connected" && machine.bots === "shown") ||
+    machines.every(
+      (machine) =>
+        machine.connection === "unreachable" ||
+        (machine.connection === "connected" && machine.configured && machine.bots !== "loading"),
+    )
+  );
+}
+
+/**
+ * The thread list's layout: Projects (the rail's, keeping empty folders), folders from the
+ * setting, or cards. Pending until the bots are settled, since whether a bot exists decides it;
+ * rows wait so a switch can't slide them under a click. Projects picked, with the rail showing,
+ * needs no wait.
+ */
+export function resolveSidebarLayout(input: {
+  readonly botsSettled: boolean;
+  readonly projectsPicked: boolean;
+  readonly showsRail: boolean;
+  readonly hasActiveBot: boolean;
+  readonly foldersSetting: boolean;
+}): "pending" | "projects" | "folders" | "cards" {
+  if (!input.botsSettled) return input.projectsPicked && input.showsRail ? "projects" : "pending";
+  if (input.showsRail && !input.hasActiveBot) return "projects";
+  return input.foldersSetting ? "folders" : "cards";
 }
 
 /**
@@ -374,6 +427,11 @@ type BotActivityShell = Parameters<typeof isThreadWorking>[0] &
     readonly lastVisitedAt?: string | null | undefined;
   };
 
+type ListRowShell = WorkGroupThread &
+  Pick<EnvironmentThreadShell, "environmentId" | "id" | "archivedAt" | "lineage"> & {
+    readonly settledOverride?: string | null;
+  };
+
 const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotActivity =>
   left === undefined
     ? right
@@ -383,30 +441,124 @@ const mergeActivity = (left: BotActivity | undefined, right: BotActivity): BotAc
         unread: left.unread || right.unread,
       };
 
+const shellKey = (shell: { readonly environmentId: EnvironmentId; readonly id: ThreadId }) =>
+  threadKey({ environmentId: shell.environmentId, threadId: shell.id });
+
+/**
+ * `threadKey`s of threads that are their own thread-list row, folded as the sidebar folds them
+ * (nested and delegated threads, feature and request groups, child features), plus standing
+ * threads, which the rail opens. Pass shells without hidden-tag threads.
+ */
+export function listRowThreadKeys(
+  shells: ReadonlyArray<ListRowShell>,
+  delegatedUnderParent: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const live = shells.filter((shell) => shell.archivedAt === null);
+  const listed = live.filter(
+    (shell) =>
+      !isStandingThread(shell.id) &&
+      !isShownUnderParent(
+        { environmentId: shell.environmentId, threadId: shell.id },
+        shell.lineage,
+        delegatedUnderParent,
+      ),
+  );
+  const grouped = groupWorkThreads(
+    listed,
+    live.filter((shell) => shell.feature?.member !== undefined),
+  );
+  // Unscoped, so a child feature in another project folds under its parent's row there too.
+  const { primaries } = nestChildFeatureGroups(grouped.primaries, grouped.groupByThreadKey);
+  return new Set([
+    ...primaries.map(shellKey),
+    ...live.filter((shell) => isStandingThread(shell.id)).map(shellKey),
+  ]);
+}
+
+/**
+ * A thread's activity: working from any thread, failed and unread only from one the list shows
+ * (`isRow`), so a thread nobody can open never keeps a dot lit. Null when it has none. Runs on
+ * every streamed update, so the row lookup waits until there is something unseen.
+ */
+function shellActivity<Shell extends BotActivityShell>(
+  shell: Shell,
+  isRow: (shell: Shell) => boolean,
+): BotActivity | null {
+  const working = isThreadWorking(shell);
+  // A server without visit tracking never reads as unseen.
+  const visits = shell.lastVisitedAt !== undefined;
+  const failed = visits && hasUnseenFailure(shell);
+  const unread = visits && hasUnseenCompletion(shell);
+  if ((failed || unread) && isRow(shell)) return { failed, working, unread };
+  return working ? { failed: false, working, unread: false } : null;
+}
+
 /**
  * Activity per environment's bot, keyed by `botNeedsYouKey`. Bots with nothing going on are
- * left out. A server without visit tracking (`lastVisitedAt` undefined) never reads as unseen.
+ * left out. Failed and unread come only from list rows (`listRowThreadKeys`); a project
+ * manager's thread counts for its manager.
  */
 export function botActivityByBot(
   shells: ReadonlyArray<BotActivityShell>,
   projects: ReadonlyArray<BotOwnedProject>,
+  rowKeys: ReadonlySet<string>,
 ): ReadonlyMap<string, BotActivity> {
   const ownerKey = createThreadBotKeyResolver(projects);
+  const isRow = (shell: BotActivityShell) =>
+    headquartersProjectId(shell.id) === null && rowKeys.has(shellKey(shell));
   const activity = new Map<string, BotActivity>();
   for (const shell of shells) {
     if (shell.archivedAt !== null) continue;
-    const visits = shell.lastVisitedAt !== undefined;
-    const next: BotActivity = {
-      failed: visits && hasUnseenFailure(shell),
-      working: isThreadWorking(shell),
-      unread: visits && hasUnseenCompletion(shell),
-    };
-    if (!next.failed && !next.working && !next.unread) continue;
+    const next = shellActivity(shell, isRow);
+    if (next === null) continue;
     const key = ownerKey(shell);
     if (key === undefined) continue;
     activity.set(key, mergeActivity(activity.get(key), next));
   }
   return activity;
+}
+
+/**
+ * Activity per project, keyed by `${environmentId}:${projectId}`, for project managers: the
+ * project's list rows (`listRowThreadKeys`) and its manager's thread.
+ */
+export function activityByProject(
+  shells: ReadonlyArray<BotActivityShell>,
+  rowKeys: ReadonlySet<string>,
+): ReadonlyMap<string, BotActivity> {
+  const isRow = (shell: BotActivityShell) => rowKeys.has(shellKey(shell));
+  const activity = new Map<string, BotActivity>();
+  for (const shell of shells) {
+    if (shell.archivedAt !== null) continue;
+    const next = shellActivity(shell, isRow);
+    if (next === null) continue;
+    const key = `${shell.environmentId}:${shell.projectId}`;
+    activity.set(key, mergeActivity(activity.get(key), next));
+  }
+  return activity;
+}
+
+/** A project manager's activity over its project group's `${environmentId}:${projectId}` keys. */
+export function activityForProjects(
+  activity: ReadonlyMap<string, BotActivity>,
+  projectKeys: Iterable<string>,
+): BotActivity | undefined {
+  let merged: BotActivity | undefined;
+  for (const key of projectKeys) {
+    const next = activity.get(key);
+    if (next !== undefined) merged = mergeActivity(merged, next);
+  }
+  return merged;
+}
+
+/** A project manager's asks over its project group's `${environmentId}:${projectId}` keys. */
+export function needsYouForProjects(
+  counts: ReadonlyMap<string, number>,
+  projectKeys: Iterable<string>,
+): number {
+  let total = 0;
+  for (const key of projectKeys) total += counts.get(key) ?? 0;
+  return total;
 }
 
 /** `botActivityByBot` merged per rail entry. */
@@ -467,10 +619,31 @@ export function isManagerPinned(project: {
   return project.managerPinned ?? true;
 }
 
+interface ManagedProject {
+  readonly environmentId: EnvironmentId;
+  readonly managerPinned?: boolean | undefined;
+  readonly remoteManager?: ProjectRemoteManager | null | undefined;
+  readonly isScratch?: true;
+  readonly isBotHome?: true;
+}
+
 /**
- * Threads waiting on you that the main rail hides: a project manager's thread when that manager
- * isn't pinned, and any other thread whose bot isn't pinned. The Bots place shows this count, so
- * nothing unpinned goes silent.
+ * Whether a project has its own manager: not Scratch or a bot's home, on an environment with
+ * features (`managerEnvironmentIds`), and not a copy whose manager lives on another machine.
+ */
+export const projectHasManager = (
+  project: ManagedProject,
+  managerEnvironmentIds: ReadonlySet<EnvironmentId>,
+): boolean =>
+  !project.isScratch &&
+  !project.isBotHome &&
+  project.remoteManager == null &&
+  managerEnvironmentIds.has(project.environmentId);
+
+/**
+ * Asks only the Bots place shows: an unpinned bot's or unpinned manager's, that no pinned entry
+ * shows. A pinned bot shows its threads but not its managers' threads; a pinned manager shows
+ * every thread in its projects (`managedProjectKeys`, by `${environmentId}:${projectId}`).
  */
 export function countHiddenNeedsYou(input: {
   readonly bots: ReadonlyArray<LogicalBot>;
@@ -479,33 +652,34 @@ export function countHiddenNeedsYou(input: {
     readonly id: string;
     readonly projectId: ProjectId;
   }>;
-  readonly projects: ReadonlyArray<
-    BotOwnedProject & { readonly managerPinned?: boolean | undefined }
-  >;
+  readonly projects: ReadonlyArray<BotOwnedProject & ManagedProject>;
+  readonly managedProjectKeys: ReadonlySet<string>;
+  readonly managerEnvironmentIds: ReadonlySet<EnvironmentId>;
 }): number {
-  const unpinnedManagers = new Set(
-    input.projects
-      .filter((project) => !isManagerPinned(project))
-      .map((project) => `${project.environmentId}:${project.id}`),
-  );
-  const unpinnedBots = new Set<string>();
+  const pinnedBots = new Set<string>();
   for (const bot of input.bots) {
-    if (bot.pinned) continue;
+    if (!bot.pinned) continue;
     for (const member of bot.members) {
-      unpinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
+      pinnedBots.add(botNeedsYouKey(member.environmentId, member.botId));
     }
   }
+  const unpinnedManagers = new Set(
+    input.projects
+      .filter(
+        (project) =>
+          !isManagerPinned(project) && projectHasManager(project, input.managerEnvironmentIds),
+      )
+      .map((project) => `${project.environmentId}:${project.id}`),
+  );
   const ownerKey = createThreadBotKeyResolver(input.projects);
   let count = 0;
   for (const shell of input.shells) {
-    // A manager's thread shows with the manager, whatever its bot's pin.
-    const managerOf = headquartersProjectId(shell.id);
-    if (managerOf !== null) {
-      if (unpinnedManagers.has(`${shell.environmentId}:${managerOf}`)) count += 1;
-      continue;
-    }
-    const owner = ownerKey(shell);
-    if (owner !== undefined && unpinnedBots.has(owner)) count += 1;
+    const projectKey = `${shell.environmentId}:${shell.projectId}`;
+    if (input.managedProjectKeys.has(projectKey)) continue;
+    // A bot never shows its project managers' threads.
+    const owner = headquartersProjectId(shell.id) === null ? ownerKey(shell) : undefined;
+    if (owner !== undefined && pinnedBots.has(owner)) continue;
+    if (owner !== undefined || unpinnedManagers.has(projectKey)) count += 1;
   }
   return count;
 }
@@ -535,11 +709,8 @@ export function pinnedProjectManagers<
   return input.projects
     .filter(
       (project) =>
-        !project.isScratch &&
-        !project.isBotHome &&
         isManagerPinned(project) &&
-        project.remoteManager == null &&
-        input.managerEnvironmentIds.has(project.environmentId) &&
+        projectHasManager(project, input.managerEnvironmentIds) &&
         !input.archivedManagers.has(`${project.environmentId}:${project.id}`),
     )
     .sort((left, right) => left.title.localeCompare(right.title));

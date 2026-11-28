@@ -2634,6 +2634,7 @@
   "c7c6c2345a741768": "访客请求",
   "c37d2b47b70c3f7c": "正在连接",
   "04ab29f86a91dd64": "计划已就绪",
+  "b0b9880154545e53": "计划已就绪",
   "6fc712c4f5a55ee2": "无法暂缓会话",
   "b2332fb96c0a55fb": "该暂缓时间已过，请选择其他时间。",
   "d07ed4990bbb5323": "无法执行会话操作",
@@ -13318,5 +13319,318 @@
   "27d76249d09eb69f": "审查导览已就绪",
   "faa3bb26abb39c93": "审查导览生成失败",
   "b7df38b7d8792d78": "打开导览",
-  "9e91e9a77b664e4e": "无法开始生成审查导览"
+  "9e91e9a77b664e4e": "无法开始生成审查导览",
+  "99d51127f573296b": "其他账号",
+  "8ec2c57414669b79": "连接第二个 {tracker} 工作区或用户。",
+  "99963c0142e17f00": "用于新的 {tracker} 账号。",
+  "6d8e4ebc889bace9": "添加账号",
+  "8a883c4fbc127b68": "正在启用堆叠自动合并…",
+  "5fb2a26ae31e8983": "无法启用堆叠自动合并",
+  "986d0dcbf4dd0098": "已启用堆叠自动合并",
+  "f3ed1f63c8a3eef2": "满足要求后，{host} 会合并截至 #{number} 的堆叠。",
+  "bd536a0a1754f6cb": "无法取消堆叠自动合并",
+  "bb90ac3b2f3a72d5": "主机拒绝取消自动合并。请刷新后重试。",
+  "9c28753c777c37b7": "{count, plural, other {自动合并 {count} 个 {term, select, mr {merge request} cr {change request} other {pull request}}？}}",
+  "a86b49982e18784d": "当 #{number} 及其下方未合并的各层都满足 {host} 的要求时，使用 {method} 将它们合并到 {base}。这可能会立即发生。",
+  "b1afda5c964deee4": [
+    "自动合并堆叠（",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "）"
+  ],
+  "33d18dda74f6d7b3": "取消堆叠自动合并",
+  "012c67c7f1a99e33": "自动合并堆叠",
+  "4a18481bea4b4ad5": "有新设备登录了 {environmentLabel}",
+  "4144ab6aa487528a": "{device} 已通过 {product} 连接。不是你本人？请检查。",
+  "a10cfdb27152c757": "{count, plural, other {{count} 台设备}}已通过 {product} 连接。不是你本人？请检查。",
+  "e0856d6a402ad821": "{organization} 的策略不允许使用项目的工作树布局命令。",
+  "206811f6f441bfc7": "此项目用自己的命令准备工作树，但目前写入的内容尚未有人批准。此连接无法批准：请在可以使用终端的客户端中批准。",
+  "b8087c9a70c26da9": "无法批准工作树布局命令。",
+  "49eda70cfd56e621": "在工作树线程启动时以及其文件夹被恢复时运行",
+  "188ccaa1199f5611": "在线程的工作树被移除时运行",
+  "7e8476e7306acabe": "允许此项目运行其工作树命令吗？",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 使用 ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    " 中自己的命令来准备工作树线程。这些命令在此环境的机器上以你的权限运行，不受任何代理沙盒限制。命令内容每次更改时都会再次询问你。"
+  ],
+  "46807acd02a4ff72": "批准并继续",
+  "a9cb97fca6a6576b": "创建命令",
+  "90f45a354884ccdd": "移除命令",
+  "78e308ada516928b": "无法批准该命令",
+  "a0c772d32a233da6": "无法撤销批准",
+  "0cdc8cdbed3e5eae": "工作树布局",
+  "c17b25519e2b194e": "无法加载工作树布局命令",
+  "5ccd5614c65f8d1f": "撤销对 {kind} 命令的批准",
+  "80c3794a5fa12f3a": "批准 {kind} 命令",
+  "f206891e124c77b0": [
+    "此项目的 ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " 使用自己的命令来准备工作树线程。这些命令在此环境的机器上以你的权限运行，并且只按此处批准的内容运行：内容发生更改的命令需要重新批准。"
+  ],
+  "f6a91589456cca50": "已批准",
+  "c92657bb7f2293ff": "待批准",
+  "f1e5c1be1ac92361": "批准",
+  "fcb5f3c4d4753326": "此连接无法批准命令。请使用可以使用终端的客户端。",
+  "7150557773b3818b": "排队中",
+  "efbeb3993ee2c3f5": "正在排队等待 {pool}",
+  "0398ca6c1d24b92d": "排队中，下一个",
+  "0af6d5ffd5166214": "{count, plural, other {排队中，前面还有 {count} 个}}",
+  "49be26a27dcb30e5": "已排队",
+  "4e96712d839ccbff": "{who}的回答：{choice}",
+  "19097cfb8f5a79cf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "的回答：",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    }
+  ],
+  "e7bbf693910057bf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "的回答：",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    },
+    ": ",
+    {
+      "i": 4,
+      "k": "_gt_value_4",
+      "v": "v"
+    }
+  ],
+  "3759768c5d342c22": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "回答"
+  ],
+  "e114d37b32ab0dc7": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "需要填写理由。"
+  ],
+  "91aadfc843c600de": "验证 Google 账户",
+  "201490988858b511": "已由 {by} 撤回",
+  "99451a5d2d40440f": "已由 {by} 撤回。",
+  "3ee30a50b70fffab": "已由 {by} 撤回：{reason}",
+  "92e129bf413a1220": "已撤回",
+  "800966eb58181745": "正在检查模型支持哪些语言…",
+  "410dded6e21c280d": "暂存已满",
+  "1af8d12ac21cb183": "暂存最多保存 {max} 条提示词。请恢复或删除一条以腾出空间；输入框保持不变。",
+  "381ceed77cb8b2b3": "停止 {name}",
+  "5b9fda36b610d25c": "停止",
+  "1d372f6d555dde3c": "停止所有设备",
+  "085f3d64c434cafd": "机器人",
+  "47f31853e3b917a6": "Current bot",
+  "3ecb765ba094e7fc": "当前",
+  "b6f5b6ccfb8f7407": "Every project and its threads",
+  "98d5f42c1cb21172": "Toggle bot list",
+  "74837c0763fca24b": "Expand it",
+  "97812392abe9bbf0": "Collapse it to icons",
+  "9d41494139715262": "Where it oversees all its projects",
+  "d9e38ee721d438b2": "It keeps the conversation and starts again from its instructions",
+  "a9f4216b1db18d4f": "Shown",
+  "a3dfcacb0c5fd22c": "Only {environment}",
+  "8f694adb7d883126": "Filter environments...",
+  "67d1f34da78dbfd2": "Change environment filter...",
+  "22fff12d58c227af": [
+    "Switch to",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "8c094d703a363a82": [
+    "Open",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    "'s thread"
+  ],
+  "2832e78b3934e722": [
+    "Start a new session for",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "bdb9ba59baf0723b": "团队",
+  "2ca561694eb0463f": "Pause",
+  "4cbc7c43dd33c363": "继续",
+  "96988bcf40efe50b": "Add a title and prompt.",
+  "ecea8fbff5a63239": "此环境运行的是旧版 Bosun。请更新后再创建单次定时任务，或选择其他定时规则。",
+  "82737083efeb5bb6": "Runs as",
+  "b3d29b25779189ae": "Unavailable project manager",
+  "87bb81a6186d31f9": "Unavailable bot",
+  "5435abaffcb3f6b7": "{title} manager",
+  "48151f103739f3ae": "Runs in {name}'s headquarters with its model, tools and instructions.",
+  "42b0888d8bfde4c3": "Runs in the bot's headquarters with its model, tools and instructions.",
+  "4cf8d26bc21c06e9": "Runs in {title}'s manager thread with its own settings.",
+  "d02e5150c80c9f80": "Runs in the project's manager thread with its own settings.",
+  "d53156b9bd1ef459": "筛选条件",
+  "0febe813b2bbe691": "1 filter",
+  "10b310d276921b88": "{count} filters",
+  "e9f26f1964b838c0": "skips old requests",
+  "492ec33f0335a487": "Deduplication",
+  "152f3128c7571ad0": "开启",
+  "16f435bc683ae4b3": "Signature",
+  "176306f5abc65397": "A new thread in a project",
+  "65922bc713dbb631": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " manager"
+  ],
+  "aba29e77e52bca46": "删除",
+  "098d556f4fbd5afd": "Project managers",
+  "788770b3dd48c097": "Start enabled",
+  "b7ae16e6bd9d4f61": "Paused tasks stay saved but do not run.",
+  "d28027fa873fc150": "Describe the feature. Its lead takes it from here",
+  "47ad76661ee23784": "Project manager",
+  "2c3ab22f2dd7fd24": "{reason} · resets {time}",
+  "67dff12a20123958": "Open Automations",
+  "2e34428ff40878c8": "Open Automations",
+  "b40ab5ce2d41c377": "需要输入",
+  "1d198737dd75e6e0": "待审查",
+  "7528c7fe1dec8c4f": "Open feature in this chat",
+  "a8c9fde5c8b30581": "Open starting thread in this chat",
+  "994c96f322ae5787": "Cancel request",
+  "f0527c81c62ac8fd": "停止子智能体",
+  "04bfc865fa8375f0": "Runs on {label}. It starts when {label} is back.",
+  "f0e8d39fdb5b9e8e": "Handed to projects",
+  "736b09e71dc8f680": "Previous handoffs",
+  "92c4482d8b2f5f2d": "Crew · {member}",
+  "cc07606a324904a2": "该设备上的 Bosun 会重启，约 {minutes} 分钟后恢复。",
+  "ed69cb03f92ed11b": "会重启该设备上的 Bosun，大约离线 {minutes} 分钟。",
+  "be02a7caae9fcf11": "Bots: Toggle Bot List",
+  "de36276355678930": "自动化：打开",
+  "22626953992cdb4f": "工作流：打开",
+  "a1a8d40bc7c45fa7": "机器人：打开",
+  "67c8950ff2bc3cdf": "看板：切换",
+  "d8b9e3456af7a17c": "等你处理：下一个",
+  "2ad8df9b49f86c4e": "看板：工作流视图",
+  "cc79d29840e210fb": "看板：等你处理视图",
+  "a6b053b0a9c092c7": "看板：新建待办",
+  "7b41cb02d6b1b35f": "看板：工作标签页",
+  "ffb112a62426c942": "看板：Issues 标签页",
+  "e9f6c4268edda626": "看板：开始待办",
+  "b6777a2f25c61584": "Bots: Switch to Bot {n}",
+  "afb4dbfbfee63146": "Reset issue closing on merge to default",
+  "7742fbc739f8087a": "Leave linked issues open",
+  "3a8ffc4722287317": "角色",
+  "4f8cf47233873e1c": "Close linked issues when merging",
+  "3b29997680643497": "Project bot",
+  "3f64d66a90e597c7": "owner move project to another bot no bot",
+  "132e7ee68c141c92": "requests backlog instructions model access tools reset defaults on off",
+  "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
+  "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
+  "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "滚动以阅读全部内容。",
+  "035aab5e99159bd8": "{count, plural, other {… 中间的 {hidden} 个字符未显示。}} 文本结尾为：",
+  "011b1ef726fa9928": "滚动每个部分以阅读全部内容。",
+  "1a04c8d36a7b29d3": "请从 {fjUrl} 安装 {fj} 0.6 或更高版本并运行 {fjLogin}，或从 {gtUrl} 安装 {gt} 2.0 或更高版本，并为每个 Forgejo 或 Gitea 服务器运行 {gtLogin}。",
+  "161135f0aea4d1ca": "{source}：没有 Codex、Claude 或 Grok 账户。已跳过：{providers}。",
+  "c7f5c98f1e79cc6c": "{count, plural, other {再显示 {count} 个图片附件}}",
+  "7b8a7cd89a22d822": "复制为 PNG",
+  "46f927ee332c1065": "{others, plural, =0 {它与其他运行中的会话共享。停止那些会话即可释放它。} other {它与另外 {others} 个运行中的会话共享。停止那些会话即可释放它。}}",
+  "31a71fec6b5f2bf3": "Android 设备",
+  "a766a8ac2670096c": "{count, plural, other {已加载 {count} 次合并}}",
+  "28988b067c83383c": [
+    "在",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 上的提供方旁显示该中转站汇集的每个 Codex、Claude 和 Grok 账户的配额。密钥保留在该服务器上。"
+  ],
+  "6394fa415ab91b34": "终端：上一个",
+  "2f766180f9d12615": "终端：下一个",
+  "9fd31461cee8ff82": "{count, plural, other {{count} 个进程}}",
+  "dc52330df5cc4586": "已观测 {bytes}",
+  "cb9f65e224af203d": "已保留 {retained}/{scanned}",
+  "36d52134b8b8d455": "{count, plural, other {{count} 条线路}}",
+  "652e3aad21933d17": "{summary} · {count, plural, other {{count} 个项目覆盖}}",
+  "06d3fe3e6b255d15": [
+    "还有 ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 项"
+  ],
+  "f1b18820c0ab93ac": [
+    "在已关联项中查看另外 ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 项"
+  ]
 }

@@ -136,7 +136,7 @@ import {
   botFirstThreadRequestAtom,
   clearBotFirstThreadRequest,
   useBotRailProjectKeys,
-  useBotRailShowsProjects,
+  useSidebarLayout,
   useVisibleActiveLogicalBot,
   useVisibleLogicalBots,
 } from "../state/botRail";
@@ -1021,10 +1021,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
-  // Projects lists every project, so it folds threads into project folders whatever the setting.
-  const railShowsProjects = useBotRailShowsProjects();
-  const boringSidebarEnabled =
-    useClientSettings((settings) => settings.boringSidebarEnabled) || railShowsProjects;
+  const sidebarLayout = useSidebarLayout();
+  const railShowsProjects = sidebarLayout === "projects";
+  const boringSidebarEnabled = railShowsProjects || sidebarLayout === "folders";
   const folderRowsMultiline = useClientSettings((settings) => settings.boringSidebarMultilineRows);
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
@@ -1162,6 +1161,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       ? null
       : scopedThreadKey(resolveListedAncestorThreadRef(routeThreadRef, threads));
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
+  // Rows wait for the layout, so a startup switch can't move them under a click.
+  const showsThreadList = sidebarLayout !== "pending" && !isSearchingThreads;
   // The open draft's first send names its thread in place; a finalized draft reached by
   // navigation resolves through its redirect instead, and still reveals.
   const routeKeyInPlace = routeDraftThread?.promotedTo != null;
@@ -3579,7 +3580,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               </p>
             )
           ) : null}
-          {!isSearchingThreads &&
+          {showsThreadList &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
@@ -3594,7 +3595,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             </p>
           ) : null}
           {/* A scope can hide every active thread; say so even when its project still has settled ones. */}
-          {!isSearchingThreads &&
+          {showsThreadList &&
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
@@ -3646,7 +3647,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               )}
             </div>
           ) : null}
-          {!isSearchingThreads ? (
+          {showsThreadList ? (
             <DndContext
               sensors={dndSensors}
               autoScroll={isContextDrag ? false : SIDEBAR_AUTO_SCROLL}

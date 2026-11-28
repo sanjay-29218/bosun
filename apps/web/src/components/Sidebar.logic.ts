@@ -33,7 +33,10 @@ import {
   hasUnseenRunFailure,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
-import { hasUnseenCompletion } from "@t3tools/client-runtime/state/thread-inbox";
+import {
+  hasUnseenCompletion,
+  threadHasPlanReady,
+} from "@t3tools/client-runtime/state/thread-inbox";
 import {
   getThreadSortTimestamp,
   planPinnedReorder,
@@ -43,7 +46,6 @@ import {
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { normalizeSearchText } from "../lib/utils";
-import { isLatestRunSettled } from "../session-logic";
 import { THREAD_STATUS_TEXT } from "@t3tools/client-runtime/state/thread-activity-announcement";
 import { observeIntersection } from "../lib/observeIntersection";
 import { deadlineAfter, deadlineStore, type ClockStore } from "@t3tools/client-runtime/clock";
@@ -937,8 +939,11 @@ export type SidebarThreadStatus =
   | "limited"
   | "ready";
 
+/** A row also marks a plan ready for review, which notifications read as a finished turn. */
+export type SidebarRowStatus = SidebarThreadStatus | "plan";
+
 export function shouldRecedeSidebarThread(input: {
-  status: SidebarThreadStatus;
+  status: SidebarRowStatus;
   isUnread: boolean;
   isWoke: boolean;
   isActive: boolean;
@@ -948,7 +953,8 @@ export function shouldRecedeSidebarThread(input: {
     input.isActive ||
     input.isSelected ||
     input.status === "input" ||
-    input.status === "request"
+    input.status === "request" ||
+    input.status === "plan"
   ) {
     return false;
   }
@@ -1003,11 +1009,15 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
-/** Sidebar row status: a failure the user has already opened settles to ready, like Done. */
+/**
+ * Sidebar row status: a plan ready for review asks the person, as the rail's badge counts it,
+ * and a failure the user has already opened settles to ready, like Done.
+ */
 export function resolveSidebarRowStatus(
   thread: ThreadStatusInput & SidebarThreadStatusInput,
-): SidebarThreadStatus {
+): SidebarRowStatus {
   const status = resolveSidebarThreadStatus(thread);
+  if ((status === "ready" || status === "waiting") && threadHasPlanReady(thread)) return "plan";
   // A runtime failure without a failed run has nothing to date it, so it stays.
   if (status !== "failed" || thread.latestRun?.status !== "failed") return status;
   return hasUnseenRunFailure(thread) ? status : "ready";
@@ -1047,6 +1057,7 @@ export function resolveSidebarFolderDot(
     statuses.has("input") ||
     statuses.has("approval") ||
     statuses.has("request") ||
+    statuses.has("plan") ||
     statuses.has("limited")
   ) {
     return "attention";
@@ -1318,12 +1329,7 @@ export function resolveThreadStatusPill(input: {
 
   if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return waiting;
 
-  const hasPlanReadyPrompt =
-    !thread.hasPendingUserInput &&
-    thread.interactionMode === "plan" &&
-    isLatestRunSettled(thread.latestRun, thread.runtime) &&
-    thread.hasActionableProposedPlan;
-  if (hasPlanReadyPrompt) {
+  if (threadHasPlanReady(thread)) {
     return {
       label: msg("Plan Ready"),
       colorClass: "text-violet-600 dark:text-violet-300/90",

@@ -400,6 +400,42 @@ describe("resolveSidebarRowStatus", () => {
     expect(resolveSidebarRowStatus({ ...opened, latestRun: null })).toBe("failed");
   });
 
+  it("marks a plan ready for review, as the rail's badge counts it", () => {
+    const planReady = {
+      ...failed,
+      hasActionableProposedPlan: true,
+      interactionMode: "plan" as const,
+      latestRun: makeLatestRun(),
+      lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    };
+    expect(resolveSidebarRowStatus({ ...planReady, runtime: null })).toBe("plan");
+    expect(
+      resolveSidebarRowStatus({
+        ...planReady,
+        runtime: { ...failedRuntime, status: "idle", lastError: null },
+      }),
+    ).toBe("plan");
+    // Notifications read the thread status, where a finished plan turn still completes.
+    expect(resolveSidebarThreadStatus({ ...planReady, runtime: null })).toBe("ready");
+    // A question outranks the plan.
+    expect(
+      resolveSidebarRowStatus({ ...planReady, runtime: null, hasPendingUserInput: true }),
+    ).toBe("input");
+    expect(
+      resolveSidebarRowStatus({ ...planReady, interactionMode: "default", runtime: null }),
+    ).toBe("ready");
+    expect(
+      shouldRecedeSidebarThread({
+        status: "plan",
+        isUnread: false,
+        isWoke: false,
+        isActive: false,
+        isSelected: false,
+      }),
+    ).toBe(false);
+    expect(resolveSidebarFolderDot([{ ...planReady, runtime: null }])).toBe("attention");
+  });
+
   it("does not show a stopped run as an unseen completion", () => {
     for (const status of ["interrupted", "cancelled"] as const) {
       const stopped = {

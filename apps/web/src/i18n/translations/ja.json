@@ -2628,6 +2628,7 @@
   "c7c6c2345a741768": "ゲストのリクエスト",
   "c37d2b47b70c3f7c": "接続中",
   "04ab29f86a91dd64": "プランの準備完了",
+  "b0b9880154545e53": "プランの準備完了",
   "6fc712c4f5a55ee2": "スレッドをスヌーズできませんでした",
   "b2332fb96c0a55fb": "そのスヌーズ時刻は過ぎています。別の時刻を選択してください。",
   "d07ed4990bbb5323": "スレッドの操作を利用できません",
@@ -13238,5 +13239,318 @@
   "27d76249d09eb69f": "レビューガイドの準備ができました",
   "faa3bb26abb39c93": "レビューガイドの作成に失敗しました",
   "b7df38b7d8792d78": "ガイドを開く",
-  "9e91e9a77b664e4e": "レビューガイドを開始できませんでした"
+  "9e91e9a77b664e4e": "レビューガイドを開始できませんでした",
+  "99d51127f573296b": "別のアカウント",
+  "8ec2c57414669b79": "2つ目の {tracker} ワークスペースまたはユーザーを接続します。",
+  "99963c0142e17f00": "新しい {tracker} アカウント用です。",
+  "6d8e4ebc889bace9": "アカウントを追加",
+  "8a883c4fbc127b68": "スタックの自動マージを有効にしています...",
+  "5fb2a26ae31e8983": "スタックの自動マージを有効にできませんでした",
+  "986d0dcbf4dd0098": "スタックの自動マージを有効にしました",
+  "f3ed1f63c8a3eef2": "要件が満たされると、{host} が #{number} までのスタックをマージします。",
+  "bd536a0a1754f6cb": "スタックの自動マージをキャンセルできませんでした",
+  "bb90ac3b2f3a72d5": "ホストが自動マージのキャンセルを拒否しました。更新してもう一度お試しください。",
+  "9c28753c777c37b7": "{count, plural, other {{term, select, mr {マージリクエスト {count} 件を自動マージしますか？} cr {変更リクエスト {count} 件を自動マージしますか？} other {プルリクエスト {count} 件を自動マージしますか？}}}}",
+  "a86b49982e18784d": "#{number} と、その下の未マージのレイヤーがすべて {host} の要件を満たしたら、{method} で {base} にマージします。すぐにマージされる場合があります。",
+  "b1afda5c964deee4": [
+    "スタックを自動マージ (",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ")"
+  ],
+  "33d18dda74f6d7b3": "スタックの自動マージをキャンセル",
+  "012c67c7f1a99e33": "スタックを自動マージ",
+  "4a18481bea4b4ad5": "{environmentLabel} に新しいデバイスがサインインしました",
+  "4144ab6aa487528a": "{device} が {product} 経由で接続しました。心当たりがない場合は確認してください。",
+  "a10cfdb27152c757": "{count, plural, other {{count} 台のデバイス}}が {product} 経由で接続しました。心当たりがない場合は確認してください。",
+  "e0856d6a402ad821": "{organization} のポリシーでは、プロジェクトのワークツリーレイアウトコマンドは許可されていません。",
+  "206811f6f441bfc7": "このプロジェクトは独自のコマンドでワークツリーを準備しますが、現在の内容はまだ誰も承認していません。この接続では承認できません。ターミナルを使用できるクライアントから承認してください。",
+  "b8087c9a70c26da9": "ワークツリーレイアウトコマンドを承認できませんでした。",
+  "49eda70cfd56e621": "ワークツリースレッドの開始時と、そのフォルダーの復元時に実行されます",
+  "188ccaa1199f5611": "スレッドのワークツリーが削除されるときに実行されます",
+  "7e8476e7306acabe": "このプロジェクトにワークツリーコマンドの実行を許可しますか？",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " は ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    " にある独自のコマンドでワークツリースレッドを準備します。コマンドはこの環境のマシン上で、あなたの権限で、エージェントのサンドボックスの外で実行されます。コマンドの内容が変わるたびに、もう一度確認されます。"
+  ],
+  "46807acd02a4ff72": "承認して続行",
+  "a9cb97fca6a6576b": "作成コマンド",
+  "90f45a354884ccdd": "削除コマンド",
+  "78e308ada516928b": "コマンドを承認できませんでした",
+  "a0c772d32a233da6": "承認を取り消せませんでした",
+  "0cdc8cdbed3e5eae": "ワークツリーレイアウト",
+  "c17b25519e2b194e": "ワークツリーレイアウトのコマンドを読み込めませんでした",
+  "5ccd5614c65f8d1f": "{kind} コマンドの承認を取り消す",
+  "80c3794a5fa12f3a": "{kind} コマンドを承認",
+  "f206891e124c77b0": [
+    "このプロジェクトの ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " は、独自のコマンドでワークツリースレッドを準備します。コマンドはこの環境のマシン上で、あなたの権限で、ここで承認された内容のとおりにのみ実行されます。内容が変わったコマンドは、もう一度承認が必要です。"
+  ],
+  "f6a91589456cca50": "承認済み",
+  "c92657bb7f2293ff": "承認が必要",
+  "f1e5c1be1ac92361": "承認",
+  "fcb5f3c4d4753326": "この接続ではコマンドを承認できません。ターミナルを使用できるクライアントを使ってください。",
+  "7150557773b3818b": "待機中",
+  "efbeb3993ee2c3f5": "{pool} を待機中",
+  "0398ca6c1d24b92d": "待機中、次の番",
+  "0af6d5ffd5166214": "{count, plural, other {待機中、前に {count} 件}}",
+  "49be26a27dcb30e5": "待機",
+  "4e96712d839ccbff": "{who}の回答: {choice}",
+  "19097cfb8f5a79cf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "の回答: ",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    }
+  ],
+  "e7bbf693910057bf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "の回答: ",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    },
+    ": ",
+    {
+      "i": 4,
+      "k": "_gt_value_4",
+      "v": "v"
+    }
+  ],
+  "3759768c5d342c22": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "に回答"
+  ],
+  "e114d37b32ab0dc7": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    "には理由が必要です。"
+  ],
+  "91aadfc843c600de": "Google アカウントを確認",
+  "201490988858b511": "{by} が取り下げ",
+  "99451a5d2d40440f": "{by} が取り下げました。",
+  "3ee30a50b70fffab": "{by} が取り下げました: {reason}",
+  "92e129bf413a1220": "取り下げ済み",
+  "800966eb58181745": "モデルが対応している言語を確認しています…",
+  "410dded6e21c280d": "退避がいっぱいです",
+  "1af8d12ac21cb183": "退避できるプロンプトは {max} 件までです。空きを作るには、どれかを復元するか削除してください。入力欄はそのままにしてあります。",
+  "381ceed77cb8b2b3": "{name} を停止",
+  "5b9fda36b610d25c": "停止",
+  "1d372f6d555dde3c": "すべてのデバイスを停止",
+  "085f3d64c434cafd": "ボット",
+  "47f31853e3b917a6": "Current bot",
+  "3ecb765ba094e7fc": "現在",
+  "b6f5b6ccfb8f7407": "Every project and its threads",
+  "98d5f42c1cb21172": "Toggle bot list",
+  "74837c0763fca24b": "Expand it",
+  "97812392abe9bbf0": "Collapse it to icons",
+  "9d41494139715262": "Where it oversees all its projects",
+  "d9e38ee721d438b2": "It keeps the conversation and starts again from its instructions",
+  "a9f4216b1db18d4f": "Shown",
+  "a3dfcacb0c5fd22c": "Only {environment}",
+  "8f694adb7d883126": "Filter environments...",
+  "67d1f34da78dbfd2": "Change environment filter...",
+  "22fff12d58c227af": [
+    "Switch to",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "8c094d703a363a82": [
+    "Open",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    "'s thread"
+  ],
+  "2832e78b3934e722": [
+    "Start a new session for",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "bdb9ba59baf0723b": "クルー",
+  "2ca561694eb0463f": "Pause",
+  "4cbc7c43dd33c363": "再開",
+  "96988bcf40efe50b": "Add a title and prompt.",
+  "ecea8fbff5a63239": "この環境では古い Bosun が動作しています。1 回限りのタスクをスケジュールするには更新するか、別のスケジュールを選んでください。",
+  "82737083efeb5bb6": "Runs as",
+  "b3d29b25779189ae": "Unavailable project manager",
+  "87bb81a6186d31f9": "Unavailable bot",
+  "5435abaffcb3f6b7": "{title} manager",
+  "48151f103739f3ae": "Runs in {name}'s headquarters with its model, tools and instructions.",
+  "42b0888d8bfde4c3": "Runs in the bot's headquarters with its model, tools and instructions.",
+  "4cf8d26bc21c06e9": "Runs in {title}'s manager thread with its own settings.",
+  "d02e5150c80c9f80": "Runs in the project's manager thread with its own settings.",
+  "d53156b9bd1ef459": "フィルター",
+  "0febe813b2bbe691": "1 filter",
+  "10b310d276921b88": "{count} filters",
+  "e9f26f1964b838c0": "skips old requests",
+  "492ec33f0335a487": "Deduplication",
+  "152f3128c7571ad0": "オン",
+  "16f435bc683ae4b3": "Signature",
+  "176306f5abc65397": "A new thread in a project",
+  "65922bc713dbb631": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " manager"
+  ],
+  "aba29e77e52bca46": "削除",
+  "098d556f4fbd5afd": "Project managers",
+  "788770b3dd48c097": "Start enabled",
+  "b7ae16e6bd9d4f61": "Paused tasks stay saved but do not run.",
+  "d28027fa873fc150": "Describe the feature. Its lead takes it from here",
+  "47ad76661ee23784": "Project manager",
+  "2c3ab22f2dd7fd24": "{reason} · resets {time}",
+  "67dff12a20123958": "Open Automations",
+  "2e34428ff40878c8": "Open Automations",
+  "b40ab5ce2d41c377": "入力待ち",
+  "1d198737dd75e6e0": "レビュー待ち",
+  "7528c7fe1dec8c4f": "Open feature in this chat",
+  "a8c9fde5c8b30581": "Open starting thread in this chat",
+  "994c96f322ae5787": "Cancel request",
+  "f0527c81c62ac8fd": "サブエージェントを停止",
+  "04bfc865fa8375f0": "Runs on {label}. It starts when {label} is back.",
+  "f0e8d39fdb5b9e8e": "Handed to projects",
+  "736b09e71dc8f680": "Previous handoffs",
+  "92c4482d8b2f5f2d": "Crew · {member}",
+  "cc07606a324904a2": "そちらの Bosun は再起動し、約 {minutes} 分で復帰します。",
+  "ed69cb03f92ed11b": "そちらの Bosun を再起動します。約 {minutes} 分間オフラインになります。",
+  "be02a7caae9fcf11": "Bots: Toggle Bot List",
+  "de36276355678930": "自動化: 開く",
+  "22626953992cdb4f": "ワークフロー: 開く",
+  "a1a8d40bc7c45fa7": "ボット: 開く",
+  "67c8950ff2bc3cdf": "ボード: 切り替え",
+  "d8b9e3456af7a17c": "要対応: 次へ",
+  "2ad8df9b49f86c4e": "ボード: ワークフロー表示",
+  "cc79d29840e210fb": "ボード: 要対応表示",
+  "a6b053b0a9c092c7": "ボード: 新しい ToDo",
+  "7b41cb02d6b1b35f": "ボード: 作業タブ",
+  "ffb112a62426c942": "ボード: Issues タブ",
+  "e9f6c4268edda626": "ボード: ToDo を開始",
+  "b6777a2f25c61584": "Bots: Switch to Bot {n}",
+  "afb4dbfbfee63146": "Reset issue closing on merge to default",
+  "7742fbc739f8087a": "Leave linked issues open",
+  "3a8ffc4722287317": "ロール",
+  "4f8cf47233873e1c": "Close linked issues when merging",
+  "3b29997680643497": "Project bot",
+  "3f64d66a90e597c7": "owner move project to another bot no bot",
+  "132e7ee68c141c92": "requests backlog instructions model access tools reset defaults on off",
+  "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
+  "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
+  "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "スクロールしてすべて読んでください。",
+  "035aab5e99159bd8": "{count, plural, other {… 途中の {hidden} 文字は表示されていません。}} テキストの末尾:",
+  "011b1ef726fa9928": "それぞれの部分をスクロールしてすべて読んでください。",
+  "1a04c8d36a7b29d3": "Forgejo または Gitea のサーバーごとに、{fjUrl} から {fj} 0.6 以降をインストールして {fjLogin} を実行するか、{gtUrl} から {gt} 2.0 以降をインストールして {gtLogin} を実行してください。",
+  "161135f0aea4d1ca": "{source}: Codex・Claude・Grok のアカウントはありません。スキップ: {providers}。",
+  "c7f5c98f1e79cc6c": "{count, plural, other {添付画像をさらに {count} 件表示}}",
+  "7b8a7cd89a22d822": "PNG としてコピー",
+  "46f927ee332c1065": "{others, plural, =0 {作業中の他のスレッドと共有されています。解放するにはそれらを停止してください。} other {作業中の他の {others} 件のスレッドと共有されています。解放するにはそれらを停止してください。}}",
+  "31a71fec6b5f2bf3": "Android デバイス",
+  "a766a8ac2670096c": "{count, plural, other {読み込み済みのマージ {count} 件}}",
+  "28988b067c83383c": [
+    "ハブがまとめているすべての Codex・Claude・Grok アカウントのクォータを、",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " のプロバイダーの横に表示します。キーはそのサーバーに保存されます。"
+  ],
+  "6394fa415ab91b34": "ターミナル: 前へ",
+  "2f766180f9d12615": "ターミナル: 次へ",
+  "9fd31461cee8ff82": "{count, plural, other {{count} 個のプロセス}}",
+  "dc52330df5cc4586": "観測済み {bytes}",
+  "cb9f65e224af203d": "{retained}/{scanned} 件を保持",
+  "36d52134b8b8d455": "{count, plural, other {{count} 個のルート}}",
+  "652e3aad21933d17": "{summary} · {count, plural, other {{count} 件のプロジェクトの上書き}}",
+  "06d3fe3e6b255d15": [
+    "他 ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 件"
+  ],
+  "f1b18820c0ab93ac": [
+    "他 ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " 件をリンクされた項目で表示"
+  ]
 }

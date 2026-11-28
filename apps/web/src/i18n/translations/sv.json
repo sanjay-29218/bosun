@@ -2630,6 +2630,7 @@
   "c7c6c2345a741768": "Gästbegäran",
   "c37d2b47b70c3f7c": "Ansluter",
   "04ab29f86a91dd64": "Planen är klar",
+  "b0b9880154545e53": "Planen är klar",
   "6fc712c4f5a55ee2": "Kunde inte snooza tråden",
   "b2332fb96c0a55fb": "Den snooze-tiden har passerat. Välj en annan tid.",
   "d07ed4990bbb5323": "Trådåtgärden är inte tillgänglig",
@@ -13314,5 +13315,322 @@
   "27d76249d09eb69f": "Granskningsguiden är klar",
   "faa3bb26abb39c93": "Granskningsguiden misslyckades",
   "b7df38b7d8792d78": "Öppna guiden",
-  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide"
+  "9e91e9a77b664e4e": "Kunde inte starta en granskningsguide",
+  "99d51127f573296b": "Ett konto till",
+  "8ec2c57414669b79": "Anslut en andra {tracker}-arbetsyta eller användare.",
+  "99963c0142e17f00": "För det nya {tracker}-kontot.",
+  "6d8e4ebc889bace9": "Lägg till konto",
+  "8a883c4fbc127b68": "Aktiverar automatisk merge för stacken...",
+  "5fb2a26ae31e8983": "Kunde inte aktivera automatisk merge för stacken",
+  "986d0dcbf4dd0098": "Automatisk merge för stacken aktiverad",
+  "f3ed1f63c8a3eef2": "{host} mergar stacken till och med #{number} när kraven är uppfyllda.",
+  "bd536a0a1754f6cb": "Kunde inte avbryta automatisk merge för stacken",
+  "bb90ac3b2f3a72d5": "Värden vägrade avbryta den automatiska mergen. Uppdatera och försök igen.",
+  "9c28753c777c37b7": "{count, plural, one {Merga {count} {term, select, mr {merge request} cr {ändringsbegäran} other {pull request}} automatiskt?} other {Merga {count} {term, select, mr {merge requests} cr {ändringsbegäranden} other {pull requests}} automatiskt?}}",
+  "a86b49982e18784d": "Merga #{number} och dess omergade lager under in i {base} med {method} när vart och ett uppfyller kraven på {host}. Det kan ske direkt.",
+  "b1afda5c964deee4": [
+    "Merga stacken automatiskt (",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ")"
+  ],
+  "33d18dda74f6d7b3": "Avbryt automatisk merge för stacken",
+  "012c67c7f1a99e33": "Merga stacken automatiskt",
+  "4a18481bea4b4ad5": "Ny enhet inloggad på {environmentLabel}",
+  "4144ab6aa487528a": "{device} anslöt via {product}. Inte du? Granska den.",
+  "a10cfdb27152c757": "{count, plural, one {{count} enhet} other {{count} enheter}} anslöt via {product}. Inte du? Granska dem.",
+  "e0856d6a402ad821": "Policyn för {organization} tillåter inte projekts layoutkommandon för worktrees.",
+  "206811f6f441bfc7": "Det här projektet förbereder worktrees med ett eget kommando, som ingen har godkänt som det är skrivet nu. Den här anslutningen kan inte godkänna det: godkänn det från en klient som får använda terminalen.",
+  "b8087c9a70c26da9": "Det gick inte att godkänna layoutkommandot för worktrees.",
+  "49eda70cfd56e621": "Körs när en worktree-tråd startar och när dess mapp återställs",
+  "188ccaa1199f5611": "Körs när en tråds worktree tas bort",
+  "7e8476e7306acabe": "Låta det här projektet köra sina worktree-kommandon?",
+  "8e11914556fd8b13": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " förbereder worktree-trådar med egna kommandon från ",
+    {
+      "t": "code",
+      "i": 2,
+      "c": "t3.json"
+    },
+    ". De körs på den här miljöns dator med dina behörigheter, utanför alla agentsandlådor. Du får frågan igen varje gång deras text ändras."
+  ],
+  "46807acd02a4ff72": "Godkänn och fortsätt",
+  "a9cb97fca6a6576b": "Kommando för att skapa",
+  "90f45a354884ccdd": "Kommando för att ta bort",
+  "78e308ada516928b": "Det gick inte att godkänna kommandot",
+  "a0c772d32a233da6": "Det gick inte att återkalla godkännandet",
+  "0cdc8cdbed3e5eae": "Worktree-layout",
+  "c17b25519e2b194e": "Kunde inte läsa in layoutkommandona för worktrees",
+  "5ccd5614c65f8d1f": "Återkalla godkännandet av kommandot {kind}",
+  "80c3794a5fa12f3a": "Godkänn kommandot {kind}",
+  "f206891e124c77b0": [
+    "Projektets ",
+    {
+      "t": "code",
+      "i": 1,
+      "c": "t3.json"
+    },
+    " förbereder worktree-trådar med egna kommandon. De körs på den här miljöns dator med dina behörigheter, och bara så som de godkänts här: ett kommando vars text ändras behöver godkännas igen."
+  ],
+  "f6a91589456cca50": "Godkänt",
+  "c92657bb7f2293ff": "Behöver godkännande",
+  "f1e5c1be1ac92361": "Godkänn",
+  "fcb5f3c4d4753326": "Den här anslutningen kan inte godkänna kommandon. Använd en klient som får använda terminalen.",
+  "7150557773b3818b": "I kö",
+  "efbeb3993ee2c3f5": "Köar för {pool}",
+  "0398ca6c1d24b92d": "i kö, näst på tur",
+  "0af6d5ffd5166214": "{count, plural, one {i kö, {count} före} other {i kö, {count} före}}",
+  "49be26a27dcb30e5": "köade",
+  "4e96712d839ccbff": "{who} svarade {choice}",
+  "19097cfb8f5a79cf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " svarade",
+    " ",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    },
+    "."
+  ],
+  "e7bbf693910057bf": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " svarade",
+    " ",
+    {
+      "t": "span",
+      "i": 2,
+      "c": {
+        "i": 3,
+        "k": "_gt_value_3",
+        "v": "v"
+      }
+    },
+    ": ",
+    {
+      "i": 4,
+      "k": "_gt_value_4",
+      "v": "v"
+    }
+  ],
+  "3759768c5d342c22": [
+    "besvarad",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    }
+  ],
+  "e114d37b32ab0dc7": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " kräver en anledning."
+  ],
+  "91aadfc843c600de": "Verifiera Google-konto",
+  "201490988858b511": "återkallad av {by}",
+  "99451a5d2d40440f": "Återkallad av {by}.",
+  "3ee30a50b70fffab": "Återkallad av {by}: {reason}",
+  "92e129bf413a1220": "återkallad",
+  "800966eb58181745": "Kontrollerar vilka språk modellen stöder…",
+  "410dded6e21c280d": "Undanlagringen är full",
+  "1af8d12ac21cb183": "Du kan lägga undan högst {max} promptar. Återställ eller ta bort en för att göra plats; inmatningsfältet lämnades som det var.",
+  "381ceed77cb8b2b3": "Stoppa {name}",
+  "5b9fda36b610d25c": "Stoppa",
+  "1d372f6d555dde3c": "Stoppa alla enheter",
+  "085f3d64c434cafd": "Bottar",
+  "47f31853e3b917a6": "Current bot",
+  "3ecb765ba094e7fc": "Aktuellt",
+  "b6f5b6ccfb8f7407": "Every project and its threads",
+  "98d5f42c1cb21172": "Toggle bot list",
+  "74837c0763fca24b": "Expand it",
+  "97812392abe9bbf0": "Collapse it to icons",
+  "9d41494139715262": "Where it oversees all its projects",
+  "d9e38ee721d438b2": "It keeps the conversation and starts again from its instructions",
+  "a9f4216b1db18d4f": "Shown",
+  "a3dfcacb0c5fd22c": "Only {environment}",
+  "8f694adb7d883126": "Filter environments...",
+  "67d1f34da78dbfd2": "Change environment filter...",
+  "22fff12d58c227af": [
+    "Switch to",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "8c094d703a363a82": [
+    "Open",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    },
+    "'s thread"
+  ],
+  "2832e78b3934e722": [
+    "Start a new session for",
+    " ",
+    {
+      "t": "span",
+      "i": 1,
+      "c": {
+        "i": 2,
+        "k": "_gt_value_2",
+        "v": "v"
+      }
+    }
+  ],
+  "bdb9ba59baf0723b": "Besättning",
+  "2ca561694eb0463f": "Pause",
+  "4cbc7c43dd33c363": "Återuppta",
+  "96988bcf40efe50b": "Add a title and prompt.",
+  "ecea8fbff5a63239": "Den här miljön kör en äldre version av Bosun. Uppdatera den för att schemalägga en engångsuppgift, eller välj ett annat schema.",
+  "82737083efeb5bb6": "Runs as",
+  "b3d29b25779189ae": "Unavailable project manager",
+  "87bb81a6186d31f9": "Unavailable bot",
+  "5435abaffcb3f6b7": "{title} manager",
+  "48151f103739f3ae": "Runs in {name}'s headquarters with its model, tools and instructions.",
+  "42b0888d8bfde4c3": "Runs in the bot's headquarters with its model, tools and instructions.",
+  "4cf8d26bc21c06e9": "Runs in {title}'s manager thread with its own settings.",
+  "d02e5150c80c9f80": "Runs in the project's manager thread with its own settings.",
+  "d53156b9bd1ef459": "Filter",
+  "0febe813b2bbe691": "1 filter",
+  "10b310d276921b88": "{count} filters",
+  "e9f26f1964b838c0": "skips old requests",
+  "492ec33f0335a487": "Deduplication",
+  "152f3128c7571ad0": "På",
+  "16f435bc683ae4b3": "Signature",
+  "176306f5abc65397": "A new thread in a project",
+  "65922bc713dbb631": [
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " manager"
+  ],
+  "aba29e77e52bca46": "Ta bort",
+  "098d556f4fbd5afd": "Project managers",
+  "788770b3dd48c097": "Start enabled",
+  "b7ae16e6bd9d4f61": "Paused tasks stay saved but do not run.",
+  "d28027fa873fc150": "Describe the feature. Its lead takes it from here",
+  "47ad76661ee23784": "Project manager",
+  "2c3ab22f2dd7fd24": "{reason} · resets {time}",
+  "67dff12a20123958": "Open Automations",
+  "2e34428ff40878c8": "Open Automations",
+  "b40ab5ce2d41c377": "Behöver svar",
+  "1d198737dd75e6e0": "Redo för granskning",
+  "7528c7fe1dec8c4f": "Open feature in this chat",
+  "a8c9fde5c8b30581": "Open starting thread in this chat",
+  "994c96f322ae5787": "Cancel request",
+  "f0527c81c62ac8fd": "Stoppa subagent",
+  "04bfc865fa8375f0": "Runs on {label}. It starts when {label} is back.",
+  "f0e8d39fdb5b9e8e": "Handed to projects",
+  "736b09e71dc8f680": "Previous handoffs",
+  "92c4482d8b2f5f2d": "Crew · {member}",
+  "cc07606a324904a2": "Bosun där startar om och är tillbaka om cirka {minutes} min.",
+  "ed69cb03f92ed11b": "Startar om Bosun där. Det är offline i cirka {minutes} min.",
+  "be02a7caae9fcf11": "Bots: Toggle Bot List",
+  "de36276355678930": "Automatiseringar: Öppna",
+  "22626953992cdb4f": "Arbetsflöden: Öppna",
+  "a1a8d40bc7c45fa7": "Bottar: Öppna",
+  "67c8950ff2bc3cdf": "Tavla: Växla",
+  "d8b9e3456af7a17c": "Behöver dig: Nästa",
+  "2ad8df9b49f86c4e": "Tavla: Arbetsflödesvy",
+  "cc79d29840e210fb": "Tavla: Vyn Behöver dig",
+  "a6b053b0a9c092c7": "Tavla: Ny att göra",
+  "7b41cb02d6b1b35f": "Tavla: Fliken Arbete",
+  "ffb112a62426c942": "Tavla: Fliken Issues",
+  "e9f6c4268edda626": "Tavla: Starta att göra",
+  "b6777a2f25c61584": "Bots: Switch to Bot {n}",
+  "afb4dbfbfee63146": "Reset issue closing on merge to default",
+  "7742fbc739f8087a": "Leave linked issues open",
+  "3a8ffc4722287317": "Roller",
+  "4f8cf47233873e1c": "Close linked issues when merging",
+  "3b29997680643497": "Project bot",
+  "3f64d66a90e597c7": "owner move project to another bot no bot",
+  "132e7ee68c141c92": "requests backlog instructions model access tools reset defaults on off",
+  "746744f6d23d5bd4": "add new edit manage reorder delete bots avatar model",
+  "ad289f18beb1eb2f": "library feature workflow lead crew epic new edit",
+  "1569a0dffc33e5fa": "library crew roles planner designer builder reviewer qa starter",
+  "8147f8cf8b1ddd7d": "Update: {tooltip}",
+  "6c6e16b9488f8b91": "Scrolla för att läsa allt.",
+  "035aab5e99159bd8": "{count, plural, one {… {hidden} tecken i mitten visas inte.} other {… {hidden} tecken i mitten visas inte.}} Texten slutar med:",
+  "011b1ef726fa9928": "Scrolla i varje del för att läsa allt.",
+  "1a04c8d36a7b29d3": "Installera {fj} 0.6 eller senare från {fjUrl} och kör {fjLogin}, eller installera {gt} 2.0 eller senare från {gtUrl} och kör {gtLogin} för varje Forgejo- eller Gitea-server.",
+  "161135f0aea4d1ca": "{source}: inga Codex-, Claude- eller Grok-konton. Hoppade över {providers}.",
+  "c7f5c98f1e79cc6c": "{count, plural, one {Visa {count} bildbilaga till} other {Visa {count} bildbilagor till}}",
+  "7b8a7cd89a22d822": "Kopiera som PNG",
+  "46f927ee332c1065": "{others, plural, =0 {Den delas med andra arbetande trådar. Stoppa dem för att frigöra den.} one {Den delas med {others} arbetande tråd. Stoppa den för att frigöra den.} other {Den delas med {others} arbetande trådar. Stoppa dem för att frigöra den.}}",
+  "31a71fec6b5f2bf3": "Android-enheter",
+  "a766a8ac2670096c": "{count, plural, one {{count} merge inläst} other {{count} merges inlästa}}",
+  "28988b067c83383c": [
+    "Visa kvoten för alla Codex-, Claude- och Grok-konton som hubben samlar, bredvid leverantörerna på",
+    " ",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    ". Nyckeln stannar på den servern."
+  ],
+  "6394fa415ab91b34": "Terminal: föregående",
+  "2f766180f9d12615": "Terminal: nästa",
+  "9fd31461cee8ff82": "{count, plural, one {{count} process} other {{count} processer}}",
+  "dc52330df5cc4586": "{bytes} observerade",
+  "cb9f65e224af203d": "{retained}/{scanned} sparade",
+  "36d52134b8b8d455": "{count, plural, one {{count} rutt} other {{count} rutter}}",
+  "652e3aad21933d17": "{summary} · {count, plural, one {{count} projektåsidosättning} other {{count} projektåsidosättningar}}",
+  "06d3fe3e6b255d15": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " till"
+  ],
+  "f1b18820c0ab93ac": [
+    "+",
+    {
+      "i": 1,
+      "k": "_gt_value_1",
+      "v": "v"
+    },
+    " till i Länkade objekt"
+  ]
 }
