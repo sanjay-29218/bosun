@@ -104,6 +104,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   crew: Schema.optionalKey(Schema.Boolean),
   /** Server exposes the global library of versioned workflows and feature run state. */
   workflows: Schema.optionalKey(Schema.Boolean),
+  /** Serves `library.importable`/`import`/`detach`: imports from linked machines replace copies. */
+  libraryImports: Schema.optionalKey(Schema.Boolean),
   pullRequestChecks: Schema.optionalKey(Schema.Boolean),
   issues: Schema.optionalKey(Schema.Boolean),
   /** Side chats: hidden `lineage.sideChat` forks. Older servers ignore the fork flag. */

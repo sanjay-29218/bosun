@@ -2,7 +2,7 @@ import {
   Bot,
   BotTransferMode,
   EnvironmentId,
-  LibraryOwner,
+  LibraryItemKind,
   ModelSelection,
   NodeId,
   OrchestrationV2ThreadLaunchWorkspaceStrategy,
@@ -173,7 +173,10 @@ export const LinkBotNotices = Tool.make("t3_bot_link_notices", {
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
 
-/** Every workflow and role the calling environment made, which it copies here as one set. */
+/** The machine that called, as it names itself; a link session doesn't say. */
+const LibraryOwner = Schema.Struct({ environmentId: EnvironmentId, label: Schema.String });
+
+/** What machines from before imports send: every workflow and role they made, as one set. */
 export const LibraryCopySet = Schema.Struct({
   owner: LibraryOwner,
   workflows: Schema.Array(WorkflowSnapshot.fields.workflow),
@@ -181,23 +184,84 @@ export const LibraryCopySet = Schema.Struct({
 });
 export type LibraryCopySet = typeof LibraryCopySet.Type;
 
-/** A workflow or role in the set this environment kept its own of, and why. */
 export const LibraryCopyRefusal = Schema.Struct({
-  kind: Schema.Literals(["workflow", "role"]),
+  kind: LibraryItemKind,
   id: Schema.String,
   reason: Schema.String,
 });
 export type LibraryCopyRefusal = typeof LibraryCopyRefusal.Type;
 
+/** Kept so older machines hear why their copies stopped: this machine imports instead. */
 export const LinkLibrary = Tool.make("t3_crew_link_library", {
   ...shared,
-  description:
-    "Makes the workflows and roles here managed from the calling environment match its set: adds and updates them, and removes those it no longer copies here.",
+  description: "Refuses every workflow and role: this environment imports them instead.",
   parameters: LibraryCopySet,
   success: Schema.Struct({ refused: Schema.Array(LibraryCopyRefusal) }),
 })
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.Destructive, false);
+
+/** A workflow or role as it travels to a machine that imports it. */
+export const LibraryItemContent = Schema.Struct({
+  name: Schema.String,
+  instructions: Schema.String,
+  /** Roles only. */
+  modelSelection: Schema.optionalKey(ModelSelection),
+  fallbackModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+  enabled: Schema.optionalKey(Schema.Boolean),
+  /** Workflows only. */
+  crewRoleIds: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+export type LibraryItemContent = typeof LibraryItemContent.Type;
+
+const LibraryItemRef = { kind: LibraryItemKind, id: Schema.String };
+
+export const LibrarySyncInput = Schema.Struct({
+  importer: LibraryOwner,
+  /** Every workflow and role the caller holds from here: the whole set, replacing the last. */
+  holds: Schema.Array(
+    Schema.Struct({
+      ...LibraryItemRef,
+      revision: Schema.NullOr(Schema.Int),
+      edited: Schema.Boolean,
+    }),
+  ),
+  /** Also lists every workflow and role here that the caller could import, with content. */
+  list: Schema.optionalKey(Schema.Boolean),
+});
+export type LibrarySyncInput = typeof LibrarySyncInput.Type;
+
+export const LibrarySyncResult = Schema.Struct({
+  label: Schema.String,
+  /** Each held one here at its revision; content when the caller needs it. */
+  items: Schema.Array(
+    Schema.Struct({
+      ...LibraryItemRef,
+      revision: Schema.Int,
+      content: Schema.optionalKey(LibraryItemContent),
+      /** Listed only: where this one was imported from, when it was. */
+      importedFrom: Schema.optionalKey(Schema.NullOr(Schema.String)),
+    }),
+  ),
+  /** Saves here the person sent to the caller: take them unless the caller edited since. */
+  push: Schema.Array(
+    Schema.Struct({ ...LibraryItemRef, revision: Schema.Int, overwrites: Schema.Boolean }),
+  ),
+  /** Held ones this machine no longer has. */
+  missing: Schema.Array(Schema.Struct(LibraryItemRef)),
+});
+export type LibrarySyncResult = typeof LibrarySyncResult.Type;
+
+export const LinkLibrarySync = Tool.make("t3_crew_link_library_sync", {
+  ...shared,
+  description:
+    "Reports the workflows and roles the calling environment imported from here, and returns their revisions here, updates the person sent it, and, with `list`, everything it could import.",
+  parameters: LibrarySyncInput,
+  success: LibrarySyncResult,
+})
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.Destructive, false);
+
 /** An automation that runs as a bot, as its copy on another machine needs it. */
 export const TransferredAutomation = Schema.Struct({
   /** Its ID where it came from, so a repeated copy saves the same automation again. */

@@ -125,7 +125,7 @@ import { layerBosunWsRpc } from "./bosunWsHandlers.ts";
 import * as BotService from "./bots/BotService.ts";
 import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { LibraryCopies } from "./crew/LibraryCopies.ts";
+import { LibraryImports } from "./crew/LibraryImports.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { CrewChanges } from "./crew/CrewChanges.ts";
 import { FeatureService } from "./features/FeatureService.ts";
@@ -1608,8 +1608,8 @@ export const layerWsRpc = (
       const hostEnvironment = yield* HostProcess.Environment;
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
-      // The server runs it, so unlinking removes this machine's copies there first.
-      const library = yield* Effect.serviceOption(LibraryCopies);
+      // Unlinking tells that machine first that this one imports nothing from it any more.
+      const library = yield* LibraryImports;
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
       const peerThreadRelay = yield* PeerThreadRelay.PeerThreadRelay;
       const peerClientPairing = yield* PeerClientPairing.PeerClientPairing;
@@ -2859,8 +2859,7 @@ export const layerWsRpc = (
         [WS_METHODS.peerLinksNames]: (_input) =>
           peerLinks.names.pipe(Effect.map((links) => ({ links }))),
         [WS_METHODS.peerLinksLink]: (input) => peerLinks.link(input),
-        [WS_METHODS.peerLinksUnlink]: ({ environmentId }) =>
-          (Option.isSome(library) ? library.value.unlink : peerLinks.unlink)(environmentId),
+        [WS_METHODS.peerLinksUnlink]: ({ environmentId }) => library.unlink(environmentId),
         [WS_METHODS.peerLinksSubscribeThread]: (input) => peerThreadRelay.subscribe(input),
         [WS_METHODS.peerLinksThreadHistoryPage]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
@@ -3856,7 +3855,7 @@ export const layer = Layer.unwrap(
       bots: yield* BotService.BotService,
       botTransfer: yield* BotTransfer.BotTransfer,
       crew: yield* CrewService,
-      library: yield* LibraryCopies,
+      library: yield* LibraryImports,
       projectRequests: yield* ProjectRequests,
       features: yield* FeatureService,
       issues: yield* BoardIssueService.IssueService,
@@ -3981,6 +3980,7 @@ export const layer = Layer.unwrap(
                 ),
               ),
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
+              Layer.provide(Layer.succeed(LibraryImports, crewServices.library)),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
               Layer.provide(Layer.succeed(PeerThreadRelay.PeerThreadRelay, peerThreadRelay)),
               Layer.provide(Layer.succeed(PeerClientPairing.PeerClientPairing, peerClientPairing)),

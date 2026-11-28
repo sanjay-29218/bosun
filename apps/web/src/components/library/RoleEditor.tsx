@@ -3,14 +3,19 @@ import {
   PLANNER_ROLE_ID,
   type RoleConfig,
   type EnvironmentId,
+  type LibraryPushTarget,
   type ModelSelection,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
+import { modelDisplayName } from "@t3tools/shared/usageLimits";
+import { Link } from "@tanstack/react-router";
+import { msg, T, useGT, Var } from "gt-react";
 import { useState } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
+import { m } from "../../i18n/messages";
 import { randomUUID } from "../../lib/utils";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -23,12 +28,12 @@ import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { EditorField } from "../settings/EditorField";
 import { SettingsModelPicker } from "../settings/SettingsModelPicker";
-import { SettingsRow, SettingsSection } from "../settings/settingsLayout";
+import { SettingResetButton, SettingsRow, SettingsSection } from "../settings/settingsLayout";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { InstructionsEditor } from "../InstructionsEditor";
 import { toastManager } from "../ui/toast";
-import { LibraryMachines, ManagedFromNotice } from "./LibraryMachines";
+import { AlsoUpdateOnDialog, LibraryImportBanner, LibraryImportedOn } from "./LibraryImport";
 
 /** The composer's provider and model choices for one environment. */
 function useModelPickerData(environmentId: EnvironmentId, selection: ModelSelection | null) {
@@ -50,13 +55,19 @@ export function RoleModelPicker({
   environmentId,
   selection,
   disabled,
+  ariaLabel,
+  triggerLabel,
   onChange,
 }: {
   readonly environmentId: EnvironmentId;
   readonly selection: ModelSelection;
   readonly disabled?: boolean;
+  readonly ariaLabel?: string;
+  /** Shown instead of the model, for a picker with nothing chosen yet. */
+  readonly triggerLabel?: string;
   readonly onChange: (selection: ModelSelection) => void;
 }) {
+  const gt = useGT();
   const { entries, modelOptions } = useModelPickerData(environmentId, selection);
   return (
     <SettingsModelPicker
@@ -66,7 +77,8 @@ export function RoleModelPicker({
       lockedProvider={null}
       instanceEntries={entries}
       modelOptionsByInstance={modelOptions}
-      triggerAriaLabel="Model"
+      triggerAriaLabel={ariaLabel ?? gt("Model")}
+      {...(triggerLabel === undefined ? {} : { triggerLabel })}
       {...(disabled ? { disabled } : {})}
       onInstanceModelChange={(instanceId: ProviderInstanceId, model: string) =>
         onChange(
@@ -75,11 +87,15 @@ export function RoleModelPicker({
             : createModelSelection(instanceId, model),
         )
       }
-      traits={{
-        options: selection.options,
-        onChange: (options) =>
-          onChange(createModelSelection(selection.instanceId, selection.model, options)),
-      }}
+      traits={
+        triggerLabel === undefined
+          ? {
+              options: selection.options,
+              onChange: (options) =>
+                onChange(createModelSelection(selection.instanceId, selection.model, options)),
+            }
+          : null
+      }
     />
   );
 }
@@ -102,7 +118,7 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
       if (result._tag === "Success") return true;
       toastManager.add({
         type: "error",
-        title: "Could not add the starter roles",
+        title: m(msg("Could not add the starter roles")),
         description: formatEnvironmentQueryError(result.cause),
       });
       return false;
@@ -113,11 +129,20 @@ export function useAddStarterRoles(environmentId: EnvironmentId) {
 export const hasStarterRoles = (roles: ReadonlyArray<RoleConfig>) =>
   roles.some((role) => role.id === PLANNER_ROLE_ID);
 
-type RoleChange = Partial<Pick<RoleConfig, "name" | "instructions" | "modelSelection" | "enabled">>;
+type RoleChange = Partial<
+  Pick<
+    RoleConfig,
+    "name" | "instructions" | "modelSelection" | "fallbackModelSelection" | "enabled"
+  >
+>;
 
 export function useSaveRole(environmentId: EnvironmentId) {
   const update = useAtomCommand(rolesEnvironment.update);
-  return async (role: RoleConfig, change: RoleChange) => {
+  return async (
+    role: RoleConfig,
+    change: RoleChange,
+    alsoUpdateOn: ReadonlyArray<LibraryPushTarget> = [],
+  ) => {
     const next = { ...role, ...change };
     const result = await update({
       environmentId,
@@ -126,14 +151,16 @@ export function useSaveRole(environmentId: EnvironmentId) {
         name: next.name,
         instructions: next.instructions,
         modelSelection: next.modelSelection,
+        fallbackModelSelection: next.fallbackModelSelection,
         enabled: next.enabled,
         expectedRevision: role.revision,
+        ...(alsoUpdateOn.length > 0 ? { alsoUpdateOn: [...alsoUpdateOn] } : {}),
       },
     });
     if (result._tag === "Success") return true;
     toastManager.add({
       type: "error",
-      title: `Could not save ${role.name}`,
+      title: m(msg("Could not save {name}", { name: role.name })),
       description: formatEnvironmentQueryError(result.cause),
     });
     return false;
@@ -154,43 +181,58 @@ export function RoleEditorForm({
   readonly onSaved: (roleId: string) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   const create = useAtomCommand(rolesEnvironment.create);
   const save = useSaveRole(environmentId);
-  const managedFrom = role?.managedFrom ?? null;
-  const permitted = useAtomValue(
+  const canEdit = useAtomValue(
     (role ? rolesEnvironment.update : rolesEnvironment.create).permissionAtom(environmentId),
   );
-  const canEdit = permitted && managedFrom === null;
   const [name, setName] = useState(role?.name ?? "");
   const [instructions, setInstructions] = useState(role?.instructions ?? "");
   const [modelSelection, setModelSelection] = useState(role?.modelSelection ?? defaultModel);
+  const [fallbackModelSelection, setFallbackModelSelection] = useState(
+    role?.fallbackModelSelection ?? null,
+  );
   const [saving, setSaving] = useState(false);
+  // Saving one that linked machines imported asks which of them take the change.
+  const [asking, setAsking] = useState(false);
   const fields = {
     name: name.trim(),
     instructions: instructions.trim(),
     modelSelection,
+    fallbackModelSelection,
   };
   const edited = role
     ? fields.name !== role.name ||
       fields.instructions !== role.instructions ||
-      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection)
+      JSON.stringify(fields.modelSelection) !== JSON.stringify(role.modelSelection) ||
+      JSON.stringify(fields.fallbackModelSelection) !== JSON.stringify(role.fallbackModelSelection)
     : fields.name.length > 0 || fields.instructions.length > 0;
   const canSave =
     edited && canEdit && fields.name.length > 0 && fields.instructions.length > 0 && !saving;
 
-  useUnsavedChangesGuard({ unsaved: edited, saving, message: "Leave without saving this role?" });
+  useUnsavedChangesGuard({
+    unsaved: edited,
+    saving,
+    message: gt("Leave without saving this role?"),
+  });
 
-  const submit = async () => {
+  const submit = async (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
     if (!canSave) return;
+    if (role && role.importers.length > 0 && alsoUpdateOn === undefined) {
+      setAsking(true);
+      return;
+    }
+    setAsking(false);
     setSaving(true);
     const savedId = await (async () => {
-      if (role) return (await save(role, fields)) ? role.id : null;
+      if (role) return (await save(role, fields, alsoUpdateOn)) ? role.id : null;
       const id = `role:${randomUUID()}`;
       const result = await create({ environmentId, input: { id, ...fields } });
       if (result._tag === "Success") return id;
       toastManager.add({
         type: "error",
-        title: "Could not add the role",
+        title: m(msg("Could not add the role")),
         description: formatEnvironmentQueryError(result.cause),
       });
       return null;
@@ -208,37 +250,51 @@ export function RoleEditorForm({
         void submit();
       }}
     >
-      {managedFrom === null ? null : <ManagedFromNotice noun="role" owner={managedFrom} />}
+      {role === null ? null : (
+        <LibraryImportBanner
+          environmentId={environmentId}
+          kind="role"
+          item={role}
+          unsaved={edited}
+        />
+      )}
       <fieldset disabled={saving || !canEdit} className="min-w-0 space-y-6">
-        <SettingsSection title="Role" hideTitle>
+        <SettingsSection
+          title={gt("Role", { $context: "section heading for a role's name and instructions" })}
+          hideTitle
+        >
           <div className="space-y-5 px-3 py-4 sm:px-4">
-            <EditorField label="Name" htmlFor="crew-role-name">
+            <EditorField label={gt("Name")} htmlFor="crew-role-name">
               <Input
                 id="crew-role-name"
                 value={name}
                 maxLength={200}
-                placeholder="Security reviewer"
+                placeholder={gt("Security reviewer")}
                 onChange={(event) => setName(event.target.value)}
               />
             </EditorField>
-            <EditorField label="Instructions" htmlFor="crew-role-instructions">
+            <EditorField label={gt("Instructions")} htmlFor="crew-role-instructions">
               <InstructionsEditor
                 id="crew-role-instructions"
-                label="Instructions"
+                label={gt("Instructions")}
                 value={instructions}
                 maxLength={16_000}
                 size="lg"
                 disabled={saving || !canEdit}
-                placeholder="What this role does and how it reports back"
+                placeholder={gt("What this role does and how it reports back")}
                 onChange={setInstructions}
               />
             </EditorField>
           </div>
         </SettingsSection>
-        <SettingsSection title="Runs with">
+        <SettingsSection
+          title={gt("Runs with", { $context: "section heading: the models a role runs with" })}
+        >
           <SettingsRow
-            title="Model"
-            description="Model, reasoning and speed for this role's threads. They get every tool, with full access."
+            title={gt("Model")}
+            description={gt(
+              "Model, reasoning and speed for this role's threads. They get every tool, with full access.",
+            )}
             control={
               <RoleModelPicker
                 environmentId={environmentId}
@@ -248,11 +304,25 @@ export function RoleEditorForm({
               />
             }
           />
+          <FallbackModelRow
+            environmentId={environmentId}
+            selection={fallbackModelSelection}
+            roleModel={modelSelection}
+            disabled={saving || !canEdit}
+            onChange={setFallbackModelSelection}
+          />
         </SettingsSection>
-        {role !== null && managedFrom === null ? (
-          <LibraryMachines environmentId={environmentId} item={role} />
-        ) : null}
+        {role === null ? null : <LibraryImportedOn item={role} />}
       </fieldset>
+      {role === null ? null : (
+        <AlsoUpdateOnDialog
+          name={role.name}
+          importers={role.importers}
+          open={asking}
+          onCancel={() => setAsking(false)}
+          onSave={(alsoUpdateOn) => void submit(alsoUpdateOn)}
+        />
+      )}
       {/* Pinned to the pane's bottom, so Save stays in reach below long instructions. */}
       <div className="sticky bottom-0 z-10 -mx-1 flex justify-end gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <Button
@@ -262,12 +332,85 @@ export function RoleEditorForm({
           disabled={saving || (role !== null && !edited)}
           onClick={onCancel}
         >
-          {role ? "Discard" : "Cancel"}
+          {role ? gt("Discard", { $context: "verb, discards unsaved edits" }) : gt("Cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={!canSave}>
-          {role ? "Save role" : "Add role"}
+          {role ? gt("Save role") : gt("Add role")}
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * A role's own fallback model, tried before the one in Settings when the role's model can't run
+ * here. Unset, the row names the Settings one it falls back to.
+ */
+function FallbackModelRow({
+  environmentId,
+  selection,
+  roleModel,
+  disabled,
+  onChange,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly selection: ModelSelection | null;
+  readonly roleModel: ModelSelection;
+  readonly disabled: boolean;
+  readonly onChange: (selection: ModelSelection | null) => void;
+}) {
+  const gt = useGT();
+  const { settings, providers } = useModelPickerData(environmentId, selection);
+  const global = settings.fallbackModelSelection;
+  const settingsLink = (
+    <Link to="/settings/threads" className="underline underline-offset-2">
+      <T>Settings → Threads</T>
+    </Link>
+  );
+  const notHere =
+    selection !== null &&
+    !providers.some((provider) => provider.instanceId === selection.instanceId);
+  const status = notHere ? (
+    <span className="text-warning-foreground">
+      <T>Not set up on this machine. Uses the Settings fallback instead.</T>
+    </span>
+  ) : selection !== null ? null : global === null ? (
+    <T>
+      <Var>{settingsLink}</Var> has no fallback model either.
+    </T>
+  ) : (
+    <T>
+      Uses the fallback model in <Var>{settingsLink}</Var>:{" "}
+      <Var>{modelDisplayName(global, providers)}</Var>.
+    </T>
+  );
+  return (
+    <SettingsRow
+      title={gt("Fallback model")}
+      description={gt(
+        "Used when this role's model can't run here, such as when its provider is out of usage.",
+      )}
+      status={status}
+      resetAction={
+        selection === null ? null : (
+          <SettingResetButton
+            ariaLabel={gt("Use the Settings fallback")}
+            tooltip={gt("Use the Settings fallback")}
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          />
+        )
+      }
+      control={
+        <RoleModelPicker
+          environmentId={environmentId}
+          selection={selection ?? global ?? roleModel}
+          disabled={disabled}
+          ariaLabel={gt("Fallback model")}
+          {...(selection === null ? { triggerLabel: gt("Settings fallback") } : {})}
+          onChange={onChange}
+        />
+      }
+    />
   );
 }

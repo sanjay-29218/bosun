@@ -263,27 +263,40 @@ on. Editing a role changes the crews of features started later, not existing one
 
 ### On other machines
 
-Every machine you link (see [Link another environment](remote-access.md#link-another-environment))
-gets a copy of every workflow and role made on this one, so a feature can run there with them even
-while this machine is off. Linking is the only step. A workflow's or role's settings list each
-linked machine and when it last got a copy.
+Workflows and roles stay on the machine where you make them. To use one on another machine, open
+**Settings → Workflows** or **Roles** there and choose **Import from…**. Pick a machine this one
+links to (see [Link another environment](remote-access.md#link-another-environment)), tick what to
+bring, and import. A workflow brings the roles it names that this machine doesn't have yet.
 
-The machine where one was made owns it. On the others, a copy says **Managed from** that machine
-and can't be edited there; edit it on the owner, and every copy follows. A machine that's off
-keeps its last copy and catches up when it's back. Two machines linked both ways each copy what
-they made to the other; a copy is never copied on again.
+An import is yours to edit. Its row says where it came from (**From Studio VPS**), and
+**Changed here** once you edit it. When the original changes, it shows **Update available**: open
+it and choose **Take update** to replace this one with the original, **Skip** to hide that update
+until a newer one, or **Keep as my own** to stop following the original. Features already running
+keep the crew and workflow text they started with.
 
-Every machine has its own Feature delivery and starter roles. If you change one here, it replaces
-the untouched one on your linked machines; ones that are the same everywhere stay each machine's
-own. If a machine has its own edited workflow or role with the same id, it keeps it, and the list
-here says so.
+Saving a workflow or role that other machines imported asks **Also update on**: ticked machines
+take your change within about a minute, and the rest see Update available. A machine whose copy has
+its own edits starts unticked, because taking the change replaces them. The editor's **Imported
+on** list shows each machine that has one and how current it is.
 
-Unlinking a machine removes this machine's copies there, if it answers; features already running
-there keep going. Feature delivery, the starter roles, and roles that machine's own workflows use
-stay there as its own. A machine that's off when you unlink it keeps the copies.
+Updates travel over the importing machine's link, so a machine sees updates only from machines it
+links to. If you unlink one, imports from it keep working; they stop showing updates until you link
+it again. Copies from before imports show **Link it to get updates** until you link their machine
+from this one.
 
-Editing bots, workflows and roles is available on web and desktop. On mobile, copies show where
-they're managed from and can't be edited.
+If an item would replace a workflow or role this machine already has, including its own Feature
+delivery or starter roles, the import asks you to confirm it first. A machine never lists what this
+machine gave it.
+
+Mobile has the same import screen, update banner and Also update on sheet.
+
+#### A role's fallback model
+
+A role can name a **Fallback model** under **Runs with**. When the role's own model can't run on
+the machine running the feature, for example because its provider is signed out or out of usage,
+the role uses its fallback model. If that can't run either, it uses the fallback model in
+**Settings → Threads**. The thread says which model it switched to. Leave the role's fallback unset
+to use the Settings one. An imported role brings its fallback model with it.
 
 ## Feature threads
 

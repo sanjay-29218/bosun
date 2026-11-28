@@ -230,6 +230,7 @@ export const make = Effect.gen(function* () {
       bots: true,
       crew: true,
       workflows: true,
+      libraryImports: true,
       pullRequestChecks: true,
       issues: true,
       linkedThreadRefreshes: true,

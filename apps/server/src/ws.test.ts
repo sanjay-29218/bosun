@@ -16,6 +16,7 @@ import {
   type WorkflowRun,
   type WorkflowStep,
   AuthSessionId,
+  AuthAccessWriteScope,
   AuthSourceControlWriteScope,
   AuthTerminalOperateScope,
   ORCHESTRATION_PROTOCOL_VERSION,
@@ -188,7 +189,7 @@ import * as BotStore from "./bots/BotStore.ts";
 import * as BotService from "./bots/BotService.ts";
 import * as BotTransfer from "./bots/BotTransfer.ts";
 import { CrewService } from "./crew/CrewService.ts";
-import { LibraryCopies } from "./crew/LibraryCopies.ts";
+import { LibraryImports } from "./crew/LibraryImports.ts";
 import { ProjectRequests } from "./crew/ProjectRequests.ts";
 import { FeatureService } from "./features/FeatureService.ts";
 import * as BoardIssueService from "./issues/IssueService.ts";
@@ -840,6 +841,10 @@ it.effect("shell snapshots omit idle children and older settled threads only on 
 );
 
 // Build the production RPC layer; unrelated capabilities fail if this test calls them.
+/** The RPC layer, with a library that no test here reaches. */
+const layerWsRpcForTest = (...args: Parameters<typeof layerWsRpc>) =>
+  layerWsRpc(...args).pipe(Layer.provide(Layer.mock(LibraryImports)({})));
+
 const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(DocumentText.DocumentText)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
@@ -1008,7 +1013,7 @@ it.live.each([
         Layer.mock(BotService.BotService)({}),
         Layer.mock(BotTransfer.BotTransfer)({}),
         Layer.mock(CrewService)({}),
-        Layer.mock(LibraryCopies)({}),
+        Layer.mock(LibraryImports)({}),
         Layer.mock(FeatureService)({}),
         Layer.mock(BoardIssueService.IssueService)({}),
         Layer.mock(ProjectRequests)({}),
@@ -1051,6 +1056,125 @@ it.live.each([
           }),
       );
       assert.equal(socket.extensions, extensions);
+    }).pipe(Effect.scoped),
+);
+
+it.live(
+  "unlinking over the WebSocket tells the library first, so the source forgets this machine",
+  () =>
+    Effect.gen(function* () {
+      const unlinked: Array<string> = [];
+      const library = Layer.mock(LibraryImports)({
+        unlink: (environmentId) =>
+          Effect.sync(() => {
+            unlinked.push(environmentId);
+            return { removed: true, endedThere: true };
+          }),
+      });
+      const services = Layer.mergeAll(
+        layerUnusedConfigRpcServices,
+        Layer.mock(ServerBrowser.ServerBrowser)({
+          profileReporter: Effect.succeed(() => Effect.void),
+        }),
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+          authenticateWebSocketUpgrade: () =>
+            Effect.succeed({
+              sessionId: AuthSessionId.make("compression-test"),
+              subject: "unlink-test",
+              method: "bearer-access-token",
+              scopes: [AuthAccessWriteScope],
+            }),
+        }),
+        Layer.mock(SessionStore.SessionStore)({
+          cookieName: "compression-test",
+          legacyCookieName: undefined,
+          markConnected: () => Effect.void,
+          markDisconnected: () => Effect.void,
+          awaitInvalidation: () => Effect.never,
+        }),
+        Layer.mock(AnalyticsService.AnalyticsService)({ recordOwners: () => Effect.void }),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: process.cwd(),
+        }),
+        Layer.mock(ScratchThreadPromotion.ScratchThreadPromotion)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(UsageLimitSources.UsageLimitSources)({}),
+        Layer.mock(ExternalLauncher.ExternalLauncher)({}),
+        Layer.mock(RemoteOpenTargets.RemoteOpenTargets)({}),
+        Layer.mock(DirectEndpoints.DirectEndpoints)({}),
+        Layer.mock(ServerEnvironment.ServerEnvironment)({}),
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: (input) =>
+            Effect.fail(
+              new VcsProcessSpawnError({
+                operation: input.operation,
+                command: input.command,
+                cwd: input.cwd,
+                cause: "No VCS commands in the compression fixture",
+              }),
+            ),
+        }),
+        // Ws.layer also serves Bosun's RPCs; the handshake never calls them.
+        Layer.mock(BotService.BotService)({}),
+        Layer.mock(BotTransfer.BotTransfer)({}),
+        Layer.mock(CrewService)({}),
+        Layer.mock(FeatureService)({}),
+        Layer.mock(BoardIssueService.IssueService)({}),
+        Layer.mock(ProjectRequests)({}),
+        Layer.mock(TicketService.TicketService)({}),
+        ProviderInstallationGate.layer,
+        FetchHttpClient.layer,
+      );
+      // PeerLinks is a bare mock: an unlink that skipped the library would fail on it.
+      const context = yield* Layer.build(
+        // As in the server, the library reaches the route as it is built, not every request.
+        HttpRouter.serve(Ws.layer.pipe(Layer.provide(library)), { disableListenLog: true }).pipe(
+          Layer.provideMerge(
+            NodeHttpServer.layer(NodeHttp.createServer, { host: "127.0.0.1", port: 0 }),
+          ),
+          Layer.provide(services),
+          Layer.provide(layerConfigSources),
+        ),
+      );
+      const server = Context.get(context, HttpServer.HttpServer);
+      const origin = HttpServer.formatAddress(server.address).replace(/^http/, "ws");
+      const socket = yield* Effect.acquireRelease(
+        Effect.sync(
+          () =>
+            new WebSocket(
+              `${origin}/ws?${ORCHESTRATION_PROTOCOL_QUERY_PARAM}=${ORCHESTRATION_PROTOCOL_VERSION}`,
+              { origin: "t3code://app" },
+            ),
+        ),
+        (socket) => Effect.sync(() => socket.terminate()),
+      );
+      const exit = yield* Effect.promise(
+        () =>
+          new Promise<{ readonly _tag: string }>((resolve, reject) => {
+            socket.once("error", reject);
+            socket.on("message", (data) => {
+              const message = JSON.parse(String(data)) as {
+                readonly _tag: string;
+                readonly requestId?: string;
+                readonly exit?: { readonly _tag: string };
+              };
+              if (message._tag === "Exit" && message.requestId === "1") resolve(message.exit!);
+            });
+            socket.once("open", () =>
+              socket.send(
+                JSON.stringify({
+                  _tag: "Request",
+                  id: "1",
+                  tag: WS_METHODS.peerLinksUnlink,
+                  payload: { environmentId: "env-studio" },
+                  headers: [],
+                }),
+              ),
+            );
+          }),
+      );
+      assert.equal(exit._tag, "Success");
+      assert.deepEqual(unlinked, ["env-studio"]);
     }).pipe(Effect.scoped),
 );
 
@@ -1184,7 +1308,7 @@ it.effect.each([
         },
       ).pipe(
         Effect.provide(
-          layerWsRpc(
+          layerWsRpcForTest(
             {
               sessionId: AuthSessionId.make("config-test"),
               subject: "config-test",
@@ -1339,7 +1463,7 @@ it.effect("access changes made while the snapshot loads reach the client after i
           : Effect.void,
     }).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerWsRpcForTest(
           {
             sessionId: AuthSessionId.make("current"),
             subject: "current",
@@ -1556,7 +1680,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
       },
     ).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerWsRpcForTest(
           {
             sessionId: AuthSessionId.make("config-test"),
             subject: "config-test",
@@ -1918,7 +2042,7 @@ it.effect("a missing thread worktree gets its project's skills in the cwd snapsh
       },
     ).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerWsRpcForTest(
           {
             sessionId: AuthSessionId.make("worktree-skills-test"),
             subject: "worktree-skills-test",
@@ -1999,7 +2123,7 @@ it.effect(
             response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
         }).pipe(
           Effect.provide(
-            layerWsRpc(
+            layerWsRpcForTest(
               {
                 sessionId: AuthSessionId.make("worktree-test"),
                 subject: "worktree-test",
@@ -2090,7 +2214,7 @@ it.effect(
             response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
         }).pipe(
           Effect.provide(
-            layerWsRpc(
+            layerWsRpcForTest(
               {
                 sessionId: AuthSessionId.make("layout-test"),
                 subject: "layout-test",
@@ -2175,7 +2299,7 @@ it.effect("a git action that fails partway still refreshes the repository status
         response._tag === "Exit" ? Queue.offer(exits, response.exit) : Effect.void,
     }).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerWsRpcForTest(
           {
             sessionId: AuthSessionId.make("git-test"),
             subject: "git-test",
@@ -2256,7 +2380,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
         response._tag === "Exit" ? Queue.offer(exits, response.exit._tag) : Effect.void,
     }).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerWsRpcForTest(
           {
             sessionId: AuthSessionId.make("publish-test"),
             subject: "publish-test",
@@ -2847,7 +2971,7 @@ it.effect("ACP session RPCs list a thread missing its history and repair it on i
     const services = AcpRegistrySessions.layer.pipe(Layer.provideMerge(dependencies));
     const client = yield* RpcTest.makeClient(acpSessionRpcs).pipe(
       Effect.provide(
-        layerWsRpc(
+        layerWsRpcForTest(
           {
             sessionId: AuthSessionId.make("acp-test"),
             subject: "acp-test",
@@ -3001,7 +3125,7 @@ const makeWorkflowClient = Effect.fn("test.makeWorkflowClient")(function* (
   );
   return yield* RpcTest.makeClient(workflowRpcs).pipe(
     Effect.provide(
-      layerWsRpc(
+      layerWsRpcForTest(
         {
           sessionId: AuthSessionId.make("workflow-test"),
           subject: "workflow-test",
@@ -3069,7 +3193,7 @@ const makeAcpRegistryClient = Effect.fn("test.makeAcpRegistryClient")(function* 
   );
   return yield* RpcTest.makeClient(acpSessionRpcs).pipe(
     Effect.provide(
-      layerWsRpc(
+      layerWsRpcForTest(
         {
           sessionId: AuthSessionId.make("acp-test"),
           subject: "acp-test",

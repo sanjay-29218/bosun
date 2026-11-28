@@ -136,10 +136,7 @@ export class BotReach extends Context.Service<
       actor: LaunchActor,
       input: ProjectManagerLaunch,
     ) => Effect.Effect<LaunchedProjectManager, OrchestratorMcpFailure>;
-    /**
-     * For a linked environment: makes the workflows and roles here it manages match `copy`,
-     * returning those this environment kept as its own. Needs a full-access link, as work does.
-     */
+    /** For a linked machine from before imports: refuses its copies, saying why. */
     readonly libraryForLink: (
       scope: McpInvocationContext.McpInvocationScope,
       copy: LibraryCopySet,
@@ -491,6 +488,7 @@ const make = Effect.gen(function* () {
                   name: role.name,
                   instructions: role.instructions,
                   modelSelection: role.modelSelection,
+                  fallbackModelSelection: role.fallbackModelSelection ?? null,
                   // Older peers require it.
                   runtimeMode: "full-access" as const,
                 },
@@ -753,26 +751,18 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /** A machine from before imports still pushes its set; it hears why nothing was taken. */
   const libraryForLink: BotReach["Service"]["libraryForLink"] = Effect.fn(
     "BotReach.libraryForLink",
-  )(function* (scope, copy) {
+  )(function* (_scope, copy) {
     const self = yield* here;
-    if (scope.client?.linked !== true) {
-      return yield* failure(
-        "capability_denied",
-        "Only a linked environment copies workflows and roles here.",
-      );
-    }
-    if (scope.client.access !== "full-access") {
-      return yield* failure(
-        "capability_denied",
-        `${self.label} is linked with ${scope.client.access} access, and copying workflows there needs full access. Link ${self.label} again with full access in Settings → Environments → Linked environments.`,
-      );
-    }
-    const refused = yield* crew
-      .applyLibraryCopy(copy)
-      .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
-    return { refused };
+    const reason = `${self.label} imports workflows and roles instead of taking copies. Update Bosun on ${copy.owner.label}.`;
+    return {
+      refused: [
+        ...copy.workflows.map((item) => ({ kind: "workflow" as const, id: item.id, reason })),
+        ...copy.roles.map((item) => ({ kind: "role" as const, id: item.id, reason })),
+      ],
+    };
   });
 
   const noticesForLink: BotReach["Service"]["noticesForLink"] = Effect.fn(

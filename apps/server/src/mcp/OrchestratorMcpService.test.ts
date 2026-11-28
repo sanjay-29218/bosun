@@ -32,6 +32,7 @@ import {
   type RuntimeMode,
   type ServerProvider,
   projectHeadquartersThreadId,
+  type ModelSelection,
 } from "@t3tools/contracts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import { formatThreadLink, hostedThreadLink } from "@t3tools/shared/threadLinks";
@@ -3495,9 +3496,21 @@ describe("OrchestratorMcpService provider resolution", () => {
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const sent = yield* Ref.make<
-        ReadonlyArray<{ readonly threadId: string; readonly text: string }>
+        ReadonlyArray<{
+          readonly threadId: string;
+          readonly text: string;
+          readonly modelSelection: ModelSelection | undefined;
+        }>
       >([]);
       const taskStatus = yield* Ref.make("running");
+      const crewThreadMember = yield* Ref.make("Planner");
+      // A replayed send returns the run it started before, on whatever model that was.
+      const replayedRunModel = yield* Ref.make<ModelSelection | null>(null);
+      const notices = yield* Ref.make<
+        ReadonlyArray<{ readonly title: string; readonly message: string }>
+      >([]);
+      const antigravityInstanceId = ProviderInstanceId.make("antigravity");
+      const antigravityModel = { instanceId: antigravityInstanceId, model: "gemini-3-pro" };
       const plannerModel = { instanceId: codexInstanceId, model: "gpt-5.4-mini" };
       const task = {
         id: taskId,
@@ -3541,6 +3554,10 @@ describe("OrchestratorMcpService provider resolution", () => {
         member?: string,
         runtimeMode?: RuntimeMode,
         supportedRuntimeModes?: ReadonlyArray<RuntimeMode>,
+        models?: {
+          readonly providers: ReadonlyArray<ServerProvider>;
+          readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
+        },
       ) => {
         const projection = leadProjection(featureId, member, runtimeMode);
         const layerDependencies = Layer.mergeAll(
@@ -3557,25 +3574,38 @@ describe("OrchestratorMcpService provider resolution", () => {
                 ),
               ),
             getThreadShell: (threadId) =>
-              Effect.succeed(
-                threadId === childThreadId
-                  ? ({
-                      id: childThreadId,
-                      archivedAt: null,
-                      createdAt: DateTime.makeUnsafe(0),
-                      feature: { id: "feature:dark", title: "Dark mode", member: "Planner" },
-                    } as never)
-                  : null,
+              Ref.get(crewThreadMember).pipe(
+                Effect.map((member) =>
+                  threadId === childThreadId
+                    ? ({
+                        id: childThreadId,
+                        archivedAt: null,
+                        createdAt: DateTime.makeUnsafe(0),
+                        feature: { id: "feature:dark", title: "Dark mode", member },
+                      } as never)
+                    : null,
+                ),
               ),
             sendToThread: (input) =>
-              Ref.update(sent, (all) => [
-                ...all,
-                { threadId: input.threadId, text: input.text },
-              ]).pipe(
-                Effect.as({
-                  run: { id: "run:crew-follow-up", delegatedTaskId: taskId, status: "running" },
-                } as never),
-              ),
+              Effect.gen(function* () {
+                yield* Ref.update(sent, (all) => [
+                  ...all,
+                  {
+                    threadId: input.threadId,
+                    text: input.text,
+                    modelSelection: input.modelSelection,
+                  },
+                ]);
+                const replayed = yield* Ref.get(replayedRunModel);
+                return {
+                  run: {
+                    id: "run:crew-follow-up",
+                    delegatedTaskId: taskId,
+                    status: "running",
+                    modelSelection: replayed ?? input.modelSelection,
+                  },
+                } as never;
+              }),
             isProviderInstanceEnabledForProject: () => Effect.succeed(true),
             assertProviderInstanceEnabled: () => Effect.void,
             dispatch: (command) =>
@@ -3588,20 +3618,31 @@ describe("OrchestratorMcpService provider resolution", () => {
                       commandId: null,
                       event: { type: "subagent.updated", payload: task },
                     },
+                    {
+                      sequence: 2,
+                      commandId: null,
+                      event: {
+                        type: "run.created",
+                        threadId: childThreadId,
+                        payload: { id: "run:crew-child" },
+                      },
+                    },
                   ],
                 } as never),
               ),
           }),
-          providerRegistryLayer([
-            {
-              ...providerSnapshot({
-                instanceId: codexInstanceId,
-                driver: ProviderDriverKind.make("codex"),
-                model: plannerModel.model,
-              }),
-              ...(supportedRuntimeModes === undefined ? {} : { supportedRuntimeModes }),
-            },
-          ]),
+          providerRegistryLayer(
+            models?.providers ?? [
+              {
+                ...providerSnapshot({
+                  instanceId: codexInstanceId,
+                  driver: ProviderDriverKind.make("codex"),
+                  model: plannerModel.model,
+                }),
+                ...(supportedRuntimeModes === undefined ? {} : { supportedRuntimeModes }),
+              },
+            ],
+          ),
           adapterRegistryLayer([codexInstanceId]),
           Layer.mock(ProjectService.ProjectService)({
             getById: () => Effect.succeedNone,
@@ -3609,7 +3650,7 @@ describe("OrchestratorMcpService provider resolution", () => {
           Layer.mock(SecretRequests.SecretRequests)({}),
           Layer.mock(RemoteDelegation.RemoteDelegation)({}),
           Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
-          ServerSettings.layerTest(),
+          ServerSettings.layerTest(models?.settings),
           Layer.succeed(
             CrewDelegation,
             CrewDelegation.of({
@@ -3623,14 +3664,24 @@ describe("OrchestratorMcpService provider resolution", () => {
                           name: "Planner",
                           instructions: "You are the Planner on a feature's crew.",
                           modelSelection: plannerModel,
+                          fallbackModelSelection: null,
                         }
                       : name === "Builder"
                         ? {
                             name: "Builder",
                             instructions: "You are the Builder on a feature's crew.",
                             modelSelection: plannerModel,
+                            fallbackModelSelection: null,
                           }
-                        : null,
+                        : name === "Reviewer" || name === "Tester"
+                          ? {
+                              name,
+                              instructions: `You are the ${name} on a feature's crew.`,
+                              modelSelection: antigravityModel,
+                              // Only the Reviewer's role names a fallback.
+                              fallbackModelSelection: name === "Reviewer" ? plannerModel : null,
+                            }
+                          : null,
                 ),
               names: () => Effect.succeed(["Planner", "Builder"]),
               resolveIssue: () => Effect.die("unused"),
@@ -3638,7 +3689,15 @@ describe("OrchestratorMcpService provider resolution", () => {
           ),
         );
         return OrchestratorMcpService.layer.pipe(
-          Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+          Layer.provide(
+            Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+              recordNotice: (notice) =>
+                Ref.update(notices, (all) => [
+                  ...all,
+                  { title: notice.title, message: notice.message },
+                ]),
+            }),
+          ),
           Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
           Layer.provide(layerDependencies),
         );
@@ -3714,6 +3773,9 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.equal(followUp!.threadId, childThreadId);
         assert.include(followUp!.text, "Revise the plan.");
         assert.notInclude(followUp!.text, "You are the Planner");
+        // A crew member whose own model runs keeps it, with no notice.
+        assert.deepEqual(followUp!.modelSelection, plannerModel);
+        assert.lengthOf(yield* Ref.get(notices), 0);
       }).pipe(Effect.provide(run("feature:dark")));
 
       const crewModes: ReadonlyArray<{
@@ -3774,6 +3836,92 @@ describe("OrchestratorMcpService provider resolution", () => {
           .pipe(Effect.flip);
       }).pipe(Effect.provide(run("feature:dark", "Builder")));
       assert.include(fromCrew.message, "crewMember works only in a feature's lead thread");
+
+      // A crew member whose provider is off here runs on its role's fallback, then the
+      // Settings one, and its thread says so; with neither, the error names every model tried.
+      const disabled = providerSnapshot({
+        instanceId: antigravityInstanceId,
+        driver: ProviderDriverKind.make("antigravity"),
+        model: antigravityModel.model,
+        enabled: false,
+      });
+      const codex = providerSnapshot({
+        instanceId: codexInstanceId,
+        driver: ProviderDriverKind.make("codex"),
+        model: plannerModel.model,
+      });
+      const delegated = (member: string, models: Parameters<typeof run>[4]) =>
+        Effect.gen(function* () {
+          yield* Ref.set(dispatched, []);
+          yield* Ref.set(notices, []);
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const result = yield* mcp
+            .delegateTask(scope, {
+              task: "Check it.",
+              crewMember: member,
+              clientRequestId: `crew-fallback-${member}-${models?.settings ? "global" : "role"}`,
+            })
+            .pipe(Effect.result);
+          const [request] = (yield* Ref.get(dispatched)) as ReadonlyArray<{
+            readonly modelSelection: { readonly instanceId: string; readonly model: string };
+          }>;
+          return { result, request, notices: yield* Ref.get(notices) };
+        }).pipe(Effect.provide(run("feature:dark", undefined, undefined, undefined, models)));
+
+      const roleFallback = yield* delegated("Reviewer", { providers: [disabled, codex] });
+      assert.deepEqual(roleFallback.request?.modelSelection, plannerModel);
+      assert.lengthOf(roleFallback.notices, 1);
+      assert.include(roleFallback.notices[0]!.message, "uses the fallback model instead of");
+
+      const globalFallback = yield* delegated("Tester", {
+        providers: [disabled, codex],
+        settings: { fallbackModelSelection: plannerModel },
+      });
+      assert.deepEqual(globalFallback.request?.modelSelection, plannerModel);
+      assert.lengthOf(globalFallback.notices, 1);
+
+      const nothing = yield* delegated("Reviewer", {
+        providers: [disabled, { ...codex, enabled: false, installed: false, status: "disabled" }],
+      });
+      assert.isUndefined(nothing.request);
+      assert.isTrue(Result.isFailure(nothing.result));
+      if (Result.isFailure(nothing.result)) {
+        assert.equal(nothing.result.failure.code, "provider_unavailable");
+        assert.include(nothing.result.failure.message, `${antigravityModel.model} (antigravity)`);
+        assert.include(nothing.result.failure.message, `${plannerModel.model} (codex)`);
+        assert.include(nothing.result.failure.message, "No fallback model is set in Settings.");
+      }
+
+      // The Reviewer's next task in its existing thread falls back too, and that run says so.
+      const followUpOnFallback = (clientRequestId: string) =>
+        Effect.gen(function* () {
+          yield* Ref.set(sent, []);
+          yield* Ref.set(notices, []);
+          yield* Ref.set(dispatched, [{ type: "delegated_task.request" }]);
+          yield* Ref.set(taskStatus, "completed");
+          yield* Ref.set(crewThreadMember, "Reviewer");
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* mcp.delegateTask(scope, {
+            task: "Check it again.",
+            crewMember: "Reviewer",
+            clientRequestId,
+          });
+          const [followUp] = yield* Ref.get(sent);
+          return { followUp, notices: yield* Ref.get(notices) };
+        }).pipe(
+          Effect.provide(
+            run("feature:dark", undefined, undefined, undefined, { providers: [disabled, codex] }),
+          ),
+        );
+      const fellBack = yield* followUpOnFallback("crew-reviewer-follow-up");
+      assert.equal(fellBack.followUp?.threadId, childThreadId);
+      assert.deepEqual(fellBack.followUp?.modelSelection, plannerModel);
+      assert.lengthOf(fellBack.notices, 1);
+      assert.include(fellBack.notices[0]!.message, "uses the fallback model instead of");
+
+      yield* Ref.set(replayedRunModel, antigravityModel);
+      const replayed = yield* followUpOnFallback("crew-reviewer-follow-up-replay");
+      assert.lengthOf(replayed.notices, 0);
     }),
   );
 

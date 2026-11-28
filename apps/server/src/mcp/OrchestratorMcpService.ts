@@ -7,7 +7,7 @@ import {
   idleCompactionOf,
   isProviderAvailable,
   MessageId,
-  type ModelSelection,
+  ModelSelection,
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   TurnItemId,
@@ -74,7 +74,10 @@ import { getProviderOptionCurrentValue, withLegacyUltracodeEffort } from "@t3too
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { resolveDefaultModelSelection } from "@t3tools/shared/providerDefaultModel";
+import {
+  resolveDefaultModelSelection,
+  resolveRunModelSelection,
+} from "@t3tools/shared/providerDefaultModel";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { threadPullRequestUpdatedAtMs } from "@t3tools/shared/threadPullRequests";
 import {
@@ -144,12 +147,14 @@ import {
 } from "./delegatedTaskModes.ts";
 import { crewQuestionHoldsTask } from "../crew/crewApprovalRules.ts";
 import { crewAwaitingPersonNext, crewMemberTask } from "../crew/crewPrompts.ts";
-import { CrewDelegation } from "./CrewDelegation.ts";
+import { CrewDelegation, type CrewMemberRun } from "./CrewDelegation.ts";
 import { assertTargetWithinLimits, isLiveCallerShell, threadNotFound } from "./threadAccess.ts";
 import { WITHHELD, withoutWebhookUrlToken } from "../scheduledTasks/webhookUrlToken.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+
+const sameModelSelection = Schema.toEquivalence(ModelSelection);
 
 // Return recoverable handles before common MCP client timeouts expire.
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
@@ -1775,6 +1780,32 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.mapError(threadManagementFailure));
 
+  /**
+   * The model a crew member's new thread runs on: its own, else its role's fallback, else the
+   * Settings fallback, by the rule every crew run follows. Fails naming each model it tried.
+   */
+  const crewMemberModel = Effect.fn("OrchestratorMcp.crewMemberModel")(function* (
+    member: CrewMemberRun,
+    projectId: ProjectId,
+    providers: ReadonlyArray<ServerProvider>,
+  ) {
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(() => failure("orchestration_error", "Unable to read server settings.")),
+    );
+    const model = resolveRunModelSelection({
+      chosen: member.modelSelection,
+      roleFallback: member.fallbackModelSelection,
+      providers,
+      settings,
+      projectId,
+      now: DateTime.toEpochMillis(yield* DateTime.now),
+    });
+    if (model?.blocked != null) {
+      return yield* failure("provider_unavailable", `${member.name} can't run: ${model.blocked}`);
+    }
+    return model ?? { selection: member.modelSelection, notice: null, blocked: null };
+  });
+
   const resolveTargetRechecking = (
     input: Parameters<typeof resolveTarget>[0] & { readonly cwd: string | undefined },
   ) => {
@@ -3261,6 +3292,11 @@ const make = Effect.gen(function* () {
             `${crewMember.name} is still on its last task; its result comes back here. Hand it the next task once it reports.`,
           );
         }
+        const memberModel = yield* crewMemberModel(
+          crewMember,
+          parent.thread.projectId,
+          yield* loadProviders,
+        );
         const key = yield* requestKey(input.clientRequestId);
         if (issue !== undefined) {
           yield* threadManagement
@@ -3285,6 +3321,7 @@ const make = Effect.gen(function* () {
             messageId: stableOperationMessageId({ scope, requestKey: key, operation: "crew-task" }),
             text: taskPrompt(input, issue),
             attachments: [],
+            modelSelection: memberModel.selection,
             mode: "auto",
             createdBy: "agent",
             creationSource: "mcp",
@@ -3299,6 +3336,20 @@ const make = Effect.gen(function* () {
                   ),
             ),
           );
+        // A replayed send can return an earlier run on another model; only the new run gets the notice.
+        if (
+          memberModel.notice !== null &&
+          sameModelSelection(sent.run.modelSelection, memberModel.selection)
+        ) {
+          yield* threadLaunch.recordNotice({
+            threadId: crewThreadId,
+            runId: sent.run.id,
+            signal: "model-fallback",
+            title: memberModel.notice.title,
+            message: memberModel.notice.message,
+            level: "info",
+          });
+        }
         const taskId = sent.run.delegatedTaskId;
         if (taskId === undefined) {
           return yield* failure(
@@ -3318,17 +3369,21 @@ const make = Effect.gen(function* () {
         operation: "delegate-task",
       });
       const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
+      const crewModel =
+        crewMember === null
+          ? null
+          : yield* crewMemberModel(crewMember, parent.thread.projectId, providers);
       const target = yield* resolveTargetRechecking({
         parent,
         target:
-          crewMember === null
+          crewModel === null
             ? input.target
             : {
-                providerInstanceId: crewMember.modelSelection.instanceId,
-                model: crewMember.modelSelection.model,
-                ...(crewMember.modelSelection.options === undefined
+                providerInstanceId: crewModel.selection.instanceId,
+                model: crewModel.selection.model,
+                ...(crewModel.selection.options === undefined
                   ? {}
-                  : { options: crewMember.modelSelection.options }),
+                  : { options: crewModel.selection.options }),
               },
         providers,
         cwd: yield* parentWorkspaceCwd(parent),
@@ -3482,6 +3537,21 @@ const make = Effect.gen(function* () {
             (stored) =>
               stored.event.type === "run.created" && stored.event.threadId === childThreadId,
           );
+          // The crew member's thread says which model it fell back to, and why.
+          if (
+            crewModel?.notice != null &&
+            childThreadId !== null &&
+            childRunEvent?.event.type === "run.created"
+          ) {
+            yield* threadLaunch.recordNotice({
+              threadId: childThreadId,
+              runId: childRunEvent.event.payload.id,
+              signal: "model-fallback",
+              title: crewModel.notice.title,
+              message: crewModel.notice.message,
+              level: "info",
+            });
+          }
           if (
             childThreadId !== null &&
             childRunEvent?.event.type === "run.created" &&

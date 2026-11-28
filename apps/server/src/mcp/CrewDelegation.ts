@@ -7,6 +7,8 @@ export interface CrewMemberRun {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
+  /** Its role's fallback, tried before the Settings one when `modelSelection` can't run. */
+  readonly fallbackModelSelection: ModelSelection | null;
 }
 
 /**

@@ -25,7 +25,9 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { unlinkFromCli } from "../crew/LibraryImports.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as PeerMcpClient from "../peer/PeerMcpClient.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -38,11 +40,39 @@ import { authLocationFlags, type CliAuthLocationFlags, resolveCliAuthConfig } fr
  */
 const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A, E>(
   flags: CliAuthLocationFlags,
-  run: (links: PeerLinks.PeerLinks["Service"]) => Effect.Effect<A, E>,
+  run: (
+    links: PeerLinks.PeerLinks["Service"],
+  ) => Effect.Effect<
+    A,
+    E,
+    PeerLinks.PeerLinks | PeerMcpClient.PeerMcpClient | ServerEnvironment.ServerEnvironment
+  >,
   options?: { readonly quietLogs?: boolean },
 ) {
   const logLevel = yield* GlobalFlag.LogLevel;
   const config = yield* resolveCliAuthConfig(flags, logLevel, options);
+  const environment = ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer));
+  const links = PeerLinks.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        ServerSecretStore.layer,
+        SqlitePersistence.layerCliConfig,
+        FetchHttpClient.layer,
+      ),
+    ),
+    Layer.provide(environment),
+    Layer.provide(
+      ServerSettings.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            ServerSecretStore.layer,
+            SqlitePersistence.layerCliConfig,
+            ManagedPolicy.layer,
+          ),
+        ),
+      ),
+    ),
+  );
   return yield* PeerLinks.PeerLinks.pipe(
     Effect.flatMap(run),
     // A refused or unreachable link is an expected outcome: print its message, not a stack.
@@ -50,26 +80,11 @@ const runWithPeerLinks = Effect.fn("environment.runWithPeerLinks")(function* <A,
       Effect.fail(new CliError.UserError({ cause: error, userMessage: error.message })),
     ),
     Effect.provide(
-      PeerLinks.layer.pipe(
-        Layer.provide(
-          Layer.mergeAll(
-            ServerSecretStore.layer,
-            SqlitePersistence.layerCliConfig,
-            FetchHttpClient.layer,
-          ),
-        ),
-        Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
-        Layer.provide(
-          ServerSettings.layer.pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                ServerSecretStore.layer,
-                SqlitePersistence.layerCliConfig,
-                ManagedPolicy.layer,
-              ),
-            ),
-          ),
-        ),
+      Layer.mergeAll(
+        links,
+        environment,
+        PeerMcpClient.layer.pipe(Layer.provide(Layer.merge(links, FetchHttpClient.layer))),
+      ).pipe(
         Layer.provide(ServerConfig.layer(config)),
         Layer.provide(
           Layer.succeed(References.MinimumLogLevel, options?.quietLogs ? "Error" : config.logLevel),
@@ -301,9 +316,9 @@ const environmentUnlinkCommand = Command.make("unlink", {
     "Forget a linked environment here, and end its session there when that environment answers.",
   ),
   Command.withHandler((flags) =>
-    runWithPeerLinks(flags, (links) =>
+    runWithPeerLinks(flags, () =>
       Effect.gen(function* () {
-        const { removed, endedThere } = yield* links.unlink(
+        const { removed, endedThere } = yield* unlinkFromCli(
           EnvironmentId.make(flags.environmentId),
         );
         yield* Console.log(

@@ -103,6 +103,7 @@ import { SettingsClientStorageRouteScreen } from "./features/settings/SettingsCl
 import { SettingsDiagnosticsRouteScreen } from "./features/diagnostics/SettingsDiagnosticsRouteScreen";
 import { SettingsProviderAccountsRouteScreen } from "./features/settings/SettingsProviderAccountsRouteScreen";
 import { SettingsBotsRouteScreen } from "./features/settings/SettingsBotsRouteScreen";
+import { SettingsLibraryImportRouteScreen } from "./features/settings/SettingsLibraryImportRouteScreen";
 import { SettingsRolesRouteScreen } from "./features/settings/SettingsRolesRouteScreen";
 import { SettingsWorkflowsRouteScreen } from "./features/settings/SettingsWorkflowsRouteScreen";
 import { SettingsAuthRouteScreen } from "./features/settings/SettingsAuthRouteScreen";
@@ -200,6 +201,7 @@ const ROUTE_TITLES: Readonly<Record<string, string>> = {
   SettingsBots: msg("Bots"),
   SettingsRoles: msg("Roles"),
   SettingsWorkflows: msg("Workflows"),
+  SettingsLibraryImport: msg("Import from…"),
   SettingsScheduledTasks: msg("Scheduled tasks"),
   SettingsScheduledTaskNew: msg("New scheduled task"),
   SettingsScheduledTaskEdit: msg("Edit scheduled task"),
@@ -388,6 +390,11 @@ const SETTINGS_SCREENS = {
   SettingsWorkflows: createNativeStackScreen({
     screen: SettingsWorkflowsRouteScreen,
     linking: "settings/workflows",
+    options: settingsPage(),
+  }),
+  SettingsLibraryImport: createNativeStackScreen({
+    screen: SettingsLibraryImportRouteScreen,
+    linking: "settings/library-import/:environmentId",
     options: settingsPage(),
   }),
   SettingsScheduledTasks: createNativeStackScreen({

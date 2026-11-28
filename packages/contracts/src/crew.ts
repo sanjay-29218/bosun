@@ -45,31 +45,77 @@ export type CrewMemberSummary = typeof CrewMemberSummary.Type;
 
 export const CrewProjectInput = Schema.Struct({ projectId: ProjectId });
 
-/** The linked machine a copied workflow or role is managed from, where it is edited. */
-export const LibraryOwner = Schema.Struct({ environmentId: EnvironmentId, label: Schema.String });
-export type LibraryOwner = typeof LibraryOwner.Type;
+export const LibraryItemKind = Schema.Literals(["role", "workflow"]);
+export type LibraryItemKind = typeof LibraryItemKind.Type;
 
 /**
- * A linked machine's copy of a workflow or role, as the machine that owns it sees it. Every
- * linked machine gets one; a machine with no entry hasn't answered since it was linked.
+ * Why an import can't follow its source right now. `notLinked` is a source this machine doesn't
+ * link to (unlinked, or a copy from before imports, which came over the source's own link).
  */
-export const LibraryCopy = Schema.Struct({
+export const LibraryImportProblem = Schema.Literals([
+  "unreachable",
+  "expired",
+  "denied",
+  "outdated",
+  "removed",
+  "notLinked",
+]);
+export type LibraryImportProblem = typeof LibraryImportProblem.Type;
+
+/**
+ * Where an imported workflow or role came from. It keeps the source's id, so one id has at most
+ * one source. `localRevision` is this row's revision right after the import was applied, so any
+ * save here since makes it edited.
+ */
+export const ImportedFrom = Schema.Struct({
   environmentId: EnvironmentId,
-  /** The revision that machine last got; null until it got one. */
-  deliveredRevision: Schema.NullOr(Schema.Int),
-  deliveredAt: Schema.NullOr(Schema.String),
-  /** Why it isn't there: that machine has its own with the same id, or can't take copies. */
-  problem: Schema.NullOr(Schema.String),
+  label: Schema.String,
+  /** The source's revision this copy was taken at; null when unknown (copies from before imports). */
+  revision: Schema.NullOr(Schema.Int),
+  localRevision: Schema.Int,
+  /** A newer source revision the last sync saw. */
+  available: Schema.NullOr(Schema.Int),
+  /** An update the person chose to skip; a newer one shows again. */
+  skipped: Schema.NullOr(Schema.Int).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+  problem: Schema.NullOr(LibraryImportProblem),
 });
-export type LibraryCopy = typeof LibraryCopy.Type;
+export type ImportedFrom = typeof ImportedFrom.Type;
+
+/** A machine that imported this workflow or role, as its last sync here reported it. */
+export const LibraryImporter = Schema.Struct({
+  environmentId: EnvironmentId,
+  label: Schema.String,
+  /** This machine's revision that one holds; null when unknown. */
+  revision: Schema.NullOr(Schema.Int),
+  /** It changed its copy since it took it. */
+  edited: Schema.Boolean,
+  seenAt: Schema.String,
+  /** An update saved here waits for its next sync. */
+  pending: Schema.Boolean,
+});
+export type LibraryImporter = typeof LibraryImporter.Type;
 
 /** Older servers send neither. */
-const libraryCopyFields = {
-  /** Set on a copy: it is edited on that machine and read-only here. */
-  managedFrom: Schema.NullOr(LibraryOwner).pipe(
+const libraryImportFields = {
+  importedFrom: Schema.NullOr(ImportedFrom).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
-  copies: Schema.Array(LibraryCopy).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  importers: Schema.Array(LibraryImporter).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+};
+
+/** Whether an import changed here since it was taken, and whether its source has a newer one. */
+export const libraryImportState = (item: {
+  readonly revision: number;
+  readonly importedFrom: ImportedFrom | null;
+}) => {
+  const source = item.importedFrom;
+  if (source === null) return { edited: false, updateAvailable: false };
+  const seen = Math.max(source.revision ?? -1, source.skipped ?? -1);
+  return {
+    edited: item.revision !== source.localRevision,
+    updateAvailable:
+      source.problem === null && source.available !== null && source.available > seen,
+  };
 };
 
 /** A global role: who a crew member is. Editing it never rewrites existing members. */
@@ -78,9 +124,13 @@ export const RoleConfig = Schema.Struct({
   name: Schema.String,
   instructions: Schema.String,
   modelSelection: ModelSelection,
+  /** Used when `modelSelection` can't run here, before the Settings fallback model. */
+  fallbackModelSelection: Schema.NullOr(ModelSelection).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   enabled: Schema.Boolean,
   revision: Schema.Int,
-  ...libraryCopyFields,
+  ...libraryImportFields,
 });
 export type RoleConfig = typeof RoleConfig.Type;
 const roleFields = {
@@ -88,12 +138,25 @@ const roleFields = {
   name: Schema.String,
   instructions: Schema.String,
   modelSelection: ModelSelection,
+  /** Absent keeps the role's fallback model; null clears it. */
+  fallbackModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
 };
+/**
+ * A machine that imported it and takes this save on its next sync. `replacesEdits` is what the
+ * person agreed to: without it, a copy edited there keeps its edits and shows Update available.
+ */
+export const LibraryPushTarget = Schema.Struct({
+  environmentId: EnvironmentId,
+  replacesEdits: Schema.Boolean,
+});
+export type LibraryPushTarget = typeof LibraryPushTarget.Type;
+const alsoUpdateOn = Schema.optionalKey(Schema.Array(LibraryPushTarget));
 export const RoleCreateInput = Schema.Struct({ ...roleFields });
 export const RoleUpdateInput = Schema.Struct({
   ...roleFields,
   expectedRevision: Schema.Int,
   enabled: Schema.Boolean,
+  alsoUpdateOn,
 });
 /** The workflow a feature follows when none is chosen. People can edit it but not delete it. */
 export const FEATURE_DELIVERY_WORKFLOW_ID = "workflow:feature-delivery";
@@ -108,6 +171,8 @@ export const SnapshotRole = Schema.Struct({
   name: Schema.String,
   instructions: Schema.String,
   modelSelection: ModelSelection,
+  /** Tried when `modelSelection` can't run where the feature runs; older peers send none. */
+  fallbackModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   /** Older peers require it. Every role runs with full access, so it is ignored. */
   runtimeMode: Schema.optionalKey(RuntimeMode),
 });
@@ -141,7 +206,7 @@ export const WorkflowConfig = Schema.Struct({
   instructions: Schema.String,
   crewRoleIds: Schema.Array(Schema.String),
   revision: Schema.Int,
-  ...libraryCopyFields,
+  ...libraryImportFields,
 });
 export type WorkflowConfig = typeof WorkflowConfig.Type;
 const workflowFields = {
@@ -154,8 +219,76 @@ export const WorkflowCreateInput = Schema.Struct({ ...workflowFields });
 export const WorkflowUpdateInput = Schema.Struct({
   ...workflowFields,
   expectedRevision: Schema.Int,
+  alsoUpdateOn,
 });
 export const WorkflowDeleteInput = Schema.Struct({ id: Schema.String });
+
+/** What importing one of a linked machine's workflows or roles would do here. */
+export const LibraryImportStatus = Schema.Literals(["new", "update", "current", "replaces"]);
+export type LibraryImportStatus = typeof LibraryImportStatus.Type;
+
+export const LibraryImportableItem = Schema.Struct({
+  kind: LibraryItemKind,
+  id: Schema.String,
+  name: Schema.String,
+  revision: Schema.Int,
+  /** A workflow's crew; empty for a role. */
+  crewRoleIds: Schema.Array(Schema.String),
+  status: LibraryImportStatus,
+  /** For `replaces`: what is here now. */
+  replaces: Schema.NullOr(
+    Schema.Struct({
+      name: Schema.String,
+      /** The machine the one here was imported from, if it was. */
+      importedFrom: Schema.NullOr(Schema.String),
+      /** A built-in nobody changed. */
+      stock: Schema.Boolean,
+    }),
+  ),
+});
+export type LibraryImportableItem = typeof LibraryImportableItem.Type;
+
+export const LibraryImportableInput = Schema.Struct({ sourceEnvironmentId: EnvironmentId });
+export const LibraryImportable = Schema.Struct({
+  source: Schema.Struct({ environmentId: EnvironmentId, label: Schema.String }),
+  /** Why nothing could be listed; `items` is empty then. */
+  problem: Schema.NullOr(LibraryImportProblem),
+  items: Schema.Array(LibraryImportableItem),
+});
+export type LibraryImportable = typeof LibraryImportable.Type;
+
+/**
+ * Imports these from a linked machine, or takes their update when they came from it. A workflow
+ * brings the roles it names that this machine lacks. Without `replace`, one that would replace
+ * this machine's own (or another machine's) is skipped.
+ */
+export const LibraryImportInput = Schema.Struct({
+  sourceEnvironmentId: EnvironmentId,
+  roleIds: Schema.Array(Schema.String),
+  workflowIds: Schema.Array(Schema.String),
+  replace: Schema.Boolean,
+});
+export const LibraryImportResult = Schema.Struct({
+  imported: Schema.Array(
+    Schema.Struct({ kind: LibraryItemKind, id: Schema.String, name: Schema.String }),
+  ),
+  skipped: Schema.Array(
+    Schema.Struct({
+      kind: LibraryItemKind,
+      id: Schema.String,
+      reason: Schema.Literals(["replaces", "missing", "current", "edited"]),
+    }),
+  ),
+});
+export type LibraryImportResult = typeof LibraryImportResult.Type;
+
+/** `detach` keeps it as this machine's own; `skip` hides the update available now. */
+export const LibraryDetachMode = Schema.Literals(["detach", "skip"]);
+export const LibraryDetachInput = Schema.Struct({
+  kind: LibraryItemKind,
+  id: Schema.String,
+  mode: LibraryDetachMode,
+});
 
 /** Creates the default roles and workflow that are missing, using `modelSelection` for each role. */
 export const CrewInitializeInput = Schema.Struct({ modelSelection: ModelSelection });

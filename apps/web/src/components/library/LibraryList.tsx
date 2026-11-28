@@ -1,4 +1,5 @@
 import {
+  libraryImportLine,
   libraryRoleEntries,
   libraryWorkflowEntries,
   roleAvailabilityNote,
@@ -6,22 +7,27 @@ import {
   type LibraryWorkflowEntry,
 } from "@t3tools/client-runtime/state/library";
 import { useAtomValue } from "@effect/atom-react";
-import type { EnvironmentId, WorkflowConfig } from "@t3tools/contracts";
+import { type EnvironmentId, libraryImportState, type WorkflowConfig } from "@t3tools/contracts";
+import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { Link } from "@tanstack/react-router";
 import { ChevronRightIcon } from "lucide-react";
 import { memo, useState } from "react";
 
+import type { MessageResolver } from "../../i18n/messages";
 import { cn } from "../../lib/utils";
 import { loadedLibraries, useLibraryByEnvironment } from "../../state/library";
 import { useConnectedEnvironmentIds, useEnvironmentIdentities } from "../../state/environments";
 import { rolesEnvironment } from "../../state/roles";
 import { SettingsSection } from "../settings/settingsLayout";
 import { ROLES_SETTINGS_PATH, WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { Badge } from "../ui/badge";
 import { Switch } from "../ui/switch";
 import { useSaveRole } from "./RoleEditor";
 
 /** Settings → Workflows' or Roles' list: every shown environment's workflows or roles. */
 export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
+  const gt = useGT();
+  const m = useMessages();
   const states = useLibraryByEnvironment();
   const identities = useEnvironmentIdentities();
   const connected = useConnectedEnvironmentIds();
@@ -43,9 +49,11 @@ export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
   if (states.length === 0) {
     return (
       <p className="px-3 text-sm text-muted-foreground sm:px-4">
-        {connected.length === 0
-          ? "No environments connected"
-          : "No connected environment runs feature crews"}
+        {connected.length === 0 ? (
+          <T>No environments connected</T>
+        ) : (
+          <T>No connected environment runs feature crews</T>
+        )}
       </p>
     );
   }
@@ -65,36 +73,56 @@ export function LibraryList({ kind }: { readonly kind: "workflow" | "role" }) {
             note={roleAvailabilityNote(
               entry.item,
               workflowsByEnvironment.get(entry.environmentId) ?? [],
+              m,
             )}
             environmentLabel={environmentLabel(entry.environmentId)}
           />
         ));
-  const title = kind === "workflow" ? "Workflows" : "Roles";
+  const title = kind === "workflow" ? gt("Workflows") : gt("Roles");
   return (
     <SettingsSection title={title} hideTitle>
       {rows.length > 0 ? (
         <ul className="divide-y divide-border/50">{rows}</ul>
       ) : (
         <p className="px-4 py-3 text-sm text-muted-foreground" role="status">
-          {loading
-            ? "Loading…"
-            : kind === "workflow"
-              ? "No workflows yet. A feature follows a workflow: its lead takes the brief and hands work to the workflow's crew."
-              : "No roles yet. A workflow's crew are roles."}
+          {loading ? (
+            <T>Loading…</T>
+          ) : kind === "workflow" ? (
+            <T>
+              No workflows yet. A feature follows a workflow: its lead takes the brief and hands
+              work to the workflow's crew.
+            </T>
+          ) : (
+            <T>No roles yet. A workflow's crew are roles.</T>
+          )}
         </p>
       )}
-      {errors.map((state) => (
-        <p key={state.environmentId} className="px-4 py-3 text-sm text-destructive" role="status">
-          Could not load {labelById.get(state.environmentId) ?? "an environment"}'s library:{" "}
-          {state.error}
-        </p>
-      ))}
+      {errors.map((state) => {
+        const label = labelById.get(state.environmentId);
+        return (
+          <p key={state.environmentId} className="px-4 py-3 text-sm text-destructive" role="status">
+            {label === undefined ? (
+              <T>
+                Could not load an environment's library: <Var>{state.error}</Var>
+              </T>
+            ) : (
+              <T>
+                Could not load <Var>{label}</Var>'s library: <Var>{state.error}</Var>
+              </T>
+            )}
+          </p>
+        );
+      })}
     </SettingsSection>
   );
 }
 
-const crewLabel = (workflow: WorkflowConfig) =>
-  workflow.crewRoleIds.length === 1 ? "1 crew role" : `${workflow.crewRoleIds.length} crew roles`;
+const crewLabel = (workflow: WorkflowConfig, resolve: MessageResolver) =>
+  resolve(
+    msg("{count, plural, one {{count} crew role} other {{count} crew roles}}", {
+      count: workflow.crewRoleIds.length,
+    }),
+  );
 
 const ROW_CLASS =
   "flex min-w-0 items-center gap-3 px-4 py-2.5 outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
@@ -108,6 +136,7 @@ const WorkflowRow = memo(function WorkflowRow({
   readonly environmentLabel: string | null;
 }) {
   const workflow = entry.item;
+  const m = useMessages();
   return (
     <li>
       <Link
@@ -120,14 +149,12 @@ const WorkflowRow = memo(function WorkflowRow({
             {workflow.name}
           </span>
           <span className="truncate text-xs text-muted-foreground">
-            {[
-              crewLabel(workflow),
-              workflow.managedFrom ? `From ${workflow.managedFrom.label}` : null,
-            ]
+            {[crewLabel(workflow, m), libraryImportLine(workflow, m)]
               .filter((part) => part !== null)
               .join(" · ")}
           </span>
         </span>
+        <UpdateBadge item={workflow} />
         {environmentLabel ? (
           <span className="shrink-0 truncate text-xs text-muted-foreground">
             {environmentLabel}
@@ -153,6 +180,9 @@ const RoleRow = memo(function RoleRow({
   readonly environmentLabel: string | null;
 }) {
   const role = entry.item;
+  const gt = useGT();
+  const m = useMessages();
+  const importLine = libraryImportLine(role, m);
   const save = useSaveRole(entry.environmentId);
   const canEdit = useAtomValue(rolesEnvironment.update.permissionAtom(entry.environmentId));
   const [saving, setSaving] = useState(false);
@@ -173,14 +203,13 @@ const RoleRow = memo(function RoleRow({
         >
           {role.name}
         </span>
-        {note || role.managedFrom ? (
+        {note || importLine ? (
           <span className="truncate text-xs text-muted-foreground">
-            {[note, role.managedFrom ? `From ${role.managedFrom.label}` : null]
-              .filter((part) => part)
-              .join(" · ")}
+            {[note, importLine].filter((part) => part).join(" · ")}
           </span>
         ) : null}
       </span>
+      <UpdateBadge item={role} />
       {environmentLabel ? (
         <span className="pointer-events-none shrink-0 truncate text-xs text-muted-foreground">
           {environmentLabel}
@@ -189,9 +218,9 @@ const RoleRow = memo(function RoleRow({
       {/* Above the row's link, so a toggle doesn't open the role. */}
       <span className="relative flex">
         <Switch
-          aria-label={`New features use ${role.name}`}
+          aria-label={gt("New features use {name}", { name: role.name })}
           checked={role.enabled}
-          disabled={!canEdit || saving || role.managedFrom !== null}
+          disabled={!canEdit || saving}
           onCheckedChange={(enabled) => {
             setSaving(true);
             void save(role, { enabled }).then(() => setSaving(false));
@@ -205,3 +234,13 @@ const RoleRow = memo(function RoleRow({
     </li>
   );
 });
+
+/** An imported one whose source has a newer version. */
+function UpdateBadge({ item }: { readonly item: Parameters<typeof libraryImportState>[0] }) {
+  if (!libraryImportState(item).updateAvailable) return null;
+  return (
+    <Badge variant="info" size="sm" className="pointer-events-none shrink-0">
+      <T>Update available</T>
+    </Badge>
+  );
+}

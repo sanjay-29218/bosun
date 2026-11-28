@@ -21,6 +21,7 @@ import {
   LinkBotImport,
   LinkBotNotices,
   LinkLibrary,
+  LinkLibrarySync,
   LinkBotProjects,
   LinkBotRehome,
   LinkBotTask,
@@ -104,7 +105,7 @@ const Pin = Tool.make("t3_bot_pin", {
 const Projects = Tool.make("t3_bot_projects", {
   ...shared,
   description:
-    "List a bot's projects on this environment and on linked environments that gave them to it. Default bot: the one whose headquarters calls; from a project's manager, its project and its copies on linked environments. Each project names its environmentId and open features. Each environment says whether it answered, and lists the bot's requests waiting for it, which start once it answers. Hand work to a project on another environment with t3_project_send or delegate_task and its environmentId.",
+    "List a bot's projects here and on linked environments that gave them to it (default: the calling headquarters' bot; from a project's manager, its project and its copies there), each with its environmentId and open features. Each environment says whether it answered and lists the bot's requests waiting for it, which start once it answers. Hand work to a project on another environment with t3_project_send or delegate_task and its environmentId.",
   parameters: Schema.Struct({
     botId: Schema.optional(
       Schema.String.annotate({ description: "This environment's bot (t3_bot_list id)." }),
@@ -128,6 +129,7 @@ export const BotsToolkit = Toolkit.make(
   LinkBotTask,
   LinkBotNotices,
   LinkLibrary,
+  LinkLibrarySync,
   LinkBotImport,
   LinkBotRehome,
 );

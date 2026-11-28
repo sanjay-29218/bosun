@@ -2,6 +2,7 @@ import {
   type EnvironmentId,
   headquartersBotId,
   headquartersProjectId,
+  libraryImportState,
   type ThreadId,
   OrchestratorMcpFailure,
   ProjectId,
@@ -14,7 +15,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { LibraryCopies } from "../../../crew/LibraryCopies.ts";
+import { LibraryImports } from "../../../crew/LibraryImports.ts";
 import { ProjectRequests } from "../../../crew/ProjectRequests.ts";
 import { FeatureService } from "../../../features/FeatureService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -59,6 +60,9 @@ const guarded =
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     check.pipe(Effect.andThen(effect), Effect.mapError(asMcpFailure));
 const reading = guarded(Effect.void);
+const withImportState = <T extends Parameters<typeof libraryImportState>[0]>(
+  items: ReadonlyArray<T>,
+) => items.map((item) => ({ ...item, ...libraryImportState(item) }));
 const writing = guarded(checkWrite);
 
 /**
@@ -126,12 +130,17 @@ const startOnLinkedEnvironment = Effect.fn("FeaturesToolkit.startOnLinkedEnviron
 });
 
 const make = Effect.gen(function* () {
-  const library = yield* LibraryCopies;
+  const library = yield* LibraryImports;
   const features = yield* FeatureService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   return {
     t3_role_list: McpToolAccess.reads(() =>
-      reading(Effect.all({ roles: library.listRoles, workflows: library.listWorkflows })),
+      reading(
+        Effect.all({
+          roles: library.listRoles.pipe(Effect.map(withImportState)),
+          workflows: library.listWorkflows.pipe(Effect.map(withImportState)),
+        }),
+      ),
     ),
     t3_role_create: McpToolAccess.writesWithCapability((input: typeof RoleCreateInput.Type) =>
       writing(library.createRole(input)),
@@ -144,6 +153,44 @@ const make = Effect.gen(function* () {
     ),
     t3_feature_workflow_update: McpToolAccess.writesWithCapability(
       (input: typeof WorkflowUpdateInput.Type) => writing(library.updateWorkflow(input)),
+    ),
+    t3_library_import: McpToolAccess.writesWithCapability(
+      (input: {
+        readonly environmentId: EnvironmentId;
+        readonly roleIds?: ReadonlyArray<string> | undefined;
+        readonly workflowIds?: ReadonlyArray<string> | undefined;
+        readonly mode?: "replace" | "keep" | "skip" | undefined;
+      }) =>
+        Effect.gen(function* () {
+          // A role and a workflow may share an id, so each list names its kind.
+          const roleIds = input.roleIds ?? [];
+          const workflowIds = input.workflowIds ?? [];
+          const mode = input.mode;
+          if (mode === "keep" || mode === "skip") {
+            const items = [
+              ...roleIds.map((id) => ({ kind: "role" as const, id })),
+              ...workflowIds.map((id) => ({ kind: "workflow" as const, id })),
+            ];
+            for (const item of items) {
+              yield* writing(
+                library.detach({ ...item, mode: mode === "keep" ? "detach" : "skip" }),
+              );
+            }
+            return mode === "keep" ? { kept: items.length } : { updatesSkipped: items.length };
+          }
+          if (roleIds.length + workflowIds.length === 0) {
+            return { listed: yield* reading(library.importable(input.environmentId)) };
+          }
+          const imported = yield* writing(
+            library.importItems({
+              sourceEnvironmentId: input.environmentId,
+              roleIds,
+              workflowIds,
+              replace: mode === "replace",
+            }),
+          );
+          return { imported };
+        }),
     ),
     t3_feature_start: McpToolAccess.actsAsCaller(
       (input: {

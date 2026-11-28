@@ -1,6 +1,8 @@
+import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, RoleConfig } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { LayersIcon, PlusIcon, UsersIcon } from "lucide-react";
+import { T, useGT } from "gt-react";
+import { DownloadIcon, LayersIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -9,12 +11,15 @@ import {
   type EnvironmentLibraryState,
 } from "../../state/library";
 import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../../state/environments";
+import { rolesEnvironment } from "../../state/roles";
+import { environmentServerConfigsAtom } from "../../state/server";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { CrewSettingsFrame } from "../settings/CrewSettingsFrame";
 import { ROLES_SETTINGS_PATH, WORKFLOWS_SETTINGS_PATH } from "../sidebar/mainAppLocation";
+import { LibraryImportDialog } from "./LibraryImportDialog";
 import { LibraryList } from "./LibraryList";
 import type { LibrarySearch } from "./librarySearch";
 import {
@@ -44,12 +49,13 @@ export function LibraryPage({
   readonly kind: "workflow" | "role";
   readonly search: LibrarySearch;
 }) {
+  const gt = useGT();
   const navigate = useNavigate();
   const libraries = useLibraries();
   const shown = useLibraryByEnvironment();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const path = kind === "workflow" ? WORKFLOWS_SETTINGS_PATH : ROLES_SETTINGS_PATH;
-  const listTitle = kind === "workflow" ? "Workflows" : "Roles";
+  const listTitle = kind === "workflow" ? gt("Workflows") : gt("Roles");
   const creating = search.new === kind;
   const newEnvironmentId =
     search.environmentId ??
@@ -85,8 +91,14 @@ export function LibraryPage({
       ? null
       : (library?.roles.find((candidate) => candidate.id === selectedId) ?? null);
   const selecting = selectedId !== undefined;
+  // Imports go to the primary environment while the page lists several.
+  const importInto =
+    shown.find((state) => state.environmentId === primaryEnvironmentId)?.environmentId ??
+    shown[0]?.environmentId ??
+    null;
 
-  // Bumped to remount the open form, which discards its draft.
+  // Bumped to remount the open form, which discards its draft. Taking an import's update
+  // (a new localRevision) remounts it too, so it shows what was taken.
   const [formRevision, setFormRevision] = useState(0);
   const open = (id: string) => {
     if (environmentId === null) return;
@@ -101,7 +113,7 @@ export function LibraryPage({
   const status =
     environmentId !== null && library === null
       ? live === null
-        ? "This environment isn't connected."
+        ? gt("This environment isn't connected.")
         : live.error
       : null;
 
@@ -112,10 +124,13 @@ export function LibraryPage({
         title={listTitle}
         actions={
           libraries.length === 0 ? null : (
-            <Button size="sm" onClick={() => void navigate({ to: path, search: { new: kind } })}>
-              <PlusIcon />
-              {kind === "workflow" ? "New workflow" : "New role"}
-            </Button>
+            <>
+              {importInto === null ? null : <ImportAction environmentId={importInto} />}
+              <Button size="sm" onClick={() => void navigate({ to: path, search: { new: kind } })}>
+                <PlusIcon />
+                {kind === "workflow" ? gt("New workflow") : gt("New role")}
+              </Button>
+            </>
           )
         }
       >
@@ -128,7 +143,7 @@ export function LibraryPage({
     return (
       <CrewSettingsFrame
         back={back}
-        title={kind === "workflow" ? "New workflow" : "New role"}
+        title={kind === "workflow" ? gt("New workflow") : gt("New role")}
         actions={null}
       >
         <EnvironmentPicker
@@ -169,7 +184,7 @@ export function LibraryPage({
     return (
       <CrewSettingsFrame back={back} title={workflow.name} actions={null}>
         <WorkflowEditorForm
-          key={`${library.environmentId}:${workflow.id}:${formRevision}`}
+          key={`${library.environmentId}:${workflow.id}:${formRevision}:${workflow.importedFrom?.localRevision ?? 0}`}
           environmentId={library.environmentId}
           workflow={workflow}
           roles={library.roles}
@@ -184,7 +199,7 @@ export function LibraryPage({
     return (
       <CrewSettingsFrame back={back} title={role.name} actions={null}>
         <RoleEditorForm
-          key={`${library.environmentId}:${role.id}:${formRevision}`}
+          key={`${library.environmentId}:${role.id}:${formRevision}:${role.importedFrom?.localRevision ?? 0}`}
           environmentId={library.environmentId}
           role={role}
           defaultModel={role.modelSelection}
@@ -202,12 +217,14 @@ export function LibraryPage({
         <Empty>
           <EmptyHeader>
             <EmptyTitle>
-              {kind === "workflow" ? "Workflow unavailable" : "Role unavailable"}
+              {kind === "workflow" ? <T>Workflow unavailable</T> : <T>Role unavailable</T>}
             </EmptyTitle>
             <EmptyDescription>
-              {kind === "workflow"
-                ? "This workflow no longer exists."
-                : "This role no longer exists."}
+              {kind === "workflow" ? (
+                <T>This workflow no longer exists.</T>
+              ) : (
+                <T>This role no longer exists.</T>
+              )}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -227,12 +244,15 @@ function NewRole({
   readonly onSaved: (roleId: string) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   const defaultModel = useEnvironmentDefaultModel(environmentId);
   const starterRoles = useAddStarterRoles(environmentId);
   const [adding, setAdding] = useState(false);
   if (defaultModel === null) {
     return (
-      <LibraryStatus status="Set up a provider on this environment to give new roles a model." />
+      <LibraryStatus
+        status={gt("Set up a provider on this environment to give new roles a model.")}
+      />
     );
   }
   return (
@@ -240,10 +260,14 @@ function NewRole({
       {hasStarterRoles(roles) ? null : (
         <Alert variant="info">
           <UsersIcon />
-          <AlertTitle>No starter roles yet</AlertTitle>
+          <AlertTitle>
+            <T>No starter roles yet</T>
+          </AlertTitle>
           <AlertDescription>
-            Add a Planner, Designer, Builder, QA Tester and Reviewer, then change each one as you
-            like.
+            <T>
+              Add a Planner, Designer, Builder, QA Tester and Reviewer, then change each one as you
+              like.
+            </T>
           </AlertDescription>
           <AlertAction>
             <Button
@@ -255,7 +279,7 @@ function NewRole({
                 void starterRoles.add().then(() => setAdding(false));
               }}
             >
-              Add starter roles
+              <T>Add starter roles</T>
             </Button>
           </AlertAction>
         </Alert>
@@ -282,8 +306,9 @@ function NewWorkflow({
   readonly onSaved: (workflowId: string) => void;
   readonly onCancel: () => void;
 }) {
+  const gt = useGT();
   if (!roles.some((role) => role.enabled)) {
-    return <LibraryStatus status="Add a role first. A workflow's crew are roles." />;
+    return <LibraryStatus status={gt("Add a role first. A workflow's crew are roles.")} />;
   }
   return (
     <WorkflowEditorForm
@@ -306,6 +331,7 @@ function EnvironmentPicker({
   readonly value: EnvironmentId;
   readonly onChange: (environmentId: EnvironmentId) => void;
 }) {
+  const gt = useGT();
   const identities = useEnvironmentIdentities();
   if (libraries.length < 2) return null;
   const labelOf = (environmentId: EnvironmentId) =>
@@ -319,7 +345,7 @@ function EnvironmentPicker({
           if (match) onChange(match.environmentId);
         }}
       >
-        <SelectTrigger size="sm" aria-label="Environment">
+        <SelectTrigger size="sm" aria-label={gt("Environment")}>
           <SelectValue>{labelOf(value)}</SelectValue>
         </SelectTrigger>
         <SelectPopup>
@@ -334,10 +360,40 @@ function EnvironmentPicker({
   );
 }
 
+/**
+ * Imports workflows and roles into `environmentId` from a machine it links to. Hidden on servers
+ * from before imports and for clients that may not change the library.
+ */
+function ImportAction({ environmentId }: { readonly environmentId: EnvironmentId }) {
+  const gt = useGT();
+  const [open, setOpen] = useState(false);
+  const configs = useAtomValue(environmentServerConfigsAtom);
+  const identities = useEnvironmentIdentities();
+  const permitted = useAtomValue(rolesEnvironment.importItems.permissionAtom(environmentId));
+  if (!permitted) return null;
+  if (configs.get(environmentId)?.environment.capabilities.libraryImports !== true) return null;
+  const label =
+    identities.find((identity) => identity.environmentId === environmentId)?.label ?? environmentId;
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <DownloadIcon />
+        {gt("Import from…")}
+      </Button>
+      <LibraryImportDialog
+        environmentId={environmentId}
+        environmentLabel={label}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
+  );
+}
+
 function LibraryStatus({ status }: { readonly status: string | null }) {
   return (
     <p className="text-sm text-muted-foreground" role="status">
-      {status ?? "Loading…"}
+      {status ?? <T>Loading…</T>}
     </p>
   );
 }
@@ -349,9 +405,11 @@ function NoEnvironments() {
         <EmptyMedia variant="icon">
           <LayersIcon />
         </EmptyMedia>
-        <EmptyTitle>No environments available</EmptyTitle>
+        <EmptyTitle>
+          <T>No environments available</T>
+        </EmptyTitle>
         <EmptyDescription>
-          Connect an environment that runs feature crews to edit its workflows and roles.
+          <T>Connect an environment that runs feature crews to edit its workflows and roles.</T>
         </EmptyDescription>
       </EmptyHeader>
     </Empty>

@@ -158,13 +158,14 @@ export function modelBlockText(selection: ModelSelection, block: ModelBlock): st
 }
 
 /**
- * The model a new thread or an agent's run uses: the chosen one, else the fallback while the
- * chosen one can't run here and the fallback can. An explicit selection is never swapped.
- * `blocked` says why the chosen model can't run when no fallback can stand in.
+ * The model a new thread or an agent's run uses: the chosen one, else the first fallback that
+ * can run while the chosen one can't (a role's own, then the Settings one). An explicit
+ * selection is never swapped. `blocked` says why the chosen model can't run when none can stand in.
  */
 export function resolveNewThreadModelSelection(input: {
   readonly defaultSelection: ModelSelection | null;
   readonly explicitSelection?: ModelSelection | null;
+  readonly roleFallbackSelection?: ModelSelection | null;
   readonly fallbackSelection: ModelSelection | null;
   readonly providers: readonly ServerProvider[];
   readonly now: number;
@@ -187,13 +188,11 @@ export function resolveNewThreadModelSelection(input: {
     });
   const blocked = check(selection);
   if (!blocked) return { selection, fallback: null, blocked: null };
-  if (!input.fallbackSelection || check(input.fallbackSelection))
-    return { selection, fallback: null, blocked };
-  return {
-    selection: input.fallbackSelection,
-    fallback: { ...blocked, from: selection },
-    blocked: null,
-  };
+  const standIn = [input.roleFallbackSelection, input.fallbackSelection].find(
+    (candidate): candidate is ModelSelection => !!candidate && !check(candidate),
+  );
+  if (!standIn) return { selection, fallback: null, blocked };
+  return { selection: standIn, fallback: { ...blocked, from: selection }, blocked: null };
 }
 
 /** What a run on the fallback model says: "Using Claude Opus 5.5" / "Codex isn't signed in here". */
@@ -210,10 +209,11 @@ export function modelFallbackNotice(
   };
 }
 
-/** Why neither `selection` nor the fallback can run, naming both. */
+/** Why neither `selection` nor any fallback can run, naming each one tried. */
 export function noRunnableModelText(input: {
   readonly selection: ModelSelection;
   readonly blocked: ModelBlock;
+  readonly roleFallbackSelection?: ModelSelection | null;
   readonly fallbackSelection: ModelSelection | null;
   readonly providers: readonly ServerProvider[];
   readonly now: number;
@@ -222,9 +222,15 @@ export function noRunnableModelText(input: {
 }): string {
   const named = (selection: ModelSelection) => `${selection.model} (${selection.instanceId})`;
   const own = `${named(input.selection)} can't run: ${modelBlockText(input.selection, input.blocked)}.`;
-  if (!input.fallbackSelection) return `${own} No fallback model is set in Settings.`;
-  const fallbackBlock = modelSelectionBlock({ ...input, selection: input.fallbackSelection });
-  return `${own} The fallback model, ${named(input.fallbackSelection)}, can't run either${fallbackBlock ? `: ${modelBlockText(input.fallbackSelection, fallbackBlock)}` : ""}.`;
+  const either = (what: string, selection: ModelSelection) => {
+    const block = modelSelectionBlock({ ...input, selection });
+    return ` ${what}, ${named(selection)}, can't run either${block ? `: ${modelBlockText(selection, block)}` : ""}.`;
+  };
+  const role = input.roleFallbackSelection
+    ? either("Its role's fallback model", input.roleFallbackSelection)
+    : "";
+  if (!input.fallbackSelection) return `${own}${role} No fallback model is set in Settings.`;
+  return `${own}${role}${either(role ? "The Settings fallback model" : "The fallback model", input.fallbackSelection)}`;
 }
 
 export const CHATGPT_USAGE_URL = "https://chatgpt.com/#settings/Usage";

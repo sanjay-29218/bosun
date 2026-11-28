@@ -11,11 +11,17 @@ import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
+import { Tool, Toolkit } from "effect/ai";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/cli";
 
 import { cli } from "../binCli.ts";
 import * as ServerConfig from "../config.ts";
+import * as McpHttpServer from "../mcp/McpHttpServer.ts";
+import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
+import * as McpToolAccess from "../mcp/McpToolAccess.ts";
+import { LibrarySyncInput, LibrarySyncResult } from "../mcp/toolkits/bots/linkTools.ts";
 import { descriptorOf, servePeer } from "../peer/PeerLinks.testkit.ts";
 
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NodeCrypto.layer, NetService.layer);
@@ -138,6 +144,64 @@ it.effect("links a file of environments, reports each line, and fails when one d
       expect(redacted).toContain("http://192.168.1.20:3773: unreachable: ");
       expect(redacted).toContain("line 3: unreachable: ");
       expect(redacted).not.toMatch(/alice|hunter2|s3cret/);
+    }),
+  ).pipe(Effect.provide(Layer.mergeAll(layerCliRuntime, TestConsole.layer))),
+);
+
+const LibrarySync = Toolkit.make(
+  Tool.make("t3_crew_link_library_sync", {
+    description: "Records what an importer holds from here.",
+    parameters: LibrarySyncInput,
+    success: LibrarySyncResult,
+    dependencies: [McpInvocationContext.McpInvocationContext],
+  }),
+);
+
+it.effect("unlinking tells that machine first that this one imports nothing from it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-environment-cli-" });
+      const { settingsPath } = yield* ServerConfig.deriveServerPaths(baseDir, undefined);
+      yield* fs.makeDirectory(NodePath.dirname(settingsPath), { recursive: true });
+      yield* fs.writeFileString(settingsPath, JSON.stringify({ linkedEnvironmentsEnabled: true }));
+
+      const told = yield* Ref.make<ReadonlyArray<LibrarySyncInput>>([]);
+      const handlers = McpToolAccess.toLayer(LibrarySync, {
+        t3_crew_link_library_sync: McpToolAccess.reads((input: LibrarySyncInput) =>
+          Ref.update(told, (all) => [...all, input]).pipe(
+            Effect.as({ label: "Studio", items: [], push: [], missing: [] }),
+          ),
+        ),
+      });
+      const studio = yield* Layer.build(Layer.fresh(NodeHttpServer.layerTest)).pipe(
+        Effect.flatMap((server) =>
+          servePeer(
+            descriptorOf("environment-studio", "Studio"),
+            McpHttpServer.toolkitRegistration(LibrarySync, handlers),
+          ).pipe(Effect.provideContext(server)),
+        ),
+      );
+      const code = (yield* studio.auth.issuePairingCredential({
+        access: "full-access",
+        purpose: "peer-link",
+      })).credential;
+      yield* runCli([
+        "environment",
+        "link",
+        studio.url,
+        "--pairing-code",
+        code,
+        "--access",
+        "full-access",
+        "--base-dir",
+        baseDir,
+      ]);
+
+      yield* runCli(["environment", "unlink", "environment-studio", "--base-dir", baseDir]);
+      const [forgotten] = yield* Ref.get(told);
+      expect(forgotten?.holds).toEqual([]);
+      expect(yield* studio.linkedSessions).toEqual([]);
     }),
   ).pipe(Effect.provide(Layer.mergeAll(layerCliRuntime, TestConsole.layer))),
 );

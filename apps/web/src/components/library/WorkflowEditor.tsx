@@ -2,13 +2,16 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   FEATURE_DELIVERY_WORKFLOW_ID,
   type EnvironmentId,
+  type LibraryPushTarget,
   type RoleConfig,
   type WorkflowConfig,
 } from "@t3tools/contracts";
+import { msg, useGT } from "gt-react";
 import { useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
 import { useUnsavedChangesGuard } from "../../hooks/useUnsavedChangesGuard";
+import { m } from "../../i18n/messages";
 import { cn, randomUUID } from "../../lib/utils";
 import { formatEnvironmentQueryError } from "../../state/query";
 import { rolesEnvironment } from "../../state/roles";
@@ -20,7 +23,7 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
-import { LibraryMachines, ManagedFromNotice } from "./LibraryMachines";
+import { AlsoUpdateOnDialog, LibraryImportBanner, LibraryImportedOn } from "./LibraryImport";
 
 /** A readable id that stays unique when two workflows share a name. */
 function newWorkflowId(name: string) {
@@ -52,16 +55,17 @@ export function WorkflowEditorForm({
   readonly onCancel: () => void;
   readonly onDeleted?: () => void;
 }) {
+  const gt = useGT();
   const create = useAtomCommand(rolesEnvironment.createWorkflow);
   const update = useAtomCommand(rolesEnvironment.updateWorkflow);
   const remove = useAtomCommand(rolesEnvironment.deleteWorkflow);
-  const managedFrom = workflow?.managedFrom ?? null;
-  const permitted = useAtomValue(
+  const canEdit = useAtomValue(
     (workflow ? rolesEnvironment.updateWorkflow : rolesEnvironment.createWorkflow).permissionAtom(
       environmentId,
     ),
   );
-  const canEdit = permitted && managedFrom === null;
+  // Saving one that linked machines imported asks which of them take the change.
+  const [asking, setAsking] = useState(false);
   const canDelete = useAtomValue(rolesEnvironment.deleteWorkflow.permissionAtom(environmentId));
   const [name, setName] = useState(workflow?.name ?? "");
   const [instructions, setInstructions] = useState(workflow?.instructions ?? "");
@@ -86,23 +90,33 @@ export function WorkflowEditorForm({
   useUnsavedChangesGuard({
     unsaved: edited,
     saving: busy,
-    message: "Leave without saving this workflow?",
+    message: gt("Leave without saving this workflow?"),
   });
 
-  const submit = async () => {
+  const submit = async (alsoUpdateOn?: ReadonlyArray<LibraryPushTarget>) => {
     if (!canSave) return;
+    if (workflow && workflow.importers.length > 0 && alsoUpdateOn === undefined) {
+      setAsking(true);
+      return;
+    }
+    setAsking(false);
     setBusy(true);
     const input = { ...fields, crewRoleIds: [...fields.crewRoleIds] };
     const savedId = await (async () => {
       if (workflow) {
         const result = await update({
           environmentId,
-          input: { id: workflow.id, ...input, expectedRevision: workflow.revision },
+          input: {
+            id: workflow.id,
+            ...input,
+            expectedRevision: workflow.revision,
+            ...(alsoUpdateOn && alsoUpdateOn.length > 0 ? { alsoUpdateOn: [...alsoUpdateOn] } : {}),
+          },
         });
         if (result._tag === "Success") return workflow.id;
         toastManager.add({
           type: "error",
-          title: `Could not save ${workflow.name}`,
+          title: m(msg("Could not save {name}", { name: workflow.name })),
           description: formatEnvironmentQueryError(result.cause),
         });
         return null;
@@ -112,7 +126,7 @@ export function WorkflowEditorForm({
       if (result._tag === "Success") return id;
       toastManager.add({
         type: "error",
-        title: "Could not add the workflow",
+        title: m(msg("Could not add the workflow")),
         description: formatEnvironmentQueryError(result.cause),
       });
       return null;
@@ -125,7 +139,7 @@ export function WorkflowEditorForm({
   const deleteWorkflow = async () => {
     if (!workflow) return;
     const confirmed = await requestConfirmDialog(
-      `Delete ${workflow.name}?\nFeatures already running on it keep going.`,
+      gt("Delete {name}?\nFeatures already running on it keep going.", { name: workflow.name }),
       { variant: "destructive" },
     );
     if (confirmed !== true) return;
@@ -136,7 +150,7 @@ export function WorkflowEditorForm({
     } else {
       toastManager.add({
         type: "error",
-        title: `Could not delete ${workflow.name}`,
+        title: m(msg("Could not delete {name}", { name: workflow.name })),
         description: formatEnvironmentQueryError(result.cause),
       });
     }
@@ -151,37 +165,51 @@ export function WorkflowEditorForm({
         void submit();
       }}
     >
-      {managedFrom === null ? null : <ManagedFromNotice noun="workflow" owner={managedFrom} />}
+      {workflow === null ? null : (
+        <LibraryImportBanner
+          environmentId={environmentId}
+          kind="workflow"
+          item={workflow}
+          unsaved={edited}
+        />
+      )}
       <fieldset disabled={busy || !canEdit} className="min-w-0 space-y-6">
-        <SettingsSection title="Workflow" hideTitle>
+        <SettingsSection
+          title={gt("Workflow", {
+            $context: "section heading for a workflow's name and instructions",
+          })}
+          hideTitle
+        >
           <div className="space-y-5 px-3 py-4 sm:px-4">
-            <EditorField label="Name" htmlFor="crew-workflow-name">
+            <EditorField label={gt("Name")} htmlFor="crew-workflow-name">
               <Input
                 id="crew-workflow-name"
                 value={name}
                 maxLength={200}
-                placeholder="Bug fix"
+                placeholder={gt("Bug fix", { $context: "example name for a workflow" })}
                 onChange={(event) => setName(event.target.value)}
               />
             </EditorField>
-            <EditorField label="Instructions" htmlFor="crew-workflow-instructions">
+            <EditorField label={gt("Instructions")} htmlFor="crew-workflow-instructions">
               <InstructionsEditor
                 id="crew-workflow-instructions"
-                label="Instructions"
+                label={gt("Instructions")}
                 value={instructions}
                 maxLength={16_000}
                 size="lg"
                 disabled={busy || !canEdit}
-                placeholder="How the feature's lead runs the work and when to hand it to the crew"
+                placeholder={gt(
+                  "How the feature's lead runs the work and when to hand it to the crew",
+                )}
                 onChange={setInstructions}
               />
             </EditorField>
           </div>
         </SettingsSection>
-        <SettingsSection title={`Crew · ${fields.crewRoleIds.length}`}>
+        <SettingsSection title={gt("Crew · {count}", { count: fields.crewRoleIds.length })}>
           <div className="px-3 py-4 sm:px-4">
             {crewOptions.length === 0 ? (
-              <p className="px-2.5 text-sm text-muted-foreground">No roles yet.</p>
+              <p className="px-2.5 text-sm text-muted-foreground">{gt("No roles yet.")}</p>
             ) : (
               <div className="grid gap-0.5 sm:grid-cols-2">
                 {crewOptions.map((role) => {
@@ -207,7 +235,10 @@ export function WorkflowEditorForm({
                       <span className="min-w-0 truncate text-sm">
                         {role.name}
                         {role.enabled ? null : (
-                          <span className="text-muted-foreground"> · Off</span>
+                          <span className="text-muted-foreground">
+                            {" · "}
+                            {gt("Off", { $context: "a role that is switched off" })}
+                          </span>
                         )}
                       </span>
                     </label>
@@ -217,16 +248,20 @@ export function WorkflowEditorForm({
             )}
           </div>
         </SettingsSection>
-        {workflow !== null && managedFrom === null ? (
-          <LibraryMachines environmentId={environmentId} item={workflow} />
-        ) : null}
+        {workflow === null ? null : <LibraryImportedOn item={workflow} />}
       </fieldset>
+      {workflow === null ? null : (
+        <AlsoUpdateOnDialog
+          name={workflow.name}
+          importers={workflow.importers}
+          open={asking}
+          onCancel={() => setAsking(false)}
+          onSave={(alsoUpdateOn) => void submit(alsoUpdateOn)}
+        />
+      )}
       <div className="sticky bottom-0 z-10 -mx-1 flex items-center justify-between gap-2 bg-background/95 px-1 py-3 backdrop-blur-sm">
         <div>
-          {workflow &&
-          workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID &&
-          canDelete &&
-          managedFrom === null ? (
+          {workflow && workflow.id !== FEATURE_DELIVERY_WORKFLOW_ID && canDelete ? (
             <Button
               type="button"
               variant="ghost-destructive"
@@ -234,7 +269,7 @@ export function WorkflowEditorForm({
               disabled={busy}
               onClick={() => void deleteWorkflow()}
             >
-              Delete workflow
+              {gt("Delete workflow")}
             </Button>
           ) : null}
         </div>
@@ -246,10 +281,10 @@ export function WorkflowEditorForm({
             disabled={busy || (workflow !== null && !edited)}
             onClick={onCancel}
           >
-            {workflow ? "Discard" : "Cancel"}
+            {workflow ? gt("Discard", { $context: "verb, discards unsaved edits" }) : gt("Cancel")}
           </Button>
           <Button type="submit" size="sm" disabled={!canSave}>
-            {workflow ? "Save workflow" : "Add workflow"}
+            {workflow ? gt("Save workflow") : gt("Add workflow")}
           </Button>
         </div>
       </div>

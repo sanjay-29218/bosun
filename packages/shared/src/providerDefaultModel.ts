@@ -78,12 +78,13 @@ export function resolveDefaultModelSelection(
 }
 
 /**
- * The model one agent run uses: `chosen`, else the default, switched to the fallback model while
- * that one can't run here, by `resolveNewThreadModelSelection`'s rule. `notice` says so; `blocked`
- * says why neither can run. Null when no provider can run at all.
+ * The model one agent run uses: `chosen`, else the default, switched to `roleFallback` or the
+ * Settings fallback model while that one can't run here, by `resolveNewThreadModelSelection`'s
+ * rule. `notice` says so; `blocked` says why none can run. Null when no provider can run at all.
  */
 export function resolveRunModelSelection(input: {
   readonly chosen: ModelSelection | null;
+  readonly roleFallback?: ModelSelection | null;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly settings: ServerSettings;
   readonly projectId: ProjectId | null;
@@ -101,6 +102,7 @@ export function resolveRunModelSelection(input: {
   const rule = {
     fallbackSelection: resolveProjectSettings(settings, projectId, input.project).settings
       .fallbackModelSelection,
+    roleFallbackSelection: input.roleFallback ?? null,
     providers,
     now,
     settings,

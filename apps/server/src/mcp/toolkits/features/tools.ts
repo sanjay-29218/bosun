@@ -1,6 +1,8 @@
 import {
   FeatureWorkspace,
   EnvironmentId,
+  LibraryImportable,
+  LibraryImportResult,
   OrchestratorMcpFailure,
   NodeId,
   RoleConfig,
@@ -33,13 +35,19 @@ const shared = {
   ],
 };
 
+/** Where an imported one stands, worked out for agents. */
+const importState = {
+  edited: Schema.Boolean,
+  updateAvailable: Schema.Boolean,
+};
+
 const ListRoles = Tool.make("t3_role_list", {
   ...shared,
   description:
-    "List the Library: the global roles (who a crew member is) and the workflows features follow (instructions for the lead, and its crew roles), each with its current revision.",
+    "List the Library: global roles (who a crew member is) and the workflows features follow (lead instructions and crew roles), with their revisions.",
   success: Schema.Struct({
-    roles: Schema.Array(RoleConfig),
-    workflows: Schema.Array(WorkflowConfig),
+    roles: Schema.Array(Schema.Struct({ ...RoleConfig.fields, ...importState })),
+    workflows: Schema.Array(Schema.Struct({ ...WorkflowConfig.fields, ...importState })),
   }),
 })
   .annotate(Tool.Readonly, true)
@@ -48,7 +56,7 @@ const ListRoles = Tool.make("t3_role_list", {
 const CreateRole = Tool.make("t3_role_create", {
   ...shared,
   description:
-    'Create a role. Choose an id like "role:qa-tester". Add it to a workflow\'s crewRoleIds so features on that workflow get a member of it. Copy modelSelection from an existing role unless asked otherwise. Its members get every tool, with full access.',
+    'Create a role with an id like "role:qa-tester"; add it to a workflow\'s crewRoleIds to give its features a member of it. Copy modelSelection from an existing role unless asked otherwise. Members get every tool and full access.',
   parameters: RoleCreateInput,
   success: RoleConfig,
 });
@@ -56,7 +64,7 @@ const CreateRole = Tool.make("t3_role_create", {
 const UpdateRole = Tool.make("t3_role_update", {
   ...shared,
   description:
-    "Change a role: send every field back, edited, with expectedRevision set to the revision from t3_role_list. Roles are not deleted; set enabled to false to retire one, and true to bring it back. Features already started keep the crew they were given.",
+    "Change a role: send every field back, edited, with expectedRevision from t3_role_list. Roles aren't deleted: enabled false retires one, true restores it. alsoUpdateOn: importers that also take this save; replacesEdits only if the person agreed. Started features keep their crew.",
   parameters: RoleUpdateInput,
   success: RoleConfig,
 });
@@ -64,7 +72,7 @@ const UpdateRole = Tool.make("t3_role_update", {
 const CreateWorkflow = Tool.make("t3_feature_workflow_create", {
   ...shared,
   description:
-    'Create a workflow features can follow. Choose an id like "workflow:social-media". crewRoleIds are the roles it hands work to, from t3_role_list. instructions say how the lead of each feature runs the work, in plain steps.',
+    'Create a workflow features can follow, with an id like "workflow:social-media". crewRoleIds: the roles it hands work to (t3_role_list). instructions: how each feature\'s lead runs the work, in plain steps.',
   parameters: WorkflowCreateInput,
   success: WorkflowConfig,
 });
@@ -72,21 +80,41 @@ const CreateWorkflow = Tool.make("t3_feature_workflow_create", {
 const UpdateWorkflow = Tool.make("t3_feature_workflow_update", {
   ...shared,
   description:
-    "Change a workflow: send every field back, edited, with expectedRevision set to the revision from t3_role_list. Features already started keep the workflow text and crew they started with.",
+    "Change a workflow: send every field back, edited, with expectedRevision from t3_role_list. alsoUpdateOn as for roles. Started features keep the text and crew they started with.",
   parameters: WorkflowUpdateInput,
   success: WorkflowConfig,
 });
+
+const ImportLibrary = Tool.make("t3_library_import", {
+  ...shared,
+  description:
+    "A linked environment's roles and workflows. No ids: list them and what importing would do. roleIds/workflowIds: import them or take updates (a workflow brings missing roles); mode: replace overwrites ours (ask first); keep stops following; skip skips the update.",
+  parameters: Schema.Struct({
+    environmentId: EnvironmentId,
+    roleIds: Schema.optional(Schema.Array(Schema.String)),
+    workflowIds: Schema.optional(Schema.Array(Schema.String)),
+    mode: Schema.optional(Schema.Literals(["replace", "keep", "skip"])),
+  }),
+  success: Schema.Struct({
+    listed: Schema.optional(LibraryImportable),
+    imported: Schema.optional(LibraryImportResult),
+    /** mode keep: how many are this environment's own now. */
+    kept: Schema.optional(Schema.Number),
+    /** mode skip: how many had their current update skipped. */
+    updatesSkipped: Schema.optional(Schema.Number),
+  }),
+}).annotate(Tool.Destructive, false);
 
 const StartFeature = Tool.make("t3_feature_start", {
   ...shared,
   dependencies: [...shared.dependencies, RemoteDelegation.RemoteDelegation],
   description:
-    "Start a feature in projectId, or this thread's project when omitted (full access is required to target another project), from a short title and a brief (the task, up to 16,000 characters). It follows workflowId (Feature delivery when omitted; t3_role_list shows the others): its lead gets the workflow's instructions and the brief in a new thread and runs its crew. The feature works in its own new worktree and branch, made from baseBranch when set (an existing branch, such as another feature's, to stack on it) and otherwise from the project's current branch; set workspace to local only when the person asks to work in the project's checkout. Started from a feature's thread, the new feature is that feature's child by default: its lead reports back to that feature's lead when it finishes. When that feature doesn't need this work done to count as finished, set parentFeatureId to null: the new feature stands on its own. Started with no parent, or from any other thread, each time the lead stops with its crew idle, what it said comes back to this thread. Retrying with the same featureId, yours or the one an error names, never starts a second feature. A headquarters passes environmentId for its bot's project on a linked environment, and a project's manager for its project's copy there (with only projectId, title, brief, issue and featureId; a manager may add baseBranch, a branch there, and requestId): a task there starts it, and if that environment is offline, it waits and starts by itself when it's back.",
+    "Start a feature from a short title and a brief (the task, up to 16,000 characters) in projectId (default: this thread's project; another needs full access). It follows workflowId (default Feature delivery; t3_role_list lists others): its lead gets the workflow's instructions and the brief in a new thread and runs its crew, in a new worktree and branch from baseBranch (an existing branch, such as another feature's, to stack on) or else the project's current branch; workspace local only when the person asks to work in the project's checkout. From a feature's thread it is that feature's child and reports to its lead when done; set parentFeatureId null when that feature doesn't need this work to count as finished. Otherwise the lead's words come back to this thread each time it stops with its crew idle. Retrying with the same featureId (yours, or one an error names) never starts a second. A headquarters passes environmentId for its bot's project on a linked environment, a project's manager for its project's copy there (only projectId, title, brief, issue and featureId; a manager may add baseBranch, a branch there, and requestId): a task there starts it, waiting while that environment is offline.",
   parameters: Schema.Struct({
     environmentId: Schema.optional(
       EnvironmentId.annotate({
         description:
-          "A linked environment where your bot owns the project, or your project has a copy (t3_bot_projects). Omit for this one.",
+          "A linked environment where your bot owns the project or your project has a copy (t3_bot_projects). Omit for this one.",
       }),
     ),
     projectId: Schema.optional(Schema.String),
@@ -109,7 +137,7 @@ const StartFeature = Tool.make("t3_feature_start", {
     parentFeatureId: Schema.optional(
       Schema.NullOr(Schema.String).annotate({
         description:
-          "Omit it and a feature's thread starts a child of its own feature. Managers: a feature of this project to add it under. null: a separate feature with no parent, which reports back to this thread.",
+          "Omitted, a feature's thread starts a child of its own feature. Managers: a feature of this project to add it under. null: a separate feature, reporting back to this thread.",
       }),
     ),
   }),
@@ -137,7 +165,7 @@ const StartFeature = Tool.make("t3_feature_start", {
 const FinishFeature = Tool.make("t3_feature_finish", {
   ...shared,
   description:
-    "Report that the feature you lead is done, its pull request open if the project has a remote. The board shows it ready for review, and whoever started it, or a child's parent lead with its branch and pull request, gets your summary. Call it once the work is done, not for progress, and again after asked-for changes.",
+    "Report the feature you lead done, its pull request open if the project has a remote: the board shows it ready for review, and whoever started it (or a child's parent lead, with branch and pull request) gets your summary. Call it once the work is done, not for progress, and again after asked-for changes.",
   parameters: Schema.Struct({
     summary: Schema.String.annotate({
       description: "What the feature changed, what was checked, and anything left open.",
@@ -153,8 +181,7 @@ const FinishFeature = Tool.make("t3_feature_finish", {
 
 const ListFeatures = Tool.make("t3_feature_list", {
   ...shared,
-  description:
-    "This project's features, newest first: lead thread, branches, parent, issue, pull request and state, requester, request, and last report. Filter by status or parentFeatureId.",
+  description: "This project's features, newest first. Filter by status or parentFeatureId.",
   parameters: Schema.Struct({
     status: Schema.optional(Schema.Literals(["open", "closed"])),
     parentFeatureId: Schema.optional(Schema.String),
@@ -196,6 +223,7 @@ export const FeaturesToolkit = Toolkit.make(
   UpdateRole,
   CreateWorkflow,
   UpdateWorkflow,
+  ImportLibrary,
   StartFeature,
   FinishFeature,
   ListFeatures,

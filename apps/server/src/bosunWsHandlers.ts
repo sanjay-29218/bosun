@@ -11,7 +11,7 @@ import * as Effect from "effect/Effect";
 import type { BotService } from "./bots/BotService.ts";
 import type { BotTransfer } from "./bots/BotTransfer.ts";
 import type { CrewService } from "./crew/CrewService.ts";
-import type { LibraryCopies } from "./crew/LibraryCopies.ts";
+import type { LibraryImports } from "./crew/LibraryImports.ts";
 import type { ProjectRequests } from "./crew/ProjectRequests.ts";
 import type { FeatureService } from "./features/FeatureService.ts";
 import type { IssueService } from "./issues/IssueService.ts";
@@ -23,7 +23,7 @@ export interface BosunWsServices {
   readonly bots: BotService["Service"];
   readonly botTransfer: BotTransfer["Service"];
   readonly crew: CrewService["Service"];
-  readonly library: LibraryCopies["Service"];
+  readonly library: LibraryImports["Service"];
   readonly projectRequests: ProjectRequests["Service"];
   readonly features: FeatureService["Service"];
   readonly issues: IssueService["Service"];
@@ -167,6 +167,18 @@ export const layerBosunWsRpc = ({
         [WS_METHODS.workflowsDelete]: (input) =>
           library
             .deleteWorkflow(input.id)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.libraryImportable]: (input) =>
+          library
+            .importable(input.sourceEnvironmentId)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.libraryImport]: (input) =>
+          library
+            .importItems(input)
+            .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
+        [WS_METHODS.libraryDetach]: (input) =>
+          library
+            .detach(input)
             .pipe(Effect.mapError((error) => new CrewOperationError({ reason: error.message }))),
         [WS_METHODS.crewConfiguration]: (input) =>
           crew

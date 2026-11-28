@@ -562,34 +562,46 @@ describe("feature lead and crew", () => {
   );
 
   effectIt.effect(
-    "a machine holding a copy of a workflow runs it with no snapshot, and keeps running features when it goes",
+    "an imported workflow runs here with no snapshot, and running features keep their crew when an update is taken",
     () =>
       withSystem(
         Effect.gen(function* () {
           const crew = yield* CrewService;
+          const store = yield* CrewStore;
           const features = yield* FeatureService;
-          const laptop = { environmentId: EnvironmentId.make("env-laptop"), label: "Laptop" };
-          const role = (id: string, name: string) => ({
-            id,
-            name,
-            instructions: `You are the laptop's ${name}.`,
-            modelSelection,
-            enabled: true,
-          });
-          const copy = {
-            owner: laptop,
-            workflows: [
-              {
-                id: "workflow:release",
-                name: "Release",
-                instructions: "Have the Writer write the notes, then ship.",
-                crewRoleIds: ["role:writer"],
-                revision: 4,
-              },
-            ],
-            roles: [role("role:writer", "Writer")],
+          const importedFrom = {
+            environmentId: EnvironmentId.make("env-laptop"),
+            label: "Laptop",
+            revision: 4,
+            localRevision: 1,
+            available: null,
+            skipped: null,
+            problem: null,
           };
-          expect(yield* crew.applyLibraryCopy(copy)).toEqual([]);
+          const at = "2026-11-27T00:00:00.000Z";
+          const writer = {
+            id: "role:writer",
+            name: "Writer",
+            instructions: "You are the laptop's Writer.",
+            modelSelection,
+            fallbackModelSelection: null,
+            enabled: true,
+            importedFrom,
+            revision: 1,
+            createdAt: at,
+            updatedAt: at,
+          };
+          yield* store.insertRole(writer);
+          yield* store.insertWorkflow({
+            id: "workflow:release",
+            name: "Release",
+            instructions: "Have the Writer write the notes, then ship.",
+            crewRoleIds: ["role:writer"],
+            importedFrom,
+            revision: 1,
+            createdAt: at,
+            updatedAt: at,
+          });
 
           // Started here, by this machine's own thread, with the laptop off.
           const started = yield* features.launch({
@@ -606,15 +618,24 @@ describe("feature lead and crew", () => {
             "Workflow: Release\nHave the Writer write the notes, then ship.",
           );
           const writerId = started.feature.crewAssignments["role:writer"]!;
-          expect((yield* (yield* CrewStore).getMember(writerId))?.instructions).toBe(
+          expect((yield* store.getMember(writerId))?.instructions).toBe(
             "You are the laptop's Writer.",
           );
 
-          // The laptop unticks this machine: the copy goes, and the running feature keeps its crew.
-          expect(yield* crew.applyLibraryCopy({ ...copy, workflows: [], roles: [] })).toEqual([]);
-          expect(yield* crew.getWorkflow("workflow:release")).toBeNull();
-          expect(yield* crew.getRole("role:writer")).toBeNull();
-          expect(yield* (yield* CrewStore).getMember(writerId)).toMatchObject({
+          // Taking the laptop's update rewrites the role; the running feature keeps its crew.
+          expect(
+            yield* store.updateRole(
+              {
+                ...writer,
+                instructions: "Write shorter notes.",
+                importedFrom: { ...importedFrom, revision: 5, localRevision: 2 },
+                revision: 2,
+              },
+              1,
+            ),
+          ).toBe(true);
+          expect((yield* crew.getRole("role:writer"))?.instructions).toBe("Write shorter notes.");
+          expect(yield* store.getMember(writerId)).toMatchObject({
             name: "Writer",
             instructions: "You are the laptop's Writer.",
             enabled: true,

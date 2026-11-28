@@ -106,6 +106,7 @@ export interface FeatureCrewMember {
   readonly name: string;
   readonly instructions: string;
   readonly modelSelection: ModelSelection;
+  readonly fallbackModelSelection: ModelSelection | null;
 }
 
 export interface FeatureServiceShape {
@@ -807,6 +808,7 @@ export const FeatureServiceLive = Layer.effect(
           name: role.name,
           instructions: role.instructions,
           modelSelection: role.modelSelection,
+          fallbackModelSelection: role.fallbackModelSelection ?? null,
         });
         bindings.set(role.id, id);
       }
@@ -1243,6 +1245,7 @@ export const FeatureServiceLive = Layer.effect(
             name: member.name,
             instructions: member.instructions,
             modelSelection: member.modelSelection,
+            fallbackModelSelection: member.fallbackModelSelection,
           };
         }
         return null;

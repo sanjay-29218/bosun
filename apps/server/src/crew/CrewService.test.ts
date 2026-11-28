@@ -650,6 +650,73 @@ describe("Bot foundation", () => {
       }),
   );
 
+  effectIt.effect("a member keeps its role's fallback model, and its runs try it first", () =>
+    Effect.gen(function* () {
+      const fallback = { instanceId: ProviderInstanceId.make("claude"), model: "claude-haiku-5-5" };
+      const asked: Array<unknown> = [];
+      const fakeRuntime = Layer.mock(CrewThreadRuntime)({
+        projectExists: () => Effect.succeed(true),
+        // The role's own model is out of usage here, so its fallback stands in.
+        runModelSelection: (_projectId, chosen, roleFallback) =>
+          Effect.sync(() => {
+            asked.push(roleFallback);
+            const selection = roleFallback ?? chosen;
+            return selection && { selection, notice: null, blocked: null };
+          }),
+        noteModelFallback: () => Effect.void,
+        start: () => Effect.void,
+        getTurnState: () => Effect.succeed("pending" as const),
+      });
+      const layer = CrewServiceLive.pipe(
+        Layer.provideMerge(CrewStoreLive),
+        Layer.provideMerge(BotStore.layer),
+        Layer.provide(fakeRuntime),
+        Layer.provide(SqlitePersistence.layerMemory),
+      );
+      yield* Effect.gen(function* () {
+        const crew = yield* CrewService;
+        yield* crew.createRole({
+          id: "role:reviewer-2",
+          name: "Reviewer",
+          instructions: "Review it.",
+          modelSelection,
+          fallbackModelSelection: fallback,
+        });
+        const member = yield* crew.instantiate("reviewer-member", projectId, "role:reviewer-2");
+        expect(member.fallbackModelSelection).toEqual(fallback);
+
+        // Clearing the role's fallback leaves the member as it was made.
+        const role = (yield* crew.getRole("role:reviewer-2"))!;
+        const cleared = yield* crew.updateRole({
+          ...role,
+          fallbackModelSelection: null,
+          expectedRevision: role.revision,
+        });
+        expect(cleared.fallbackModelSelection).toBeNull();
+        expect((yield* crew.getMember(member.id))?.fallbackModelSelection).toEqual(fallback);
+        // An update that leaves the field out keeps it.
+        const kept = yield* crew.updateRole({
+          id: cleared.id,
+          name: cleared.name,
+          instructions: "Review it closely.",
+          modelSelection,
+          enabled: true,
+          expectedRevision: cleared.revision,
+        });
+        expect(kept.fallbackModelSelection).toBeNull();
+
+        yield* crew.createRun({
+          id: "review-run",
+          memberId: member.id,
+          projectId,
+          taskText: "Review",
+        });
+        expect(asked).toEqual([fallback]);
+        expect((yield* crew.getRun("review-run"))?.run.modelSelection).toEqual(fallback);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
   effectIt.effect("starts a bot's headquarters or a project's manager over when asked", () =>
     Effect.gen(function* () {
       const checks = yield* Queue.unbounded<ThreadId>();
@@ -747,6 +814,7 @@ describe("Bot foundation", () => {
           name: "Project manager",
           instructions: "Manage the project.",
           modelSelection,
+          fallbackModelSelection: null,
           enabled: true,
           icon: null,
           customizedAt: null,

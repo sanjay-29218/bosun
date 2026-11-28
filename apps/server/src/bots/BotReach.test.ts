@@ -31,7 +31,7 @@ import * as Schema from "effect/Schema";
 import { McpSchema, McpServer } from "effect/ai";
 
 import type { CreateCrewRunInput } from "../crew/CrewService.ts";
-import { LibraryCopies } from "../crew/LibraryCopies.ts";
+import { LibraryImports } from "../crew/LibraryImports.ts";
 import { CrewApprovals } from "../crew/CrewApprovals.ts";
 import { CrewService } from "../crew/CrewService.ts";
 import { CrewStore } from "../crew/CrewStore.ts";
@@ -318,7 +318,7 @@ const layerToolServices = Layer.mergeAll(
   Layer.mock(RemoteDelegation.RemoteDelegation)({}),
   Layer.mock(BotTransfer.BotTransfer)({}),
   Layer.mock(CrewStore)({}),
-  Layer.mock(LibraryCopies)({}),
+  Layer.mock(LibraryImports)({}),
   Layer.mock(ProjectRequests)({}),
   Layer.mock(IssueService.IssueService)({}),
   Layer.mock(TicketService)({}),
