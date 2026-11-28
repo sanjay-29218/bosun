@@ -1,6 +1,9 @@
 import {
   featureIssueRef,
   headquartersBotId,
+  headquartersProjectId,
+  isNestedSubagentLineage,
+  type OrchestrationV2AppThreadLineage,
   type EnvironmentId,
   type ProjectId,
   type ProjectRemoteBot,
@@ -10,6 +13,7 @@ import {
 
 import { resolveThreadCurrentPullRequestLink } from "../threadPullRequests.ts";
 import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
+import { threadHasPlanReady, type PlanReadyInput } from "./threadInbox.ts";
 
 /**
  * Pure Features-board logic shared by web and mobile. Cards come from `features.board`; where a
@@ -62,6 +66,28 @@ export function threadNeedsYouKind(shell: NeedsYouShell): NeedsYouKind | null {
   if (shell.hasPendingApprovals) return "approval";
   if (shell.hasPendingUserInput) return "question";
   return null;
+}
+
+/** The shell fields `threadAsksYou` reads. */
+export type AskShell = NeedsYouShell &
+  Omit<PlanReadyInput, "hasPendingUserInput" | "runtime"> &
+  Pick<EnvironmentThreadShell, "pendingSubagentRequest" | "pendingUserInputUserOnly"> & {
+    readonly lineage: Pick<OrchestrationV2AppThreadLineage, "relationshipToParent" | "listed">;
+    readonly runtime: (PlanReadyInput["runtime"] & { readonly updatedAt: string }) | null;
+  };
+
+/**
+ * One ask of the person: an approval, a question, or a plan ready for review. A nested
+ * subagent's plain question is its coordinator's to answer. `pendingSubagentRequest` mirrors a
+ * child's ask that already counts on the child, so it never counts again.
+ */
+export function threadAsksYou(shell: AskShell): boolean {
+  const kind = threadNeedsYouKind(shell);
+  if (kind === "approval") return true;
+  if (kind === "question") {
+    return !isNestedSubagentLineage(shell.lineage) || shell.pendingUserInputUserOnly === true;
+  }
+  return shell.archivedAt === null && threadHasPlanReady(shell);
 }
 
 // ── Status board: Todo, Working, Needs you, Done ─────────────────────
@@ -457,19 +483,33 @@ export const botNeedsYouKey = (environmentId: EnvironmentId, botId: string) =>
   `${environmentId}:${botId}`;
 
 /**
- * Threads waiting on you per bot, keyed by `botNeedsYouKey`, from the shells and project
- * shells every client already has. Threads in a project with no bot count for no bot.
+ * Asks waiting on you per bot (`threadAsksYou`), keyed by `botNeedsYouKey`, from the shells and
+ * project shells every client already has. Threads in a project with no bot count for no bot,
+ * and a project manager's thread counts for its manager, not its project's bot.
  */
 export function countNeedsYouByBot(
-  shells: ReadonlyArray<NeedsYouShell & { readonly projectId: ProjectId }>,
+  shells: ReadonlyArray<AskShell & { readonly projectId: ProjectId }>,
   projects: ReadonlyArray<BotOwnedProject>,
 ): ReadonlyMap<string, number> {
   const ownerKey = createThreadBotKeyResolver(projects);
   const counts = new Map<string, number>();
   for (const shell of shells) {
-    if (threadNeedsYouKind(shell) === null) continue;
+    if (headquartersProjectId(shell.id) !== null || !threadAsksYou(shell)) continue;
     const key = ownerKey(shell);
     if (key === undefined) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** Asks waiting on you per project, keyed by `${environmentId}:${projectId}`, manager threads included. */
+export function countNeedsYouByProject(
+  shells: ReadonlyArray<AskShell & { readonly projectId: ProjectId }>,
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const shell of shells) {
+    if (!threadAsksYou(shell)) continue;
+    const key = `${shell.environmentId}:${shell.projectId}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;
@@ -554,13 +594,13 @@ export function collectNeedsYou<Shell extends NeedsYouShell>(
   })).filter((group) => group.items.length > 0);
 }
 
-/** The item ⌘⇧Y opens: the one that has waited longest, whatever its kind. */
-export function oldestNeedsYouItem<Shell extends NeedsYouShell>(
-  groups: ReadonlyArray<NeedsYouGroup<Shell>>,
-): NeedsYouItem<Shell> | null {
-  let oldest: NeedsYouItem<Shell> | null = null;
-  for (const group of groups)
-    for (const item of group.items) if (oldest === null || item.since < oldest.since) oldest = item;
+/** The ask ⌘⇧Y opens: the one (`threadAsksYou`) that has waited longest, whatever its kind. */
+export function oldestAsk<Shell extends AskShell>(shells: ReadonlyArray<Shell>): Shell | null {
+  const since = (shell: Shell) => shell.runtime?.updatedAt ?? shell.updatedAt;
+  let oldest: Shell | null = null;
+  for (const shell of shells) {
+    if (threadAsksYou(shell) && (oldest === null || since(shell) < since(oldest))) oldest = shell;
+  }
   return oldest;
 }
 

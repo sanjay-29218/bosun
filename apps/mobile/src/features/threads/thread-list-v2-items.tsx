@@ -128,6 +128,12 @@ const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> =
     className: "text-adaptive-indigo-600-300",
     iconTintClassName: "accent-adaptive-indigo-600-300",
   },
+  plan: {
+    label: msg("Plan ready", { $context: "thread status, a plan is ready for review" }),
+    icon: "list.bullet",
+    className: "text-adaptive-violet-600-400",
+    iconTintClassName: "accent-adaptive-violet-600-400",
+  },
   request: {
     label: msg("Request", { $context: "thread status, a guest request is waiting" }),
     icon: "person.crop.circle",

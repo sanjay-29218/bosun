@@ -1576,6 +1576,7 @@
   "646de37e0bec85f8": "Tool call",
   "5469bba2f5569925": "Proposed plan",
   "c3a88348c14f8258": "Plan updated",
+  "3f8924abe3d66331": "Plan ready",
   "e5428a0daffa236c": "User message",
   "d732e1efc3ac87b0": "Assistant message",
   "6dc382b534e663f0": "{count, plural, one {{count} changed file} other {{count} changed files}}",

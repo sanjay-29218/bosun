@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
+  activityByProject,
   botListEnvironmentIds,
   botActivityByBot,
   botActivityByLogicalBot,
@@ -7,17 +8,24 @@ import {
   buildLogicalBots,
   countHiddenNeedsYou,
   countNeedsYouByLogicalBot,
+  listRowThreadKeys,
   logicalBotsSignature,
   logicalBotHeadquartersKeys,
   railProjectKeys,
+  railBotsSettled,
+  resolveSidebarLayout,
   resolveActiveLogicalBot,
   resolveEnvironmentFilter,
   selectLogicalBot,
   type BotActivity,
   type LogicalBot,
+  type RailBotSource,
 } from "@t3tools/client-runtime/state/bot-rail";
 import { enabledEnvironmentIds } from "@t3tools/client-runtime/state/connections";
-import { countNeedsYouByBot } from "@t3tools/client-runtime/state/crew-board";
+import {
+  countNeedsYouByBot,
+  countNeedsYouByProject,
+} from "@t3tools/client-runtime/state/crew-board";
 import type { EnvironmentId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -25,12 +33,14 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { useSettingsProjectGroups } from "../components/settings/useSettingsProjectGroups";
 import { environmentCatalog } from "../connection/catalog";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { useClientSettings } from "../hooks/useSettings";
 import { useUiStateStore } from "../uiStateStore";
 import { botsEnvironment } from "./bots";
 import { useConnectedEnvironmentIds } from "./environments";
 import { environmentSummaries } from "./presentation";
 import { environmentProjects } from "./projects";
 import { needsYouThreadsAtom } from "./needsYou";
+import { expectsPrimaryEnvironment } from "./shell";
 import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentServerConfigsAtom } from "./server";
 import { environmentThreadShells } from "./threads";
@@ -48,6 +58,67 @@ const botEnvironmentIdsAtom = Atom.make((get): ReadonlyArray<EnvironmentId> => {
   const previous = Option.getOrNull(get.self<ReadonlyArray<EnvironmentId>>());
   return previous !== null && sameIds(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:environments"));
+
+// A machine whose first attempt, config or bot list stalls mustn't hide the thread list: rows
+// show in the layout known by then this long after the sidebar first asks. Bots land about 1s after
+// it mounts locally; the margin covers slower machines, where firing early would switch layouts.
+const BOTS_WAIT_MS = 4_000;
+
+const botsWaitOverAtom = Atom.make((get): boolean => {
+  if (Option.getOrElse(get.self<boolean>(), () => false)) return true;
+  const timer = setTimeout(() => get.setSelf(true), BOTS_WAIT_MS);
+  get.addFinalizer(() => clearTimeout(timer));
+  return false;
+}).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:wait-over"));
+
+// Kept alive so a later machine's connection can't reset it while the thread list is away.
+const botListsSettledAtom = Atom.make((get): boolean => {
+  const settled = Option.getOrElse(get.self<boolean>(), () => false);
+  // Reading nothing once settled lets the bot-list queries idle out.
+  if (settled || get(botsWaitOverAtom)) return true;
+  // Before primary discovery the catalog proves nothing; a hosted app's can be truly empty.
+  const catalog = get(environmentCatalog.catalogValueAtom);
+  if (
+    !catalog.isReady ||
+    (expectsPrimaryEnvironment() &&
+      ![...catalog.entries.values()].some(
+        (entry) => entry.target._tag === "PrimaryConnectionTarget",
+      ))
+  ) {
+    return false;
+  }
+  const configs = get(environmentServerConfigsAtom);
+  // A filter that leaves this machine out could narrow to hide its bot once others connect.
+  const selected = useUiStateStore.getState().sidebarEnvironmentIds;
+  const machines = get(environmentSummaries.environmentsAtom).map(
+    ({ environmentId, isEnabled, connectionState }): RailBotSource => {
+      const config = configs.get(environmentId);
+      const bots =
+        config?.environment.capabilities.bots === true
+          ? get(botsEnvironment.list({ environmentId, input: {} }))
+          : null;
+      const loaded = bots === null ? null : Option.getOrNull(AsyncResult.value(bots));
+      return {
+        connection: !isEnabled
+          ? "unreachable"
+          : connectionState === "connected" || connectionState === "connecting"
+            ? connectionState
+            : "unreachable",
+        configured: config !== undefined,
+        bots:
+          bots === null
+            ? "none"
+            : AsyncResult.isInitial(bots)
+              ? "loading"
+              : loaded?.some((bot) => bot.pinned ?? true) &&
+                  (selected === null || selected.length === 0 || selected.includes(environmentId))
+                ? "shown"
+                : "loaded",
+      };
+    },
+  );
+  return railBotsSettled(settled, machines);
+}).pipe(Atom.keepAlive, Atom.withLabel("web-bot-rail:lists-settled"));
 
 /**
  * Rail entries: connected environments' bots, behind the rail, the active bot, pins and activity.
@@ -108,19 +179,53 @@ const botListAtom = Atom.make((get): BotListState => {
     : value;
 }).pipe(Atom.withLabel("web-bot-rail:bot-list"));
 
-/** Threads waiting on you per environment's bot, keyed by `botNeedsYouKey`. */
+const sameCounts = (left: ReadonlyMap<string, number>, right: ReadonlyMap<string, number>) =>
+  left.size === right.size && [...right].every(([key, count]) => left.get(key) === count);
+
+/** Asks waiting on you per environment's bot, keyed by `botNeedsYouKey`. */
 const needsYouByBotAtom = Atom.make((get): ReadonlyMap<string, number> => {
   const next = countNeedsYouByBot(get(needsYouThreadsAtom), get(environmentProjects.projectsAtom));
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, number>>());
-  return previous !== null &&
-    previous.size === next.size &&
-    [...next].every(([key, count]) => previous.get(key) === count)
-    ? previous
-    : next;
+  return previous !== null && sameCounts(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:needs-you"));
+
+/** Asks waiting on you per project, keyed by `${environmentId}:${projectId}`, for managers. */
+const needsYouByProjectAtom = Atom.make((get): ReadonlyMap<string, number> => {
+  const next = countNeedsYouByProject(get(needsYouThreadsAtom));
+  const previous = Option.getOrNull(get.self<ReadonlyMap<string, number>>());
+  return previous !== null && sameCounts(previous, next) ? previous : next;
+}).pipe(Atom.withLabel("web-bot-rail:needs-you-by-project"));
 
 const sameActivity = (left: BotActivity, right: BotActivity) =>
   left.failed === right.failed && left.working === right.working && left.unread === right.unread;
+
+const sameActivityMap = (
+  left: ReadonlyMap<string, BotActivity>,
+  right: ReadonlyMap<string, BotActivity>,
+) =>
+  left.size === right.size &&
+  [...right].every(([key, activity]) => {
+    const before = left.get(key);
+    return before !== undefined && sameActivity(before, activity);
+  });
+
+/**
+ * Threads that are their own row in a thread list (`listRowThreadKeys`). Read from quiet shells,
+ * which leave out hidden-tag threads and skip streamed updates, so grouping reruns only when the
+ * list's shape changes.
+ */
+const listRowKeysAtom = Atom.make((get): ReadonlySet<string> => {
+  const next = listRowThreadKeys(
+    get(environmentThreadShells.quietThreadShellsAtom),
+    get(environmentThreadShells.delegatedUnderParentAtom),
+  );
+  const previous = Option.getOrNull(get.self<ReadonlySet<string>>());
+  return previous !== null &&
+    previous.size === next.size &&
+    [...next].every((key) => previous.has(key))
+    ? previous
+    : next;
+}).pipe(Atom.withLabel("web-bot-rail:list-rows"));
 
 /**
  * Failed, working and unread threads per environment's bot, keyed by `botNeedsYouKey`. Shells
@@ -130,17 +235,31 @@ const activityByBotAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
   const next = botActivityByBot(
     get(environmentThreadShells.threadShellsAtom),
     get(environmentProjects.projectsAtom),
+    get(listRowKeysAtom),
   );
   const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
-  return previous !== null &&
-    previous.size === next.size &&
-    [...next].every(([key, activity]) => {
-      const before = previous.get(key);
-      return before !== undefined && sameActivity(before, activity);
-    })
-    ? previous
-    : next;
+  return previous !== null && sameActivityMap(previous, next) ? previous : next;
 }).pipe(Atom.withLabel("web-bot-rail:activity"));
+
+/** `activityByBotAtom` per project, keyed by `${environmentId}:${projectId}`, for managers. */
+const activityByProjectAtom = Atom.make((get): ReadonlyMap<string, BotActivity> => {
+  const next = activityByProject(
+    get(environmentThreadShells.threadShellsAtom),
+    get(listRowKeysAtom),
+  );
+  const previous = Option.getOrNull(get.self<ReadonlyMap<string, BotActivity>>());
+  return previous !== null && sameActivityMap(previous, next) ? previous : next;
+}).pipe(Atom.withLabel("web-bot-rail:activity-by-project"));
+
+/** Asks per project, keyed by `${environmentId}:${projectId}`; managers sum their group's. */
+export function useNeedsYouByProject(): ReadonlyMap<string, number> {
+  return useAtomValue(needsYouByProjectAtom);
+}
+
+/** Activity per project, keyed by `${environmentId}:${projectId}`; managers merge their group's. */
+export function useActivityByProject(): ReadonlyMap<string, BotActivity> {
+  return useAtomValue(activityByProjectAtom);
+}
 
 // Member keys are `botNeedsYouKey`s, so the environment is their prefix.
 const onShownEnvironments = <Value>(
@@ -337,10 +456,20 @@ export function useVisibleActiveLogicalBot(): LogicalBot | null {
   return showsProjects ? null : resolveActiveLogicalBot(bots, remembered, environmentIds);
 }
 
-/** Whether the rail's Projects entry is what the thread list shows: picked, or no bot to pick. */
-export function useBotRailShowsProjects(): boolean {
-  const active = useVisibleActiveLogicalBot();
-  return useShowBotRail() && active === null;
+/** The thread list's layout; pending until it is known, so rows first show where they stay. */
+export function useSidebarLayout() {
+  const showsRail = useShowBotRail();
+  const projectsPicked = useUiStateStore((store) => store.botRailShowsProjects);
+  const hasActiveBot = useVisibleActiveLogicalBot() !== null;
+  const botsSettled = useAtomValue(botListsSettledAtom);
+  const foldersSetting = useClientSettings((settings) => settings.boringSidebarEnabled);
+  return resolveSidebarLayout({
+    botsSettled,
+    projectsPicked,
+    showsRail,
+    hasActiveBot,
+    foldersSetting,
+  });
 }
 
 /**
@@ -353,15 +482,26 @@ export function useShowBotRail(): boolean {
   return botEnvironmentCount > 0 || environmentCount > 1;
 }
 
-/** Threads waiting on you that only an unpinned bot or project manager shows. */
-export function useHiddenNeedsYouCount(): number {
+/**
+ * Asks no pinned bot or manager shows. `managedProjectKeys` are the projects the rail's pinned
+ * managers show, by `${environmentId}:${projectId}`.
+ */
+export function useHiddenNeedsYouCount(managedProjectKeys: ReadonlySet<string>): number {
   const bots = useLogicalBots();
   const shells = useAtomValue(needsYouThreadsAtom);
   const projects = useAtomValue(environmentProjects.projectsAtom);
+  const serverConfigs = useAtomValue(environmentServerConfigsAtom);
   const environmentFilter = useEnvironmentFilter();
   return countHiddenNeedsYou({
     bots,
     projects,
+    managedProjectKeys,
+    // Servers with features have project managers.
+    managerEnvironmentIds: new Set(
+      [...serverConfigs]
+        .filter(([, config]) => config.environment.capabilities.workflows === true)
+        .map(([environmentId]) => environmentId),
+    ),
     shells:
       environmentFilter === null
         ? shells

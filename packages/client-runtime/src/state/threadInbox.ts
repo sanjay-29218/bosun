@@ -1,5 +1,10 @@
 // @effect-diagnostics globalTimers:off - Shelf placement timers run in web and native clients, outside an Effect runtime.
-import { threadRuntimeIsActive, type EnvironmentThreadShell } from "./models.ts";
+import {
+  threadRuntimeIsActive,
+  type EnvironmentThreadShell,
+  type ThreadRunSummary,
+  type ThreadRuntimeSummary,
+} from "./models.ts";
 import { toSortableTimestamp } from "./threadSort.ts";
 import { effectiveSnoozed } from "./threadSettled.ts";
 
@@ -18,16 +23,42 @@ export function isThreadWorking(thread: WorkingThreadInput): boolean {
   if (thread.hasPendingApprovals || thread.hasPendingUserInput) return false;
   if (thread.pendingSubagentRequest != null) return false;
   if (!threadRuntimeIsActive(thread.runtime) && thread.runtime?.status !== "idle") return false;
-  const run = thread.latestRun;
-  const runSettled =
-    run !== null &&
-    run.status !== "preparing" &&
-    run.status !== "queued" &&
-    run.status !== "starting" &&
-    run.status !== "running" &&
-    run.status !== "waiting" &&
-    thread.runtime?.activeRunId !== run.runId;
-  return !(thread.interactionMode === "plan" && thread.hasActionableProposedPlan && runSettled);
+  return !threadHasPlanReady(thread);
+}
+
+/** Whether a thread's latest run has ended and no active run is still attached to it. */
+export function isLatestRunSettled(
+  latestRun: Pick<ThreadRunSummary, "runId" | "status"> | null,
+  runtime: Pick<ThreadRuntimeSummary, "activeRunId"> | null,
+): boolean {
+  if (latestRun === null) return false;
+  if (
+    latestRun.status === "preparing" ||
+    latestRun.status === "queued" ||
+    latestRun.status === "starting" ||
+    latestRun.status === "running" ||
+    latestRun.status === "waiting"
+  )
+    return false;
+  return runtime?.activeRunId !== latestRun.runId;
+}
+
+export type PlanReadyInput = Pick<
+  EnvironmentThreadShell,
+  "hasPendingUserInput" | "interactionMode" | "hasActionableProposedPlan"
+> & {
+  readonly latestRun: Pick<ThreadRunSummary, "runId" | "status"> | null;
+  readonly runtime: Pick<ThreadRuntimeSummary, "activeRunId"> | null;
+};
+
+/** A plan waiting for the person's review: plan mode, its run settled, nothing else asked. */
+export function threadHasPlanReady(thread: PlanReadyInput): boolean {
+  return (
+    !thread.hasPendingUserInput &&
+    thread.interactionMode === "plan" &&
+    thread.hasActionableProposedPlan &&
+    isLatestRunSettled(thread.latestRun, thread.runtime)
+  );
 }
 
 interface SeenThreadInput {

@@ -539,6 +539,17 @@ const LATE_COMMAND_LABELS: Partial<Record<KeybindingCommand, string>> = {
   "preview.focusUrl": msg("Preview: Focus URL"),
   "bot.inbox": msg("Bots: Toggle Bot List"),
   "preview.find": msg("Preview: Find on Page"),
+  "automations.open": msg("Automations: Open"),
+  "library.open": msg("Workflows: Open"),
+  "bots.open": msg("Bots: Open"),
+  "board.toggle": msg("Board: Toggle"),
+  "needsYou.next": msg("Needs You: Next"),
+  "features.workflow": msg("Board: Workflow View"),
+  "features.needsYou": msg("Board: Needs You View"),
+  "features.newTodo": msg("Board: New Todo"),
+  "features.workTab": msg("Board: Work Tab"),
+  "features.issuesTab": msg("Board: Issues Tab"),
+  "features.startTodo": msg("Board: Start Todo"),
 };
 
 export function commandLabel(command: KeybindingCommand, resolve: MessageResolver = m): string {
