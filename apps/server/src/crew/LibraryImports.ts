@@ -33,7 +33,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import type * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
+import * as McpInvocationContext from "../mcp/McpInvocationContext.ts";
 import {
   type LibraryItemContent,
   LinkLibrarySync,
@@ -42,6 +42,7 @@ import {
 } from "../mcp/toolkits/bots/linkTools.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as PeerLinks from "../peer/PeerLinks.ts";
+import * as PeerMcpClient from "../peer/PeerMcpClient.ts";
 import { toPersistenceSqlError, type PersistenceSqlError } from "../persistence/Errors.ts";
 import { crewChangeNotifier } from "./CrewChanges.ts";
 import { CrewService, type CrewServiceError, CrewValidationError, isStock } from "./CrewService.ts";
@@ -899,6 +900,36 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(LibraryImports, make);
+
+/**
+ * Unlinks `environmentId` from the CLI, which runs without `LibraryImports`: it tells that
+ * machine first, as `unlink` does. The server's next sync marks what came from it not linked.
+ */
+export const unlinkFromCli = Effect.fn("LibraryImports.unlinkFromCli")(function* (
+  environmentId: EnvironmentId,
+) {
+  const links = yield* PeerLinks.PeerLinks;
+  const peers = yield* PeerMcpClient.PeerMcpClient;
+  const environment = yield* ServerEnvironment.ServerEnvironment;
+  yield* Effect.gen(function* () {
+    if (!(yield* links.enabled)) return;
+    const { environmentId: here, label } = yield* environment.getDescriptor;
+    const forget: LibrarySyncInput = {
+      importer: { environmentId: here, label },
+      holds: [],
+    };
+    yield* peers
+      .call({
+        environmentId,
+        tool: LinkLibrarySync.name,
+        arguments: forget,
+        limits: McpInvocationContext.clientModeCeiling(undefined),
+        success: LinkLibrarySync.successSchema,
+      })
+      .pipe(Effect.timeout(CALL_TIMEOUT));
+  }).pipe(Effect.ignore);
+  return yield* links.unlink(environmentId);
+});
 
 /**
  * Unlinks `environmentId`, through `LibraryImports` where this server runs it so that machine
