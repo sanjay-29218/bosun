@@ -32,6 +32,7 @@ import {
   type RuntimeMode,
   type ServerProvider,
   projectHeadquartersThreadId,
+  type ModelSelection,
 } from "@t3tools/contracts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import { formatThreadLink, hostedThreadLink } from "@t3tools/shared/threadLinks";
@@ -3495,9 +3496,16 @@ describe("OrchestratorMcpService provider resolution", () => {
     Effect.gen(function* () {
       const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
       const sent = yield* Ref.make<
-        ReadonlyArray<{ readonly threadId: string; readonly text: string }>
+        ReadonlyArray<{
+          readonly threadId: string;
+          readonly text: string;
+          readonly modelSelection: ModelSelection | undefined;
+        }>
       >([]);
       const taskStatus = yield* Ref.make("running");
+      const crewThreadMember = yield* Ref.make("Planner");
+      // A replayed send returns the run it started before, on whatever model that was.
+      const replayedRunModel = yield* Ref.make<ModelSelection | null>(null);
       const notices = yield* Ref.make<
         ReadonlyArray<{ readonly title: string; readonly message: string }>
       >([]);
@@ -3566,25 +3574,38 @@ describe("OrchestratorMcpService provider resolution", () => {
                 ),
               ),
             getThreadShell: (threadId) =>
-              Effect.succeed(
-                threadId === childThreadId
-                  ? ({
-                      id: childThreadId,
-                      archivedAt: null,
-                      createdAt: DateTime.makeUnsafe(0),
-                      feature: { id: "feature:dark", title: "Dark mode", member: "Planner" },
-                    } as never)
-                  : null,
+              Ref.get(crewThreadMember).pipe(
+                Effect.map((member) =>
+                  threadId === childThreadId
+                    ? ({
+                        id: childThreadId,
+                        archivedAt: null,
+                        createdAt: DateTime.makeUnsafe(0),
+                        feature: { id: "feature:dark", title: "Dark mode", member },
+                      } as never)
+                    : null,
+                ),
               ),
             sendToThread: (input) =>
-              Ref.update(sent, (all) => [
-                ...all,
-                { threadId: input.threadId, text: input.text },
-              ]).pipe(
-                Effect.as({
-                  run: { id: "run:crew-follow-up", delegatedTaskId: taskId, status: "running" },
-                } as never),
-              ),
+              Effect.gen(function* () {
+                yield* Ref.update(sent, (all) => [
+                  ...all,
+                  {
+                    threadId: input.threadId,
+                    text: input.text,
+                    modelSelection: input.modelSelection,
+                  },
+                ]);
+                const replayed = yield* Ref.get(replayedRunModel);
+                return {
+                  run: {
+                    id: "run:crew-follow-up",
+                    delegatedTaskId: taskId,
+                    status: "running",
+                    modelSelection: replayed ?? input.modelSelection,
+                  },
+                } as never;
+              }),
             isProviderInstanceEnabledForProject: () => Effect.succeed(true),
             assertProviderInstanceEnabled: () => Effect.void,
             dispatch: (command) =>
@@ -3752,6 +3773,9 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.equal(followUp!.threadId, childThreadId);
         assert.include(followUp!.text, "Revise the plan.");
         assert.notInclude(followUp!.text, "You are the Planner");
+        // A crew member whose own model runs keeps it, with no notice.
+        assert.deepEqual(followUp!.modelSelection, plannerModel);
+        assert.lengthOf(yield* Ref.get(notices), 0);
       }).pipe(Effect.provide(run("feature:dark")));
 
       const crewModes: ReadonlyArray<{
@@ -3867,6 +3891,37 @@ describe("OrchestratorMcpService provider resolution", () => {
         assert.include(nothing.result.failure.message, `${plannerModel.model} (codex)`);
         assert.include(nothing.result.failure.message, "No fallback model is set in Settings.");
       }
+
+      // The Reviewer's next task in its existing thread falls back too, and that run says so.
+      const followUpOnFallback = (clientRequestId: string) =>
+        Effect.gen(function* () {
+          yield* Ref.set(sent, []);
+          yield* Ref.set(notices, []);
+          yield* Ref.set(dispatched, [{ type: "delegated_task.request" }]);
+          yield* Ref.set(taskStatus, "completed");
+          yield* Ref.set(crewThreadMember, "Reviewer");
+          const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* mcp.delegateTask(scope, {
+            task: "Check it again.",
+            crewMember: "Reviewer",
+            clientRequestId,
+          });
+          const [followUp] = yield* Ref.get(sent);
+          return { followUp, notices: yield* Ref.get(notices) };
+        }).pipe(
+          Effect.provide(
+            run("feature:dark", undefined, undefined, undefined, { providers: [disabled, codex] }),
+          ),
+        );
+      const fellBack = yield* followUpOnFallback("crew-reviewer-follow-up");
+      assert.equal(fellBack.followUp?.threadId, childThreadId);
+      assert.deepEqual(fellBack.followUp?.modelSelection, plannerModel);
+      assert.lengthOf(fellBack.notices, 1);
+      assert.include(fellBack.notices[0]!.message, "uses the fallback model instead of");
+
+      yield* Ref.set(replayedRunModel, antigravityModel);
+      const replayed = yield* followUpOnFallback("crew-reviewer-follow-up-replay");
+      assert.lengthOf(replayed.notices, 0);
     }),
   );
 

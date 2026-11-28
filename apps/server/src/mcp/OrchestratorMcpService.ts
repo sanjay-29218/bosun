@@ -7,7 +7,7 @@ import {
   idleCompactionOf,
   isProviderAvailable,
   MessageId,
-  type ModelSelection,
+  ModelSelection,
   NodeId,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   TurnItemId,
@@ -153,6 +153,8 @@ import { WITHHELD, withoutWebhookUrlToken } from "../scheduledTasks/webhookUrlTo
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+
+const sameModelSelection = Schema.toEquivalence(ModelSelection);
 
 // Return recoverable handles before common MCP client timeouts expire.
 const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
@@ -3290,6 +3292,11 @@ const make = Effect.gen(function* () {
             `${crewMember.name} is still on its last task; its result comes back here. Hand it the next task once it reports.`,
           );
         }
+        const memberModel = yield* crewMemberModel(
+          crewMember,
+          parent.thread.projectId,
+          yield* loadProviders,
+        );
         const key = yield* requestKey(input.clientRequestId);
         if (issue !== undefined) {
           yield* threadManagement
@@ -3314,6 +3321,7 @@ const make = Effect.gen(function* () {
             messageId: stableOperationMessageId({ scope, requestKey: key, operation: "crew-task" }),
             text: taskPrompt(input, issue),
             attachments: [],
+            modelSelection: memberModel.selection,
             mode: "auto",
             createdBy: "agent",
             creationSource: "mcp",
@@ -3328,6 +3336,20 @@ const make = Effect.gen(function* () {
                   ),
             ),
           );
+        // A replayed send can return an earlier run on another model; only the new run gets the notice.
+        if (
+          memberModel.notice !== null &&
+          sameModelSelection(sent.run.modelSelection, memberModel.selection)
+        ) {
+          yield* threadLaunch.recordNotice({
+            threadId: crewThreadId,
+            runId: sent.run.id,
+            signal: "model-fallback",
+            title: memberModel.notice.title,
+            message: memberModel.notice.message,
+            level: "info",
+          });
+        }
         const taskId = sent.run.delegatedTaskId;
         if (taskId === undefined) {
           return yield* failure(
